@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import android.content.Context
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
+import java.util.Calendar
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -63,10 +64,16 @@ class SleepScheduleStore(context: Context) {
             val effectiveWake = if (latestWakeMin > 0) ShiftTime(latestWakeMin / 60, latestWakeMin % 60)
                                 else s.preferredWakeTime
 
-            val shiftEndMinAbs = if (today.crossesMidnight)
+            val session = ws.getTodaySession()
+            val shiftEndMinAbs: Int = if (session.actualEndMillis != null) {
+                val cal = Calendar.getInstance().apply { timeInMillis = session.actualEndMillis }
+                val actualEndMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+                if (actualEndMin < today.shiftStart.totalMinutes) actualEndMin + 24 * 60 else actualEndMin
+            } else if (today.crossesMidnight) {
                 today.shiftEnd.totalMinutes + 24 * 60
-            else
+            } else {
                 today.shiftEnd.totalMinutes
+            }
             val earliestBedMinAbs = shiftEndMinAbs + s.minEveningBufferMinutes
             val effectiveBed = if (earliestBedMinAbs < 24 * 60) {
                 ShiftTime(earliestBedMinAbs / 60, earliestBedMinAbs % 60)

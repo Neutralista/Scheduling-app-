@@ -94,14 +94,23 @@ private fun HabitsTab(
     statesById: Map<String, WidgetState>,
     onStateChange: (widgetId: String, newState: WidgetState) -> Unit
 ) {
+    var sleepCardRefreshKey by remember { mutableIntStateOf(0) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { WorkScheduleCard(ws = workSchedule) }
-        item { SleepScheduleCard(store = sleepStore, registry = eventPlanner, ws = workSchedule) }
+        item {
+            WorkScheduleCard(
+                ws = workSchedule,
+                onShiftEnd = {
+                    sleepStore.syncToRegistry(eventPlanner, workSchedule)
+                    sleepCardRefreshKey++
+                }
+            )
+        }
+        item { SleepScheduleCard(store = sleepStore, registry = eventPlanner, ws = workSchedule, refreshKey = sleepCardRefreshKey) }
 
         if (addedWidgets.isEmpty()) {
             item { EmptyState() }

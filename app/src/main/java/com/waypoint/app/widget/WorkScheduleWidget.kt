@@ -66,7 +66,7 @@ import java.util.UUID
 private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 
 @Composable
-fun WorkScheduleCard(ws: WorkScheduleSignals) {
+fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) {
     var config by remember { mutableStateOf(ws.getConfig()) }
     var session by remember { mutableStateOf(ws.getTodaySession()) }
         var selectedTab by remember { mutableIntStateOf(0) }
@@ -122,11 +122,11 @@ fun WorkScheduleCard(ws: WorkScheduleSignals) {
         val onRemoveOverride: (String) -> Unit = { key ->
             scope.launch { ws.removeDateOverride(key); config = ws.getConfig() }
         }
-        val onStartShift: () -> Unit = {
-            scope.launch { ws.startShift(); session = ws.getTodaySession() }
+        val onStartShift: (Long) -> Unit = { startMillis ->
+            scope.launch { ws.startShift(startMillis); session = ws.getTodaySession() }
         }
         val onEndShift: () -> Unit = {
-            scope.launch { ws.endShift(); session = ws.getTodaySession() }
+            scope.launch { ws.endShift(); session = ws.getTodaySession(); onShiftEnd?.invoke() }
         }
         val onResetSession: () -> Unit = {
             scope.launch { ws.resetTodaySession(); session = ws.getTodaySession(); elapsedText = "" }
@@ -269,7 +269,7 @@ private fun ShiftButtonSection(
     elapsedText: String,
     remainingText: String,
     isOvertime: Boolean,
-    onStartShift: () -> Unit,
+    onStartShift: (Long) -> Unit,
     onEndShift: () -> Unit,
     onResetSession: () -> Unit
 ) {
@@ -282,12 +282,27 @@ private fun ShiftButtonSection(
     ) {
         when {
             session.actualStartMillis == null -> {
-                // No session yet
-                Button(
-                    onClick = onStartShift,
-                    modifier = Modifier.fillMaxWidth()
+                var manualStartTime by remember { mutableStateOf(clockNow()) }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("▶  Start shift", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "Started at",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    TimeField(value = manualStartTime, onValueChange = { manualStartTime = it })
+                    Button(
+                        onClick = {
+                            val millis = parseTimeToMillis(manualStartTime) ?: System.currentTimeMillis()
+                            onStartShift(millis)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("▶  Start shift", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
             session.actualEndMillis == null -> {
@@ -837,6 +852,16 @@ private fun elapsedString(ms: Long): String {
 }
 
 private fun durationString(startMs: Long, endMs: Long): String = elapsedString(endMs - startMs)
+
+private fun parseTimeToMillis(timeStr: String): Long? {
+    val t = com.waypoint.app.signal.ShiftTime.parse(timeStr) ?: return null
+    return Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, t.hour)
+        set(Calendar.MINUTE, t.minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+}
 
 private fun localDateKey(date: LocalDate): String =
     "%04d-%02d-%02d".format(date.year, date.monthValue, date.dayOfMonth)

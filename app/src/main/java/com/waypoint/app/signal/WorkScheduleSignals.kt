@@ -96,7 +96,7 @@ interface WorkScheduleSignals {
     // Shift session — actual start/end tracked by the user today
     fun getTodaySession(): ShiftSession
     fun isShiftActive(): Boolean
-    suspend fun startShift()
+    suspend fun startShift(startMillis: Long = System.currentTimeMillis())
     suspend fun endShift()
     suspend fun resetTodaySession()
 
@@ -199,8 +199,8 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
         return s.actualStartMillis != null && s.actualEndMillis == null
     }
 
-    override suspend fun startShift() = withContext(Dispatchers.IO) {
-        val session = ShiftSession(actualStartMillis = System.currentTimeMillis())
+    override suspend fun startShift(startMillis: Long) = withContext(Dispatchers.IO) {
+        val session = ShiftSession(actualStartMillis = startMillis)
         prefs.edit().putString(sessionKey(), json.encodeToString(session)).apply()
     }
 
