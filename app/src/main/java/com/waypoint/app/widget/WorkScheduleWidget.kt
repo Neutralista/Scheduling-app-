@@ -807,16 +807,15 @@ private fun TimeField(value: String, onValueChange: (String) -> Unit) {
     BasicTextField(
         value = value,
         onValueChange = { raw ->
-            val digits = raw.filter { it.isDigit() }.take(4)
-            val formatted = if (digits.length > 2) "${digits.substring(0, 2)}:${digits.substring(2)}" else digits
-            onValueChange(formatted)
+            val filtered = raw.filter { it.isDigit() || it == ':' }.take(5)
+            onValueChange(filtered)
         },
         textStyle = MaterialTheme.typography.bodySmall.copy(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             fontFeatureSettings = "tnum"
         ),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         singleLine = true,
         decorationBox = { inner ->
