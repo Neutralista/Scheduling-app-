@@ -1,6 +1,7 @@
 package com.waypoint.app.widget
 
 import androidx.compose.runtime.Composable
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.signal.AppUsageSignals
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.DeviceActivitySignals
@@ -46,6 +47,7 @@ interface SignalSources {
     val healthConnect: HealthConnectSignals
     val calendar: CalendarSignals
     val workSchedule: WorkScheduleSignals
+    val eventPlanner: EventPlannerRegistry
 }
 
 /** Plugin-declared layout shape. Add new sizes/shapes as needed. */

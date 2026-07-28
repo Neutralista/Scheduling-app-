@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.planner.EventPlannerCard
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.widget.HabitWidget
 import com.waypoint.app.widget.WidgetSize
@@ -24,6 +26,7 @@ import com.waypoint.app.widget.WorkScheduleCard
 @Composable
 fun HomeScreen(
     workSchedule: WorkScheduleSignals,
+    eventPlanner: EventPlannerRegistry,
     addedWidgets: List<HabitWidget>,
     statesById: Map<String, WidgetState>,
     onStateChange: (widgetId: String, newState: WidgetState) -> Unit
@@ -34,8 +37,9 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Work schedule is always pinned first — it's part of the app, not a plugin
+        // Core app components — always pinned, not part of the plugin registry
         item { WorkScheduleCard(ws = workSchedule) }
+        item { EventPlannerCard(ws = workSchedule, registry = eventPlanner) }
 
         if (addedWidgets.isEmpty()) {
             item { EmptyState() }

@@ -1,6 +1,7 @@
 package com.waypoint.app.signal
 
 import android.content.Context
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.widget.SignalSources
 
 /**
@@ -14,4 +15,5 @@ class RealSignalSources(context: Context) : SignalSources {
     override val healthConnect: HealthConnectSignals = RealHealthConnectSignals(context)
     override val calendar: CalendarSignals = RealCalendarSignals(context)
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
+    override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
 }
