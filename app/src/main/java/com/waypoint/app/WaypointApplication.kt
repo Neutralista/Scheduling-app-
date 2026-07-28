@@ -2,20 +2,17 @@ package com.waypoint.app
 
 import android.app.Application
 import com.waypoint.app.signal.RealSignalSources
+import com.waypoint.app.widget.ChecklistHabitWidget
 import com.waypoint.app.widget.HabitWidgetRegistry
+import com.waypoint.app.widget.StepCountWidget
+import com.waypoint.app.widget.WaterTrackerWidget
 
 /**
- * Bootstrap point. Register your HabitWidget implementations here.
- * signalSources is the one shared instance passed to every widget — it
- * wires up device activity, app usage, and Health Connect signals.
+ * Bootstrap point. All built-in widgets are pre-registered below — open
+ * the app and they appear immediately, no extra steps required.
  *
- * The registry ships empty. Uncomment the example below (or add your own)
- * to see something on screen:
- *
- *   HabitWidgetRegistry.register(
- *       ChecklistHabitWidget(id = "example_checklist", displayName = "Simple check-off"),
- *       signalSources
- *   )
+ * To add your own habit, implement HabitWidget and call:
+ *   HabitWidgetRegistry.register(YourWidget(id = "unique_id", ...), signalSources)
  */
 class WaypointApplication : Application() {
 
@@ -26,16 +23,19 @@ class WaypointApplication : Application() {
         super.onCreate()
         signalSources = RealSignalSources(applicationContext)
 
-        // ── Register your habits here ─────────────────────────────────────
-        // import com.waypoint.app.widget.ChecklistHabitWidget
-        //
-        // HabitWidgetRegistry.register(
-        //     ChecklistHabitWidget(
-        //         id = "morning_walk",
-        //         displayName = "Morning walk"
-        //     ),
-        //     signalSources
-        // )
+        // ── Built-in widgets ───────────────────────────────────────────────
+        HabitWidgetRegistry.register(
+            ChecklistHabitWidget(id = "morning_routine", displayName = "Morning routine"),
+            signalSources
+        )
+        HabitWidgetRegistry.register(
+            WaterTrackerWidget(id = "water", displayName = "Drink water"),
+            signalSources
+        )
+        HabitWidgetRegistry.register(
+            StepCountWidget(id = "steps", displayName = "Step goal"),
+            signalSources
+        )
         // ──────────────────────────────────────────────────────────────────
     }
 }
