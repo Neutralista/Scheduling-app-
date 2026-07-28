@@ -1,6 +1,8 @@
 package com.waypoint.app
 
 import android.app.Application
+import com.waypoint.app.notification.NotificationHelper
+import com.waypoint.app.notification.ReminderScheduler
 import com.waypoint.app.signal.RealSignalSources
 import com.waypoint.app.widget.CalendarWidget
 import com.waypoint.app.widget.ChecklistHabitWidget
@@ -23,6 +25,9 @@ class WaypointApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         signalSources = RealSignalSources(applicationContext)
+
+        NotificationHelper.createChannel(this)
+        ReminderScheduler.schedule(this, hourOfDay = 9)
 
         // ── Built-in widgets ───────────────────────────────────────────────
         HabitWidgetRegistry.register(
