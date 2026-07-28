@@ -41,6 +41,20 @@ android {
     }
 }
 
+// Kotlin 2.1 merged kotlin-stdlib-jdk7/jdk8 into kotlin-stdlib; redirect legacy
+// transitive references (e.g. from material → fragment → appcompat) to avoid
+// DexArchiveMergerException caused by duplicate classes at dex merge time.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" &&
+            (requested.name == "kotlin-stdlib-jdk7" || requested.name == "kotlin-stdlib-jdk8")
+        ) {
+            useTarget("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+            because("Kotlin 2.1+ merged jdk7/jdk8 into kotlin-stdlib")
+        }
+    }
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.01.00"))
     implementation("androidx.compose.ui:ui")
