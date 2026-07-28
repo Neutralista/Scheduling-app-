@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Waypoint</string>
+
+    <!-- Usage Access permission screen -->
+    <string name="perm_usage_title">Usage Access</string>
+    <string name="perm_usage_rationale">
+        This permission lets Waypoint read how long you use each app,
+        so a widget can auto-track habits like "limit social media."
+        It is never sent off your device.
+    </string>
+
+    <!-- Health Connect permission screen -->
+    <string name="perm_health_title">Health Connect</string>
+    <string name="perm_health_rationale">
+        This permission lets Waypoint read health data (steps, workouts,
+        sleep) from Health Connect so widgets can auto-mark habits done.
+        All data stays on your device.
+    </string>
+</resources>

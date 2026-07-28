@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Usage Access — special permission granted manually via Settings → Apps →
+        Special app access → Usage access. Not a runtime dialog; the app redirects
+        the user to Settings when a widget needs it.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+        Health Connect — data-type permissions (e.g. READ_STEPS, WRITE_STEPS) are
+        added here as widgets that need them are built. The <queries> entry is
+        required so the app can detect whether Health Connect is installed.
+    -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
+    <application
+        android:name=".WaypointApplication"
+        android:label="Waypoint"
+        android:allowBackup="false"
+        android:theme="@style/Theme.Waypoint">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
