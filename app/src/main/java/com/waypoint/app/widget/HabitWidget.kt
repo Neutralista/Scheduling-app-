@@ -5,6 +5,7 @@ import com.waypoint.app.signal.AppUsageSignals
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.DeviceActivitySignals
 import com.waypoint.app.signal.HealthConnectSignals
+import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.serialization.Serializable
 
 /**
@@ -44,6 +45,7 @@ interface SignalSources {
     val appUsage: AppUsageSignals
     val healthConnect: HealthConnectSignals
     val calendar: CalendarSignals
+    val workSchedule: WorkScheduleSignals
 }
 
 /** Plugin-declared layout shape. Add new sizes/shapes as needed. */
