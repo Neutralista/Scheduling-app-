@@ -21,6 +21,7 @@ class WaypointApplication : Application() {
         sleepScheduleStore.syncToRegistry(signalSources.eventPlanner, signalSources.workSchedule)
 
         NotificationHelper.createChannel(this)
+        NotificationHelper.createShiftChannel(this)
         ReminderScheduler.schedule(this, hourOfDay = 9)
     }
 }

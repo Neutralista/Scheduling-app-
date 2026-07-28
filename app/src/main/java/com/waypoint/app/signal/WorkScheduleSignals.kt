@@ -97,7 +97,7 @@ interface WorkScheduleSignals {
     fun getTodaySession(): ShiftSession
     fun isShiftActive(): Boolean
     suspend fun startShift(startMillis: Long = System.currentTimeMillis())
-    suspend fun endShift()
+    suspend fun endShift(endMillis: Long = System.currentTimeMillis())
     suspend fun resetTodaySession()
 
     /**
@@ -204,8 +204,8 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
         prefs.edit().putString(sessionKey(), json.encodeToString(session)).apply()
     }
 
-    override suspend fun endShift() = withContext(Dispatchers.IO) {
-        val session = getTodaySession().copy(actualEndMillis = System.currentTimeMillis())
+    override suspend fun endShift(endMillis: Long) = withContext(Dispatchers.IO) {
+        val session = getTodaySession().copy(actualEndMillis = endMillis)
         prefs.edit().putString(sessionKey(), json.encodeToString(session)).apply()
     }
 

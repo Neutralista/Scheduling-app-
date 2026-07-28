@@ -43,11 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.notification.ShiftAlarmScheduler
 import com.waypoint.app.signal.AfterWorkEvent
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.ShiftSession
@@ -67,6 +69,7 @@ private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 
 @Composable
 fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) {
+    val context = LocalContext.current
     var config by remember { mutableStateOf(ws.getConfig()) }
     var session by remember { mutableStateOf(ws.getTodaySession()) }
         var selectedTab by remember { mutableIntStateOf(0) }
@@ -123,10 +126,19 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
             scope.launch { ws.removeDateOverride(key); config = ws.getConfig() }
         }
         val onStartShift: (Long) -> Unit = { startMillis ->
-            scope.launch { ws.startShift(startMillis); session = ws.getTodaySession() }
+            scope.launch {
+                ws.startShift(startMillis)
+                session = ws.getTodaySession()
+                plannedEndMillis?.let { ShiftAlarmScheduler.schedule(context, it) }
+            }
         }
-        val onEndShift: () -> Unit = {
-            scope.launch { ws.endShift(); session = ws.getTodaySession(); onShiftEnd?.invoke() }
+        val onEndShift: (Long) -> Unit = { endMillis ->
+            scope.launch {
+                ws.endShift(endMillis)
+                session = ws.getTodaySession()
+                onShiftEnd?.invoke()
+                ShiftAlarmScheduler.cancel(context)
+            }
         }
         val onResetSession: () -> Unit = {
             scope.launch { ws.resetTodaySession(); session = ws.getTodaySession(); elapsedText = "" }
@@ -270,7 +282,7 @@ private fun ShiftButtonSection(
     remainingText: String,
     isOvertime: Boolean,
     onStartShift: (Long) -> Unit,
-    onEndShift: () -> Unit,
+    onEndShift: (Long) -> Unit,
     onResetSession: () -> Unit
 ) {
     Row(
@@ -307,39 +319,65 @@ private fun ShiftButtonSection(
             }
             session.actualEndMillis == null -> {
                 // Active session
-                Column {
-                    Text(
-                        text = "Started ${formatEpochAsTime(session.actualStartMillis)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (elapsedText.isNotEmpty()) {
-                        Text(
-                            text = elapsedText,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                var manualEndTime by remember { mutableStateOf(clockNow()) }
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column {
+                            Text(
+                                text = "Started ${formatEpochAsTime(session.actualStartMillis!!)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (elapsedText.isNotEmpty()) {
+                                Text(
+                                    text = elapsedText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (remainingText.isNotEmpty()) {
+                                Text(
+                                    text = remainingText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isOvertime) MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    "Ended at",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                                TimeField(value = manualEndTime, onValueChange = { manualEndTime = it })
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    val millis = parseTimeToMillis(manualEndTime) ?: System.currentTimeMillis()
+                                    onEndShift(millis)
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Text("■  End shift", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
-                    if (remainingText.isNotEmpty()) {
-                        Text(
-                            text = remainingText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isOvertime) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-                OutlinedButton(
-                    onClick = onEndShift,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Text("■  End shift", style = MaterialTheme.typography.labelMedium)
                 }
             }
             else -> {

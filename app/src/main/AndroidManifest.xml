@@ -19,6 +19,7 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
@@ -29,6 +30,10 @@
         android:label="Waypoint"
         android:allowBackup="false"
         android:theme="@style/Theme.Waypoint">
+
+        <receiver
+            android:name=".notification.ShiftEndAlarmReceiver"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
