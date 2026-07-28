@@ -2,13 +2,23 @@ package com.waypoint.app.planner
 
 import java.time.LocalDate
 
+/** Canonical priority levels for planner events. */
+object PlannerPriority {
+    const val SHIFT = 99  // work shifts — immovable backbone; conceptual only
+    const val SLEEP = 10  // sleep windows — high priority but user-adjustable
+}
+
+/** Visual category — drives colour/rendering in the timeline, not scheduling. */
+enum class EventCategory { DEFAULT, SLEEP }
+
 data class PlannerEvent(
     val id: String,
     val title: String,
     val durationMinutes: Int,
     val priority: Int = 5,
     val conditions: List<EventCondition> = emptyList(),
-    val sourceWidgetId: String? = null
+    val sourceWidgetId: String? = null,
+    val category: EventCategory = EventCategory.DEFAULT
 )
 
 sealed class EventCondition {

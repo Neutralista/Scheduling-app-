@@ -18,6 +18,10 @@ class EventPlannerRegistry {
         _events.removeAll { it.sourceWidgetId == widgetId }
     }
 
+    fun clearSleepEvents() {
+        _events.removeAll { it.id == "sleep_morning" || it.id == "sleep_evening" }
+    }
+
     fun planToday(ws: WorkScheduleSignals): DayPlan {
         val today = LocalDate.now()
         val todaySchedule = ws.getTodaySchedule()

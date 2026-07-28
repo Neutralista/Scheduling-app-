@@ -161,12 +161,20 @@ fun DayTimelineView(
 
                 // Event blocks
                 val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
-                plan.scheduled.forEachIndexed { idx, se ->
+                val sleepBg = Color(0xFF1A2540)
+                val sleepFg = Color(0xFF6B8ABD)
+                var habitIdx = 0
+                plan.scheduled.forEach { se ->
+                    val isSleep = se.event.category == EventCategory.SLEEP
                     val seStartMin = msToMin(se.startMillis)
                     val seEndMin   = msToMin(se.endMillis)
                     val startY  = minToY(seStartMin)
                     val eventH  = (minToY(seEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
-                    val (bg, fg) = eventColors[idx % eventColors.size]
+                    val (bg, fg) = if (isSleep) {
+                        sleepBg to sleepFg
+                    } else {
+                        eventColors[habitIdx++ % eventColors.size]
+                    }
 
                     Box(
                         Modifier

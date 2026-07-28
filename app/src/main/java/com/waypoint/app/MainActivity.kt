@@ -32,7 +32,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val signalSources = (application as WaypointApplication).signalSources
+        val app = application as WaypointApplication
+        val signalSources = app.signalSources
+        val sleepScheduleStore = app.sleepScheduleStore
 
         setContent {
             val statesById by viewModel.statesById.collectAsState()
@@ -41,6 +43,7 @@ class MainActivity : ComponentActivity() {
                     HomeScreen(
                         workSchedule = signalSources.workSchedule,
                         eventPlanner = signalSources.eventPlanner,
+                        sleepStore = sleepScheduleStore,
                         addedWidgets = viewModel.widgets,
                         statesById = statesById,
                         onStateChange = viewModel::onStateChange

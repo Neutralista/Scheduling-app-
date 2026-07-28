@@ -24,6 +24,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.SleepScheduleCard
+import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.widget.HabitWidget
 import com.waypoint.app.widget.WidgetSize
@@ -34,6 +36,7 @@ import com.waypoint.app.widget.WorkScheduleCard
 fun HomeScreen(
     workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
+    sleepStore: SleepScheduleStore,
     addedWidgets: List<HabitWidget>,
     statesById: Map<String, WidgetState>,
     onStateChange: (widgetId: String, newState: WidgetState) -> Unit
@@ -58,6 +61,8 @@ fun HomeScreen(
             0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner)
             1 -> HabitsTab(
                 workSchedule = workSchedule,
+                eventPlanner = eventPlanner,
+                sleepStore = sleepStore,
                 addedWidgets = addedWidgets,
                 statesById = statesById,
                 onStateChange = onStateChange
@@ -83,6 +88,8 @@ private fun PlanTab(
 @Composable
 private fun HabitsTab(
     workSchedule: WorkScheduleSignals,
+    eventPlanner: EventPlannerRegistry,
+    sleepStore: SleepScheduleStore,
     addedWidgets: List<HabitWidget>,
     statesById: Map<String, WidgetState>,
     onStateChange: (widgetId: String, newState: WidgetState) -> Unit
@@ -94,6 +101,7 @@ private fun HabitsTab(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { WorkScheduleCard(ws = workSchedule) }
+        item { SleepScheduleCard(store = sleepStore, registry = eventPlanner) }
 
         if (addedWidgets.isEmpty()) {
             item { EmptyState() }
