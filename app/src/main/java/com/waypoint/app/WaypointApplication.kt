@@ -2,6 +2,7 @@ package com.waypoint.app
 
 import android.app.Application
 import com.waypoint.app.signal.RealSignalSources
+import com.waypoint.app.widget.CalendarWidget
 import com.waypoint.app.widget.ChecklistHabitWidget
 import com.waypoint.app.widget.HabitWidgetRegistry
 import com.waypoint.app.widget.StepCountWidget
@@ -24,6 +25,10 @@ class WaypointApplication : Application() {
         signalSources = RealSignalSources(applicationContext)
 
         // ── Built-in widgets ───────────────────────────────────────────────
+        HabitWidgetRegistry.register(
+            CalendarWidget(id = "calendar", displayName = "Today"),
+            signalSources
+        )
         HabitWidgetRegistry.register(
             ChecklistHabitWidget(id = "morning_routine", displayName = "Morning routine"),
             signalSources

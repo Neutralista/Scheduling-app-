@@ -12,4 +12,5 @@ class RealSignalSources(context: Context) : SignalSources {
     override val deviceActivity: DeviceActivitySignals = RealDeviceActivitySignals(context)
     override val appUsage: AppUsageSignals = RealAppUsageSignals(context)
     override val healthConnect: HealthConnectSignals = RealHealthConnectSignals(context)
+    override val calendar: CalendarSignals = RealCalendarSignals(context)
 }

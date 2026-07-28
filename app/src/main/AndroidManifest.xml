@@ -16,6 +16,7 @@
         added here as widgets that need them are built. The <queries> entry is
         required so the app can detect whether Health Connect is installed.
     -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
 
     <queries>

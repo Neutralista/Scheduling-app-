@@ -2,6 +2,7 @@ package com.waypoint.app.widget
 
 import androidx.compose.runtime.Composable
 import com.waypoint.app.signal.AppUsageSignals
+import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.DeviceActivitySignals
 import com.waypoint.app.signal.HealthConnectSignals
 import kotlinx.serialization.Serializable
@@ -42,6 +43,7 @@ interface SignalSources {
     val deviceActivity: DeviceActivitySignals
     val appUsage: AppUsageSignals
     val healthConnect: HealthConnectSignals
+    val calendar: CalendarSignals
 }
 
 /** Plugin-declared layout shape. Add new sizes/shapes as needed. */
