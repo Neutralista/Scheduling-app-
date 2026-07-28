@@ -101,7 +101,7 @@ private fun HabitsTab(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { WorkScheduleCard(ws = workSchedule) }
-        item { SleepScheduleCard(store = sleepStore, registry = eventPlanner) }
+        item { SleepScheduleCard(store = sleepStore, registry = eventPlanner, ws = workSchedule) }
 
         if (addedWidgets.isEmpty()) {
             item { EmptyState() }

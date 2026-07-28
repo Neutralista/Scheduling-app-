@@ -26,17 +26,22 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.signal.ShiftTime
+import com.waypoint.app.signal.WorkScheduleSignals
 
 @Composable
 fun SleepScheduleCard(
     store: SleepScheduleStore,
     registry: EventPlannerRegistry,
+    ws: WorkScheduleSignals,
     modifier: Modifier = Modifier
 ) {
     var schedule by remember { mutableStateOf(store.load()) }
+    val todaySchedule = remember { ws.getTodaySchedule() }
+    val isWorkDay = todaySchedule.isWork && todaySchedule.shiftStart != null && todaySchedule.shiftEnd != null
+    val effective = remember(schedule) { store.computeEffectiveTimes(ws) }
 
     fun commit() {
-        store.syncToRegistry(registry)
+        store.syncToRegistry(registry, ws)
         schedule = store.load()
     }
 
@@ -56,29 +61,65 @@ fun SleepScheduleCard(
 
             if (schedule.enabled) {
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SleepTimeField(
-                        label = "Wake",
-                        value = schedule.wakeTime.displayString,
-                        modifier = Modifier.weight(1f),
-                        onCommit = { text ->
-                            ShiftTime.parse(text)?.let { store.setWakeTime(it); commit() }
-                        }
+                if (isWorkDay) {
+                    Text(
+                        "Auto-adjusted · +2h around your shift",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
-                    SleepTimeField(
-                        label = "Bed",
-                        value = schedule.bedTime.displayString,
-                        modifier = Modifier.weight(1f),
-                        onCommit = { text ->
-                            ShiftTime.parse(text)?.let { store.setBedTime(it); commit() }
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column {
+                            Text(
+                                "Wake",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(effective.wakeTime.displayString, style = MaterialTheme.typography.bodyLarge)
                         }
+                        Column {
+                            Text(
+                                "Bed",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(effective.bedTime.displayString, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                } else {
+                    Text(
+                        "Preferred times (day off)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        SleepTimeField(
+                            label = "Wake",
+                            value = schedule.preferredWakeTime.displayString,
+                            modifier = Modifier.weight(1f),
+                            onCommit = { text ->
+                                ShiftTime.parse(text)?.let { store.setPreferredWakeTime(it); commit() }
+                            }
+                        )
+                        SleepTimeField(
+                            label = "Bed",
+                            value = schedule.preferredBedTime.displayString,
+                            modifier = Modifier.weight(1f),
+                            onCommit = { text ->
+                                ShiftTime.parse(text)?.let { store.setPreferredBedTime(it); commit() }
+                            }
+                        )
+                    }
                 }
-                val totalH = schedule.totalSleepMinutes / 60
-                val totalM = schedule.totalSleepMinutes % 60
+                val sleepMins = effective.totalSleepMinutes
+                val totalH = sleepMins / 60
+                val totalM = sleepMins % 60
                 val summary = if (totalM == 0) "${totalH}h sleep" else "${totalH}h ${totalM}m sleep"
                 Text(
-                    text = "${schedule.bedTime.displayString} – ${schedule.wakeTime.displayString} · $summary",
+                    text = "${effective.bedTime.displayString} – ${effective.wakeTime.displayString} · $summary",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp)
@@ -98,8 +139,11 @@ private fun SleepTimeField(
     var text by remember(value) { mutableStateOf(value) }
     val focusManager = LocalFocusManager.current
     Column(modifier) {
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = text,
