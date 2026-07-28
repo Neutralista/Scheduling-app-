@@ -88,6 +88,24 @@ class WorkScheduleWidget(
 
         var clockText by remember { mutableStateOf(clockNow()) }
         var elapsedText by remember { mutableStateOf("") }
+        var remainingText by remember { mutableStateOf("") }
+        var isOvertime by remember { mutableStateOf(false) }
+
+        val today = LocalDate.now()
+        val todaySchedule = ws.getTodaySchedule()
+
+        // Planned shift end as epoch millis (null when no shift end configured)
+        val plannedEndMillis: Long? = remember(todaySchedule) {
+            val end = todaySchedule.shiftEnd ?: return@remember null
+            Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, end.hour)
+                set(Calendar.MINUTE, end.minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                if (todaySchedule.crossesMidnight) add(Calendar.DAY_OF_YEAR, 1)
+            }.timeInMillis
+        }
+
         LaunchedEffect(Unit) {
             while (true) {
                 delay(1000)
@@ -95,12 +113,17 @@ class WorkScheduleWidget(
                 val startMs = session.actualStartMillis
                 if (startMs != null && session.actualEndMillis == null) {
                     elapsedText = elapsedString(System.currentTimeMillis() - startMs)
+                    if (plannedEndMillis != null) {
+                        val remaining = plannedEndMillis - System.currentTimeMillis()
+                        isOvertime = remaining < 0
+                        remainingText = if (remaining > 0)
+                            "${elapsedString(remaining)} left"
+                        else
+                            "${elapsedString(-remaining)} overtime"
+                    }
                 }
             }
         }
-
-        val today = LocalDate.now()
-        val todaySchedule = ws.getTodaySchedule()
         val onShift = ws.isOnShiftNow()
 
         val onWeekday: (Int, DaySchedule) -> Unit = { isoDay, sched ->
@@ -186,6 +209,8 @@ class WorkScheduleWidget(
                 ShiftButtonSection(
                     session = session,
                     elapsedText = elapsedText,
+                    remainingText = if (session.actualStartMillis != null && session.actualEndMillis == null && plannedEndMillis != null) remainingText else "",
+                    isOvertime = isOvertime,
                     onStartShift = onStartShift,
                     onEndShift = onEndShift,
                     onResetSession = onResetSession
@@ -256,6 +281,8 @@ class WorkScheduleWidget(
 private fun ShiftButtonSection(
     session: ShiftSession,
     elapsedText: String,
+    remainingText: String,
+    isOvertime: Boolean,
     onStartShift: () -> Unit,
     onEndShift: () -> Unit,
     onResetSession: () -> Unit
@@ -291,6 +318,14 @@ private fun ShiftButtonSection(
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (remainingText.isNotEmpty()) {
+                        Text(
+                            text = remainingText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isOvertime) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
                 }
