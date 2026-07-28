@@ -18,14 +18,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +48,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.signal.AfterWorkEvent
 import com.waypoint.app.signal.DaySchedule
+import com.waypoint.app.signal.ShiftSession
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleConfig
 import com.waypoint.app.signal.WorkScheduleSignals
@@ -54,6 +61,7 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Calendar
 import java.util.Locale
+import java.util.UUID
 
 private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 
@@ -73,13 +81,22 @@ class WorkScheduleWidget(
     override fun Content(state: WidgetState?, onStateChange: (WidgetState) -> Unit) {
         val ws = workSchedule ?: return
         var config by remember { mutableStateOf(ws.getConfig()) }
+        var session by remember { mutableStateOf(ws.getTodaySession()) }
         var selectedTab by remember { mutableIntStateOf(0) }
         var selectedMonthDate by remember { mutableStateOf<LocalDate?>(null) }
         val scope = rememberCoroutineScope()
 
         var clockText by remember { mutableStateOf(clockNow()) }
+        var elapsedText by remember { mutableStateOf("") }
         LaunchedEffect(Unit) {
-            while (true) { delay(1000); clockText = clockNow() }
+            while (true) {
+                delay(1000)
+                clockText = clockNow()
+                val startMs = session.actualStartMillis
+                if (startMs != null && session.actualEndMillis == null) {
+                    elapsedText = elapsedString(System.currentTimeMillis() - startMs)
+                }
+            }
         }
 
         val today = LocalDate.now()
@@ -94,6 +111,21 @@ class WorkScheduleWidget(
         }
         val onRemoveOverride: (String) -> Unit = { key ->
             scope.launch { ws.removeDateOverride(key); config = ws.getConfig() }
+        }
+        val onStartShift: () -> Unit = {
+            scope.launch { ws.startShift(); session = ws.getTodaySession() }
+        }
+        val onEndShift: () -> Unit = {
+            scope.launch { ws.endShift(); session = ws.getTodaySession() }
+        }
+        val onResetSession: () -> Unit = {
+            scope.launch { ws.resetTodaySession(); session = ws.getTodaySession(); elapsedText = "" }
+        }
+        val onAddEvent: (AfterWorkEvent) -> Unit = { event ->
+            scope.launch { ws.addAfterWorkEvent(event); config = ws.getConfig() }
+        }
+        val onRemoveEvent: (String) -> Unit = { eventId ->
+            scope.launch { ws.removeAfterWorkEvent(eventId); config = ws.getConfig() }
         }
 
         Column(
@@ -149,7 +181,30 @@ class WorkScheduleWidget(
                 }
             }
 
+            // ── Shift button + session state ─────────────────────────────
+            if (todaySchedule.isWork) {
+                ShiftButtonSection(
+                    session = session,
+                    elapsedText = elapsedText,
+                    onStartShift = onStartShift,
+                    onEndShift = onEndShift,
+                    onResetSession = onResetSession
+                )
+            }
+
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // ── After-work events ────────────────────────────────────────
+            if (todaySchedule.isWork) {
+                AfterWorkSection(
+                    events = config.afterWorkEvents,
+                    ws = ws,
+                    session = session,
+                    onAddEvent = onAddEvent,
+                    onRemoveEvent = onRemoveEvent
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
 
             // ── Tab bar ──────────────────────────────────────────────────
             ScrollableTabRow(
@@ -192,6 +247,237 @@ class WorkScheduleWidget(
                 3 -> DefaultsContent(config = config, onWeekdayChange = onWeekday)
             }
         }
+    }
+}
+
+// ── Shift button section ──────────────────────────────────────────────────────
+
+@Composable
+private fun ShiftButtonSection(
+    session: ShiftSession,
+    elapsedText: String,
+    onStartShift: () -> Unit,
+    onEndShift: () -> Unit,
+    onResetSession: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        when {
+            session.actualStartMillis == null -> {
+                // No session yet
+                Button(
+                    onClick = onStartShift,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("▶  Start shift", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            session.actualEndMillis == null -> {
+                // Active session
+                Column {
+                    Text(
+                        text = "Started ${formatEpochAsTime(session.actualStartMillis)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (elapsedText.isNotEmpty()) {
+                        Text(
+                            text = elapsedText,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = onEndShift,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Text("■  End shift", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            else -> {
+                // Session ended
+                val start = formatEpochAsTime(session.actualStartMillis)
+                val end = formatEpochAsTime(session.actualEndMillis)
+                val dur = durationString(session.actualStartMillis, session.actualEndMillis)
+                Column {
+                    Text(
+                        text = "Ended $end",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$start – $end · $dur",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+                TextButton(onClick = onResetSession) {
+                    Text("Reset", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+// ── After-work events section ─────────────────────────────────────────────────
+
+@Composable
+private fun AfterWorkSection(
+    events: List<AfterWorkEvent>,
+    ws: WorkScheduleSignals,
+    session: ShiftSession,
+    onAddEvent: (AfterWorkEvent) -> Unit,
+    onRemoveEvent: (String) -> Unit
+) {
+    var addTitle by remember { mutableStateOf("") }
+    var addOffset by remember { mutableStateOf("0") }
+    val isConfirmed = session.actualEndMillis != null
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "After work",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (events.isEmpty()) {
+            Text(
+                text = "No events — add one below",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        } else {
+            events.forEach { event ->
+                val millis = ws.getScheduledTime(event)
+                AfterWorkEventRow(
+                    event = event,
+                    scheduledMillis = millis,
+                    isConfirmed = isConfirmed,
+                    onRemove = { onRemoveEvent(event.id) }
+                )
+            }
+        }
+
+        // Add form
+        Spacer(Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = addTitle,
+                onValueChange = { addTitle = it },
+                placeholder = { Text("Event name", style = MaterialTheme.typography.bodySmall) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall
+            )
+            OutlinedTextField(
+                value = addOffset,
+                onValueChange = { v -> addOffset = v.filter { it.isDigit() }.take(4) },
+                placeholder = { Text("min", style = MaterialTheme.typography.bodySmall) },
+                modifier = Modifier.width(72.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall.copy(textAlign = TextAlign.Center),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Button(
+                onClick = {
+                    val title = addTitle.trim()
+                    val offset = addOffset.toIntOrNull() ?: 0
+                    if (title.isNotEmpty()) {
+                        onAddEvent(AfterWorkEvent(UUID.randomUUID().toString(), title, offset))
+                        addTitle = ""
+                        addOffset = "0"
+                    }
+                },
+                enabled = addTitle.isNotBlank()
+            ) {
+                Text("Add", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AfterWorkEventRow(
+    event: AfterWorkEvent,
+    scheduledMillis: Long?,
+    isConfirmed: Boolean,
+    onRemove: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isConfirmed) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+            )
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Time
+        val timeStr = if (scheduledMillis != null) {
+            val prefix = if (isConfirmed) "" else "~"
+            "$prefix${formatEpochAsTime(scheduledMillis)}"
+        } else {
+            "—"
+        }
+        Text(
+            text = timeStr,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFeatureSettings = "tnum",
+                fontWeight = if (isConfirmed) FontWeight.SemiBold else FontWeight.Normal
+            ),
+            color = if (isConfirmed) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.width(48.dp)
+        )
+
+        // Title
+        Text(
+            text = event.title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Offset label
+        if (event.offsetMinutes > 0) {
+            Text(
+                text = "+${event.offsetMinutes}m",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        }
+
+        // Delete
+        Text(
+            text = "×",
+            modifier = Modifier.clickable { onRemove() },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        )
     }
 }
 
@@ -516,6 +802,20 @@ private fun clockNow(): String {
     val c = Calendar.getInstance()
     return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
 }
+
+private fun formatEpochAsTime(millis: Long): String {
+    val c = Calendar.getInstance().apply { timeInMillis = millis }
+    return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+}
+
+private fun elapsedString(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+private fun durationString(startMs: Long, endMs: Long): String = elapsedString(endMs - startMs)
 
 private fun localDateKey(date: LocalDate): String =
     "%04d-%02d-%02d".format(date.year, date.monthValue, date.dayOfMonth)
