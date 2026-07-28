@@ -9,7 +9,6 @@ import com.waypoint.app.widget.ChecklistHabitWidget
 import com.waypoint.app.widget.HabitWidgetRegistry
 import com.waypoint.app.widget.StepCountWidget
 import com.waypoint.app.widget.WaterTrackerWidget
-import com.waypoint.app.widget.WorkScheduleWidget
 
 /**
  * Bootstrap point. All built-in widgets are pre-registered below — open
@@ -33,10 +32,6 @@ class WaypointApplication : Application() {
         // ── Built-in widgets ───────────────────────────────────────────────
         HabitWidgetRegistry.register(
             CalendarWidget(id = "calendar", displayName = "Today"),
-            signalSources
-        )
-        HabitWidgetRegistry.register(
-            WorkScheduleWidget(id = "work_schedule", displayName = "Work schedule"),
             signalSources
         )
         HabitWidgetRegistry.register(

@@ -32,11 +32,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val workSchedule = (application as WaypointApplication).signalSources.workSchedule
+
         setContent {
             val statesById by viewModel.statesById.collectAsState()
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(
+                        workSchedule = workSchedule,
                         addedWidgets = viewModel.widgets,
                         statesById = statesById,
                         onStateChange = viewModel::onStateChange

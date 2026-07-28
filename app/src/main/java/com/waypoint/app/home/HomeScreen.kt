@@ -15,34 +15,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.widget.HabitWidget
 import com.waypoint.app.widget.WidgetSize
 import com.waypoint.app.widget.WidgetState
+import com.waypoint.app.widget.WorkScheduleCard
 
-/**
- * No pre-built habits, no onboarding flow. A fresh install shows the empty
- * state below until HabitWidget implementations are registered in code (see
- * HabitWidgetRegistry + WaypointApplication).
- *
- * Arrangement is driven entirely by each widget's uiConfig — this screen
- * has no opinion about what any individual widget looks like, only how much
- * room to give it.
- */
 @Composable
 fun HomeScreen(
+    workSchedule: WorkScheduleSignals,
     addedWidgets: List<HabitWidget>,
     statesById: Map<String, WidgetState>,
     onStateChange: (widgetId: String, newState: WidgetState) -> Unit
 ) {
-    if (addedWidgets.isEmpty()) {
-        EmptyState()
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Work schedule is always pinned first — it's part of the app, not a plugin
+        item { WorkScheduleCard(ws = workSchedule) }
+
+        if (addedWidgets.isEmpty()) {
+            item { EmptyState() }
+        } else {
             items(addedWidgets, key = { it.id }) { widget ->
                 val modifier = when (widget.uiConfig.size) {
                     WidgetSize.SMALL_TILE -> Modifier.padding(4.dp)

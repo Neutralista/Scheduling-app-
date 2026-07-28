@@ -65,23 +65,10 @@ import java.util.UUID
 
 private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 
-class WorkScheduleWidget(
-    override val id: String,
-    override val displayName: String = "Work schedule",
-    override val uiConfig: WidgetUiConfig = WidgetUiConfig(size = WidgetSize.FULL_CARD)
-) : HabitWidget {
-
-    private var workSchedule: WorkScheduleSignals? = null
-
-    override fun onAttached(signals: SignalSources) {
-        workSchedule = signals.workSchedule
-    }
-
-    @Composable
-    override fun Content(state: WidgetState?, onStateChange: (WidgetState) -> Unit) {
-        val ws = workSchedule ?: return
-        var config by remember { mutableStateOf(ws.getConfig()) }
-        var session by remember { mutableStateOf(ws.getTodaySession()) }
+@Composable
+fun WorkScheduleCard(ws: WorkScheduleSignals) {
+    var config by remember { mutableStateOf(ws.getConfig()) }
+    var session by remember { mutableStateOf(ws.getTodaySession()) }
         var selectedTab by remember { mutableIntStateOf(0) }
         var selectedMonthDate by remember { mutableStateOf<LocalDate?>(null) }
         val scope = rememberCoroutineScope()
@@ -272,7 +259,6 @@ class WorkScheduleWidget(
                 3 -> DefaultsContent(config = config, onWeekdayChange = onWeekday)
             }
         }
-    }
 }
 
 // ── Shift button section ──────────────────────────────────────────────────────
