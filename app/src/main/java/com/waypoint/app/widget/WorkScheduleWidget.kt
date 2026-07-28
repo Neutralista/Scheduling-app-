@@ -807,8 +807,9 @@ private fun TimeField(value: String, onValueChange: (String) -> Unit) {
     BasicTextField(
         value = value,
         onValueChange = { raw ->
-            val filtered = raw.filter { it.isDigit() || it == ':' }.take(5)
-            onValueChange(filtered)
+            val digits = raw.filter { it.isDigit() }.take(4)
+            val formatted = if (digits.length > 2) "${digits.substring(0, 2)}:${digits.substring(2)}" else digits
+            onValueChange(formatted)
         },
         textStyle = MaterialTheme.typography.bodySmall.copy(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
