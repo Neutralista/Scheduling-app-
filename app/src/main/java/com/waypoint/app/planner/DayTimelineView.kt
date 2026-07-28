@@ -39,8 +39,8 @@ import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
-private const val START_HOUR = 5
-private const val END_HOUR = 23
+private const val START_HOUR = 0
+private const val END_HOUR = 24
 private const val TOTAL_HOURS = END_HOUR - START_HOUR
 private val HOUR_HEIGHT = 58.dp
 private val LABEL_WIDTH = 44.dp
