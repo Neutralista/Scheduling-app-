@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,6 +28,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,12 +98,14 @@ var HabitWidget = Script;
 /** Describes a modal prompt the wizard shows while onAnswer drives the flow. */
 data class ScriptedDialog(
     val question: String,
-    /** "yesno" for a yes/no choice, "text" for a free-text input. */
+    /** "yesno", "text", "time" (single clock picker), or "timerange" (start|end clock pickers). */
     val type: String = "yesno",
     val yesLabel: String = "Yes",
     val noLabel: String = "No",
-    /** Pre-filled hint for text inputs. */
-    val placeholder: String = ""
+    /** Default value / pre-fill for time/text inputs. */
+    val placeholder: String = "",
+    /** Second default for timerange (end time). */
+    val placeholder2: String = ""
 )
 
 data class ScriptedView(
@@ -413,11 +419,12 @@ class ScriptedModule private constructor(
                     ?: return ScriptedView(title = displayName)
                 val dialogObj = res.get("dialog", res)
                 val dialog = if (dialogObj is NativeObject) ScriptedDialog(
-                    question    = dialogObj.jsString("question")    ?: "",
-                    type        = dialogObj.jsString("type")        ?: "yesno",
-                    yesLabel    = dialogObj.jsString("yesLabel")    ?: "Yes",
-                    noLabel     = dialogObj.jsString("noLabel")     ?: "No",
-                    placeholder = dialogObj.jsString("placeholder") ?: ""
+                    question     = dialogObj.jsString("question")     ?: "",
+                    type         = dialogObj.jsString("type")         ?: "yesno",
+                    yesLabel     = dialogObj.jsString("yesLabel")     ?: "Yes",
+                    noLabel      = dialogObj.jsString("noLabel")      ?: "No",
+                    placeholder  = dialogObj.jsString("placeholder")  ?: "",
+                    placeholder2 = dialogObj.jsString("placeholder2") ?: ""
                 ) else null
                 ScriptedView(
                     title       = res.jsString("title")       ?: displayName,
@@ -531,54 +538,138 @@ class ScriptedModule private constructor(
 
         val dialog = view.dialog
         if (dialog != null) {
-            if (dialog.type == "text") {
-                var input by remember(current) { mutableStateOf(dialog.placeholder) }
-                AlertDialog(
-                    onDismissRequest = {},
-                    title = { Text(view.title) },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(dialog.question, style = MaterialTheme.typography.bodyMedium)
-                            OutlinedTextField(
-                                value = input,
-                                onValueChange = { input = it },
-                                singleLine = true,
-                                placeholder = { Text(dialog.placeholder) }
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { onStateChange(applyAnswer(current, input.ifBlank { dialog.placeholder })) }) {
-                            Text("Confirm")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                            Text("Cancel")
-                        }
-                    }
-                )
-            } else {
-                AlertDialog(
-                    onDismissRequest = {},
-                    title = { Text(view.title) },
-                    text = { Text(dialog.question, style = MaterialTheme.typography.bodyMedium) },
-                    confirmButton = {
-                        TextButton(onClick = { onStateChange(applyAnswer(current, "yes")) }) {
-                            Text(dialog.yesLabel)
-                        }
-                    },
-                    dismissButton = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (dialog.type) {
+                "text" -> {
+                    var input by remember(current) { mutableStateOf(dialog.placeholder) }
+                    AlertDialog(
+                        onDismissRequest = {},
+                        title = { Text(view.title) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(dialog.question, style = MaterialTheme.typography.bodyMedium)
+                                OutlinedTextField(
+                                    value = input,
+                                    onValueChange = { input = it },
+                                    singleLine = true,
+                                    placeholder = { Text(dialog.placeholder) }
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { onStateChange(applyAnswer(current, input.ifBlank { dialog.placeholder })) }) {
+                                Text("Confirm")
+                            }
+                        },
+                        dismissButton = {
                             TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                                Text("Cancel", color = MaterialTheme.colorScheme.outline)
+                                Text("Cancel")
                             }
-                            TextButton(onClick = { onStateChange(applyAnswer(current, "no")) }) {
-                                Text(dialog.noLabel)
+                        }
+                    )
+                }
+                "time" -> {
+                    val initH = dialog.placeholder.split(":").getOrNull(0)?.toIntOrNull() ?: 9
+                    val initM = dialog.placeholder.split(":").getOrNull(1)?.toIntOrNull() ?: 0
+                    val tpState = rememberTimePickerState(initialHour = initH, initialMinute = initM, is24Hour = true)
+                    BasicAlertDialog(onDismissRequest = {}) {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = dialog.question,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)
+                                )
+                                TimePicker(state = tpState)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) { Text("Cancel") }
+                                    Spacer(Modifier.width(8.dp))
+                                    TextButton(onClick = {
+                                        onStateChange(applyAnswer(current, "%02d:%02d".format(tpState.hour, tpState.minute)))
+                                    }) { Text("OK") }
+                                }
                             }
                         }
                     }
-                )
+                }
+                "timerange" -> {
+                    var pickingStart by remember(current) { mutableStateOf(true) }
+                    val sh = remember(current) { dialog.placeholder.split(":").getOrNull(0)?.toIntOrNull() ?: 9 }
+                    val sm = remember(current) { dialog.placeholder.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val eh = remember(current) { dialog.placeholder2.split(":").getOrNull(0)?.toIntOrNull() ?: 17 }
+                    val em = remember(current) { dialog.placeholder2.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val startState = rememberTimePickerState(initialHour = sh, initialMinute = sm, is24Hour = true)
+                    val endState   = rememberTimePickerState(initialHour = eh, initialMinute = em, is24Hour = true)
+                    BasicAlertDialog(onDismissRequest = {}) {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = if (pickingStart) "Shift start" else "Shift end",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = dialog.question,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)
+                                )
+                                if (pickingStart) TimePicker(state = startState)
+                                else             TimePicker(state = endState)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    TextButton(onClick = {
+                                        if (pickingStart) onStateChange(applyAnswer(current, "cancel"))
+                                        else pickingStart = true
+                                    }) { Text(if (pickingStart) "Cancel" else "Back") }
+                                    TextButton(onClick = {
+                                        if (pickingStart) {
+                                            pickingStart = false
+                                        } else {
+                                            val ans = "%02d:%02d|%02d:%02d".format(
+                                                startState.hour, startState.minute,
+                                                endState.hour,   endState.minute
+                                            )
+                                            onStateChange(applyAnswer(current, ans))
+                                        }
+                                    }) { Text(if (pickingStart) "Next" else "Set") }
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    AlertDialog(
+                        onDismissRequest = {},
+                        title = { Text(view.title) },
+                        text = { Text(dialog.question, style = MaterialTheme.typography.bodyMedium) },
+                        confirmButton = {
+                            TextButton(onClick = { onStateChange(applyAnswer(current, "yes")) }) {
+                                Text(dialog.yesLabel)
+                            }
+                        },
+                        dismissButton = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                    Text("Cancel", color = MaterialTheme.colorScheme.outline)
+                                }
+                                TextButton(onClick = { onStateChange(applyAnswer(current, "no")) }) {
+                                    Text(dialog.noLabel)
+                                }
+                            }
+                        }
+                    )
+                }
             }
         }
     }
