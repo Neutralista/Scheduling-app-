@@ -405,8 +405,10 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "widget") as? org.mozilla.javascript.Function
                     ?: return ScriptedView(title = displayName)
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
-                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
                     ?: return ScriptedView(title = displayName)
                 val dialogObj = res.get("dialog", res)
@@ -442,8 +444,10 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onAction") as? org.mozilla.javascript.Function
                     ?: return state.copy(doneToday = !state.doneToday)
                 val stateJs  = state.toJS(cx, scope)
-                val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
-                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
                     ?: return state
                 res.toScriptState(state)
@@ -461,8 +465,10 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onAnswer") as? org.mozilla.javascript.Function
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
-                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, answer, signalsJs, scriptsJs))
                 (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
@@ -479,8 +485,10 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onTick") as? org.mozilla.javascript.Function
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
-                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs))
                 (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
