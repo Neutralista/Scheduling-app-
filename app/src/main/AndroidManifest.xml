@@ -22,7 +22,16 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <queries>
+        <!-- Standalone Health Connect app (Android 9–13) -->
         <package android:name="com.google.android.apps.healthdata" />
+        <!--
+            On Android 14+ Health Connect is built into the OS under a different
+            component name. Querying by intent action covers both variants so
+            Android doesn't block the permission request intent.
+        -->
+        <intent>
+            <action android:name="androidx.health.connect.client.action.REQUEST_HEALTH_PERMISSIONS" />
+        </intent>
     </queries>
 
     <application
