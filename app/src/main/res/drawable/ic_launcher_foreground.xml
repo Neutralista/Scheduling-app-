@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Android color format is AARRGGBB (alpha first), not RGBA.
-    All 8-character colours here follow that convention.
+    Android color format is AARRGGBB (alpha first).
+    Minimal compass rose: 4 symmetric diamond petals, gradient tip → base,
+    small center hub. No rings, no glow overlays, no intercardinal petals.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -10,129 +11,62 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Ambient golden glow (ARGB: alpha=30, gold #C88500) -->
-    <path android:pathData="M54,54 m-28,0 a28,28 0 1,0 56,0 a28,28 0 1,0 -56,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="0.5"
-                android:centerY="0.5"
-                android:gradientRadius="28"
-                android:startColor="#30C88500"
-                android:endColor="#00C88500" />
-        </aapt:attr>
-    </path>
-
-    <!-- Outer bezel ring — soft halo then crisp hairline -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#60D4A84E"
-        android:strokeWidth="3.5"
-        android:pathData="M54,23.5 A30.5,30.5 0 1,1 54,84.5 A30.5,30.5 0 1,1 54,23.5" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#D4A84E"
-        android:strokeWidth="1.1"
-        android:pathData="M54,23.5 A30.5,30.5 0 1,1 54,84.5 A30.5,30.5 0 1,1 54,23.5" />
-
-    <!-- ── Intercardinal petals ── -->
-    <group android:pivotX="54" android:pivotY="54" android:rotation="45">
-        <path android:fillColor="#CD9E2A"
-              android:pathData="M54,35 L49,54 L54,59 L59,54 Z" />
-    </group>
-    <group android:pivotX="54" android:pivotY="54" android:rotation="135">
-        <path android:fillColor="#CD9E2A"
-              android:pathData="M54,35 L49,54 L54,59 L59,54 Z" />
-    </group>
-    <group android:pivotX="54" android:pivotY="54" android:rotation="225">
-        <path android:fillColor="#CD9E2A"
-              android:pathData="M54,35 L49,54 L54,59 L59,54 Z" />
-    </group>
-    <group android:pivotX="54" android:pivotY="54" android:rotation="315">
-        <path android:fillColor="#CD9E2A"
-              android:pathData="M54,35 L49,54 L54,59 L59,54 Z" />
-    </group>
-
-    <!-- ── Cardinal petals — gradient + soft light/shadow overlays ── -->
-    <!-- North -->
-    <path android:pathData="M54,25.5 L46,54 L54,60.5 L62,54 Z">
+    <!-- North — primary petal (brightest, tip at y=18) -->
+    <path android:pathData="M54,18 L46,54 L54,64 L62,54 Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="linear"
-                android:startX="54" android:startY="25.5"
-                android:endX="54"   android:endY="60.5"
-                android:startColor="#F2CC58"
-                android:endColor="#9A6812" />
+                android:startX="54" android:startY="18"
+                android:endX="54"   android:endY="64"
+                android:startColor="#FADA70"
+                android:endColor="#A87820" />
         </aapt:attr>
     </path>
-    <!-- light face: ARGB alpha=40, gold highlight -->
-    <path android:fillColor="#40F8DC80"
-          android:pathData="M54,25.5 L46,54 L54,60.5 Z" />
-    <!-- shadow face: ARGB alpha=30, black -->
-    <path android:fillColor="#30000000"
-          android:pathData="M54,25.5 L62,54 L54,60.5 Z" />
 
-    <!-- East -->
-    <group android:pivotX="54" android:pivotY="54" android:rotation="90">
-        <path android:pathData="M54,25.5 L46,54 L54,60.5 L62,54 Z">
-            <aapt:attr name="android:fillColor">
-                <gradient android:type="linear"
-                    android:startX="54" android:startY="25.5"
-                    android:endX="54"   android:endY="60.5"
-                    android:startColor="#F2CC58"
-                    android:endColor="#9A6812" />
-            </aapt:attr>
-        </path>
-        <path android:fillColor="#40F8DC80"
-              android:pathData="M54,25.5 L46,54 L54,60.5 Z" />
-        <path android:fillColor="#30000000"
-              android:pathData="M54,25.5 L62,54 L54,60.5 Z" />
-    </group>
-
-    <!-- South -->
+    <!-- South (180°) — same geometry, muted palette -->
     <group android:pivotX="54" android:pivotY="54" android:rotation="180">
-        <path android:pathData="M54,25.5 L46,54 L54,60.5 L62,54 Z">
+        <path android:pathData="M54,18 L46,54 L54,64 L62,54 Z">
             <aapt:attr name="android:fillColor">
                 <gradient android:type="linear"
-                    android:startX="54" android:startY="25.5"
-                    android:endX="54"   android:endY="60.5"
-                    android:startColor="#F2CC58"
-                    android:endColor="#9A6812" />
+                    android:startX="54" android:startY="18"
+                    android:endX="54"   android:endY="64"
+                    android:startColor="#C49028"
+                    android:endColor="#6A4A0A" />
             </aapt:attr>
         </path>
-        <path android:fillColor="#40F8DC80"
-              android:pathData="M54,25.5 L46,54 L54,60.5 Z" />
-        <path android:fillColor="#30000000"
-              android:pathData="M54,25.5 L62,54 L54,60.5 Z" />
     </group>
 
-    <!-- West -->
+    <!-- East (90°) -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="90">
+        <path android:pathData="M54,18 L46,54 L54,64 L62,54 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear"
+                    android:startX="54" android:startY="18"
+                    android:endX="54"   android:endY="64"
+                    android:startColor="#DEB040"
+                    android:endColor="#7E5610" />
+            </aapt:attr>
+        </path>
+    </group>
+
+    <!-- West (270°) -->
     <group android:pivotX="54" android:pivotY="54" android:rotation="270">
-        <path android:pathData="M54,25.5 L46,54 L54,60.5 L62,54 Z">
+        <path android:pathData="M54,18 L46,54 L54,64 L62,54 Z">
             <aapt:attr name="android:fillColor">
                 <gradient android:type="linear"
-                    android:startX="54" android:startY="25.5"
-                    android:endX="54"   android:endY="60.5"
-                    android:startColor="#F2CC58"
-                    android:endColor="#9A6812" />
+                    android:startX="54" android:startY="18"
+                    android:endX="54"   android:endY="64"
+                    android:startColor="#DEB040"
+                    android:endColor="#7E5610" />
             </aapt:attr>
         </path>
-        <path android:fillColor="#40F8DC80"
-              android:pathData="M54,25.5 L46,54 L54,60.5 Z" />
-        <path android:fillColor="#30000000"
-              android:pathData="M54,25.5 L62,54 L54,60.5 Z" />
     </group>
 
-    <!-- Inner ring -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#D4A84E"
-        android:strokeWidth="0.9"
-        android:pathData="M54,45.5 A8.5,8.5 0 1,1 54,62.5 A8.5,8.5 0 1,1 54,45.5" />
-
-    <!-- Centre dot -->
-    <path android:fillColor="#FFE878"
-          android:pathData="M54,49.5 A4.5,4.5 0 1,1 54,58.5 A4.5,4.5 0 1,1 54,49.5" />
-    <path android:fillColor="#FFF8C0"
-          android:pathData="M54,51.5 A2,2 0 1,1 54,55.5 A2,2 0 1,1 54,51.5" />
+    <!-- Center hub: dark fill + gold ring -->
+    <path android:fillColor="#160A16"
+          android:pathData="M54,49 A5,5 0 1,1 54,59 A5,5 0 1,1 54,49" />
+    <path android:fillColor="#00000000"
+          android:strokeColor="#D4A848"
+          android:strokeWidth="1.8"
+          android:pathData="M54,49 A5,5 0 1,1 54,59 A5,5 0 1,1 54,49" />
 
 </vector>
