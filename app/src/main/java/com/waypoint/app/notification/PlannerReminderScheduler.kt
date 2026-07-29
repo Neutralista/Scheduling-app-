@@ -34,6 +34,11 @@ object PlannerReminderScheduler {
         doSchedule(context, nextOccurrence(day, hour, minute))
     }
 
+    /** Reschedule the notification to fire [delayMs] from now (default 1 hour). */
+    fun snooze(context: Context, delayMs: Long = 3_600_000L) {
+        doSchedule(context, System.currentTimeMillis() + delayMs)
+    }
+
     fun cancel(context: Context) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         am.cancel(makePendingIntent(context))

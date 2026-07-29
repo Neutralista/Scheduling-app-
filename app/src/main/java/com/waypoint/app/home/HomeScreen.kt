@@ -55,9 +55,10 @@ fun HomeScreen(
     onUpdateScript: (id: String, newSource: String) -> String?,
     onRemoveScript: (String) -> Unit,
     onResetScript: (String) -> Unit,
-    onPermissionGranted: () -> Unit
+    onPermissionGranted: () -> Unit,
+    initialTab: Int = 0
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(initialTab) }
 
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     val widgetsDone = widgets.count { statesById[it.id]?.doneToday == true }
