@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Waypoint adaptive icon foreground — 108×108dp canvas, safe zone 18–90dp.
+
+    Design: a bold map-pin/waypoint marker in barley gold (#D4A84E) with a
+    round inner cutout (evenOdd fill), on the deep-plum background.
+
+    Pin geometry (all in viewport units):
+      Outer teardrop — circle center (54,43) r=19, tip at (54,83)
+      Inner circle   — center (54,43) r=8.5  (the "window")
+      A thin gold ring below the inner circle gives depth.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft gold glow behind the pin -->
+    <path android:pathData="M54,43m-26,0a26,26 0 1,0 52,0a26,26 0 1,0 -52,0">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="0.4"
+                android:gradientRadius="30"
+                android:startColor="#D4A84E28"
+                android:endColor="#D4A84E00" />
+        </aapt:attr>
+    </path>
+
+    <!-- Pin body + inner-circle cutout (evenOdd creates the hole) -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="
+            M54,83
+            C51.5,73.5 35,62.5 35,43
+            A19,19 0 1,1 73,43
+            C73,62.5 56.5,73.5 54,83
+            Z
+            M54,34.5
+            A8.5,8.5 0 1,1 54,51.5
+            A8.5,8.5 0 1,1 54,34.5
+            Z">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="35"
+                android:startY="30"
+                android:endX="73"
+                android:endY="83"
+                android:startColor="#F0C96A"
+                android:endColor="#B8821E" />
+        </aapt:attr>
+    </path>
+
+    <!-- Subtle inner highlight on top-left of pin circle -->
+    <path
+        android:fillColor="#FFFDE8"
+        android:fillAlpha="0.18"
+        android:pathData="
+            M45,37
+            C46,32 52,30 57,32
+            C53,31 47,33.5 45,37
+            Z" />
+</vector>

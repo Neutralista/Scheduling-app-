@@ -37,6 +37,8 @@
     <application
         android:name=".WaypointApplication"
         android:label="Waypoint"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:theme="@style/Theme.Waypoint">
 
