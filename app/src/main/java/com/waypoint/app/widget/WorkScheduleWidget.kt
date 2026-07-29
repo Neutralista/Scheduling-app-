@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +70,7 @@ private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 @Composable
 fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) {
     val context = LocalContext.current
-    var config by remember { mutableStateOf(ws.getConfig()) }
+    val config by ws.configFlow.collectAsState()
     var session by remember { mutableStateOf(ws.getTodaySession()) }
         var selectedTab by remember { mutableIntStateOf(0) }
         var selectedMonthDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -116,13 +117,13 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
         val onShift = ws.isOnShiftNow()
 
         val onWeekday: (Int, DaySchedule) -> Unit = { isoDay, sched ->
-            scope.launch { ws.setWeekday(isoDay, sched); config = ws.getConfig() }
+            scope.launch { ws.setWeekday(isoDay, sched) }
         }
         val onDateOverride: (String, DaySchedule) -> Unit = { key, sched ->
-            scope.launch { ws.setDateOverride(key, sched); config = ws.getConfig() }
+            scope.launch { ws.setDateOverride(key, sched) }
         }
         val onRemoveOverride: (String) -> Unit = { key ->
-            scope.launch { ws.removeDateOverride(key); config = ws.getConfig() }
+            scope.launch { ws.removeDateOverride(key) }
         }
         val onStartShift: (Long) -> Unit = { startMillis ->
             scope.launch {
@@ -143,10 +144,10 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
             scope.launch { ws.resetTodaySession(); session = ws.getTodaySession(); elapsedText = "" }
         }
         val onAddEvent: (AfterWorkEvent) -> Unit = { event ->
-            scope.launch { ws.addAfterWorkEvent(event); config = ws.getConfig() }
+            scope.launch { ws.addAfterWorkEvent(event) }
         }
         val onRemoveEvent: (String) -> Unit = { eventId ->
-            scope.launch { ws.removeAfterWorkEvent(eventId); config = ws.getConfig() }
+            scope.launch { ws.removeAfterWorkEvent(eventId) }
         }
 
         Column(

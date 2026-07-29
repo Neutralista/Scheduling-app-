@@ -2,6 +2,9 @@ package com.waypoint.app.signal
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -84,6 +87,9 @@ data class WorkScheduleConfig(
 // ── Interface ────────────────────────────────────────────────────────────────
 
 interface WorkScheduleSignals {
+    // Reactive config — emits whenever the schedule is written
+    val configFlow: StateFlow<WorkScheduleConfig>
+
     // Schedule queries
     fun isWorkDay(): Boolean
     fun isWorkDay(date: Calendar): Boolean
@@ -135,8 +141,12 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
         return try { json.decodeFromString(raw) } catch (_: Exception) { WorkScheduleConfig() }
     }
 
+    private val _configFlow = MutableStateFlow(getConfig())
+    override val configFlow: StateFlow<WorkScheduleConfig> = _configFlow.asStateFlow()
+
     private fun saveConfig(config: WorkScheduleConfig) {
         prefs.edit().putString("config", json.encodeToString(config)).apply()
+        _configFlow.value = config
     }
 
     override fun isWorkDay(): Boolean = getTodaySchedule().isWork
