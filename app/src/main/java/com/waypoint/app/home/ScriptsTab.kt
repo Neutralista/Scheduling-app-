@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
@@ -135,9 +136,9 @@ private fun ScriptRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -151,6 +152,19 @@ private fun ScriptRow(
                 ) {
                     ScriptBadge(if (script.isUserScript) "User" else "Built-in")
                     if (script.hasWidget) ScriptBadge("Widget")
+                }
+            }
+            if (script.isUserScript) {
+                androidx.compose.material3.IconButton(
+                    onClick = { showEditSheet = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit code",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
             Icon(
@@ -180,10 +194,6 @@ private fun ScriptRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (script.isUserScript) {
-                        TextButton(onClick = { showEditSheet = true }) {
-                            Text("Edit code", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary)
-                        }
                         TextButton(onClick = { showRemoveDialog = true }) {
                             Text("Remove", style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error)
