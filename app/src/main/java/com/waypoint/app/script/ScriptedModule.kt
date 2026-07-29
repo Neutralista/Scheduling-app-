@@ -166,7 +166,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
-                catch (e: Exception) { AppLogger.e("WS", "setShiftStart failed", e) }
+                catch (e: Throwable) { AppLogger.e("WS", "setShiftStart failed ${e.javaClass.name}", e) }
             }
             return null
         }
@@ -178,7 +178,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
-                catch (e: Exception) { AppLogger.e("WS", "setShiftEnd failed", e) }
+                catch (e: Throwable) { AppLogger.e("WS", "setShiftEnd failed ${e.javaClass.name}", e) }
             }
             return null
         }
@@ -207,7 +207,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end)) }
-                catch (e: Exception) { AppLogger.e("WS", "setDateOverride failed", e) }
+                catch (e: Throwable) { AppLogger.e("WS", "setDateOverride failed ${e.javaClass.name}", e) }
             }
             return null
         }
@@ -237,7 +237,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
                         env.workSchedule.setBulkDateOverrides(snapshot)
                         AppLogger.i("WS", "setBulkDateOverrides: done")
                     }
-                    catch (e: Exception) { AppLogger.e("WS", "setBulkDateOverrides failed", e) }
+                    catch (e: Throwable) { AppLogger.e("WS", "setBulkDateOverrides failed ${e.javaClass.name}", e) }
                 }
             }
             return null
@@ -399,7 +399,7 @@ class ScriptedModule private constructor(
                     fn.call(cx, scope, obj, arrayOf(signalsJs, scriptsJs))
                 }
             } finally { Context.exit() }
-        } catch (e: Exception) { AppLogger.e("JS[$id]", "onRegister threw", e) }
+        } catch (e: Throwable) { AppLogger.e("JS[$id]", "onRegister threw ${e.javaClass.name}", e) }
     }
 
     companion object {
@@ -475,8 +475,8 @@ class ScriptedModule private constructor(
                     dialog      = dialog
                 )
             } finally { Context.exit() }
-        } catch (e: Exception) {
-            AppLogger.e("JS[$id]", "widget threw", e)
+        } catch (e: Throwable) {
+            AppLogger.e("JS[$id]", "widget threw ${e.javaClass.name}", e)
             ScriptedView(title = displayName, subtitle = "⚠ ${e.message}")
         }
     }
@@ -500,8 +500,8 @@ class ScriptedModule private constructor(
                     ?: return state
                 res.toScriptState(state)
             } finally { Context.exit() }
-        } catch (e: Exception) {
-            AppLogger.e("JS[$id]", "onAction threw", e)
+        } catch (e: Throwable) {
+            AppLogger.e("JS[$id]", "onAction threw ${e.javaClass.name}", e)
             state
         }
     }
@@ -513,24 +513,29 @@ class ScriptedModule private constructor(
         val substep = state.values["substep"]?.toInt() ?: 0
         AppLogger.i("JS[$id]", "onAnswer step=$step substep=$substep answer=\"$answer\"")
         return try {
+            AppLogger.i("JS[$id]", "onAnswer: init rhino")
             val cx = rhino()
             try {
+                AppLogger.i("JS[$id]", "onAnswer: buildScope")
                 val (scope, obj) = buildScope(cx)
                 val fn = ScriptableObject.getProperty(obj, "onAnswer") as? org.mozilla.javascript.Function
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
+                AppLogger.i("JS[$id]", "onAnswer: buildSignals")
                 val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
+                AppLogger.i("JS[$id]", "onAnswer: calling fn")
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, answer, signalsJs, scriptsJs))
+                AppLogger.i("JS[$id]", "onAnswer: fn returned, toScriptState")
                 val newState = (res as? NativeObject)?.toScriptState(state) ?: state
                 val newStep = newState.values["step"]?.toInt() ?: 0
                 AppLogger.i("JS[$id]", "onAnswer → step=$newStep")
                 newState
             } finally { Context.exit() }
-        } catch (e: Exception) {
-            AppLogger.e("JS[$id]", "onAnswer threw", e)
+        } catch (e: Throwable) {
+            AppLogger.e("JS[$id]", "onAnswer threw ${e.javaClass.name}", e)
             state
         }
     }
@@ -552,8 +557,8 @@ class ScriptedModule private constructor(
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs))
                 (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
-        } catch (e: Exception) {
-            AppLogger.e("JS[$id]", "onTick threw", e)
+        } catch (e: Throwable) {
+            AppLogger.e("JS[$id]", "onTick threw ${e.javaClass.name}", e)
             state
         }
     }
