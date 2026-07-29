@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.PermissionController
 import com.waypoint.app.signal.HealthConnectAvailability
 
 @Composable
@@ -175,7 +176,7 @@ private fun HcConnectButton(onPermissionGranted: () -> Unit) {
     }
 
     val launcher = rememberLauncherForActivityResult(
-        client.permissionController.requestPermissionsActivityContract()
+        PermissionController.createRequestPermissionResultContract()
     ) { grantedPermissions ->
         val isGranted = "android.permission.health.READ_STEPS" in grantedPermissions
         granted = isGranted
