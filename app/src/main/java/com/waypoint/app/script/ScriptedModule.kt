@@ -200,14 +200,22 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     @OptIn(DelicateCoroutinesApi::class)
     ScriptableObject.putProperty(ws, "setScheduleForDate", object : BaseFunction() {
         override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val cal  = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            val opts = args.getOrNull(1) as? NativeObject ?: return null
+            val dateArg = args.getOrNull(0)?.toString()
+            AppLogger.i("WS", "setScheduleForDate called date=$dateArg")
+            val cal  = parseDateStr(dateArg ?: return null) ?: run {
+                AppLogger.w("WS", "setScheduleForDate: bad date \"$dateArg\""); return null
+            }
+            val opts = args.getOrNull(1) as? NativeObject ?: run {
+                AppLogger.w("WS", "setScheduleForDate: opts not NativeObject"); return null
+            }
             val key  = env.workSchedule.dateKey(cal)
             val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
             val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
             val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+            AppLogger.i("WS", "setScheduleForDate: key=$key isWork=$isWork start=$start end=$end")
             GlobalScope.launch(Dispatchers.IO) {
-                try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end)) }
+                try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
+                      AppLogger.i("WS", "setDateOverride done key=$key") }
                 catch (e: Throwable) { AppLogger.e("WS", "setDateOverride failed ${e.javaClass.name}", e) }
             }
             return null
@@ -218,25 +226,36 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     @OptIn(DelicateCoroutinesApi::class)
     ScriptableObject.putProperty(ws, "setSchedulesForDates", object : BaseFunction() {
         override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val map = args.getOrNull(0) as? NativeObject ?: return null
+            val arg0 = args.getOrNull(0)
+            AppLogger.i("WS", "setSchedulesForDates called arg0=${arg0?.javaClass?.simpleName}")
+            val map = arg0 as? NativeObject ?: run {
+                AppLogger.w("WS", "setSchedulesForDates: arg0 not NativeObject, got ${arg0?.javaClass?.simpleName}")
+                return null
+            }
+            AppLogger.i("WS", "setSchedulesForDates: ${map.ids.size} keys: ${map.ids.take(3).joinToString()}")
             val overrides = mutableMapOf<String, DaySchedule>()
             for (rawKey in map.ids) {
                 val dateStr = rawKey.toString()
-                val cal = parseDateStr(dateStr) ?: continue
-                val opts = map.get(dateStr, map) as? NativeObject ?: continue
+                val cal = parseDateStr(dateStr) ?: run {
+                    AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\""); continue
+                }
+                val opts = map.get(dateStr, map) as? NativeObject ?: run {
+                    AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject"); continue
+                }
                 val key    = env.workSchedule.dateKey(cal)
                 val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
                 val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
                 val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+                AppLogger.i("WS", "setSchedulesForDates: $key isWork=$isWork $start-$end")
                 overrides[key] = DaySchedule(isWork, start, end)
             }
+            AppLogger.i("WS", "setSchedulesForDates: ${overrides.size} valid overrides")
             if (overrides.isNotEmpty()) {
                 val snapshot = overrides.toMap()
                 GlobalScope.launch(Dispatchers.IO) {
                     try {
-                        AppLogger.i("WS", "setBulkDateOverrides: ${snapshot.size} dates")
                         env.workSchedule.setBulkDateOverrides(snapshot)
-                        AppLogger.i("WS", "setBulkDateOverrides: done")
+                        AppLogger.i("WS", "setBulkDateOverrides done: ${snapshot.size} dates")
                     }
                     catch (e: Throwable) { AppLogger.e("WS", "setBulkDateOverrides failed ${e.javaClass.name}", e) }
                 }
