@@ -21,7 +21,12 @@ import com.waypoint.app.ui.theme.WaypointTheme
 class MainActivity : ComponentActivity() {
 
     private val viewModel: HomeViewModel by viewModels {
-        HomeViewModel.Factory(WidgetStateStore(applicationContext))
+        val app = application as WaypointApplication
+        HomeViewModel.Factory(
+            store = WidgetStateStore(applicationContext),
+            scriptedStore = app.scriptedWidgetStore,
+            signals = app.signalSources
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,15 +45,18 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val statesById by viewModel.statesById.collectAsState()
+            val widgets by viewModel.widgets.collectAsState()
             WaypointTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(
                         workSchedule = signalSources.workSchedule,
                         eventPlanner = signalSources.eventPlanner,
                         sleepStore = sleepScheduleStore,
-                        addedWidgets = viewModel.widgets,
+                        addedWidgets = widgets,
                         statesById = statesById,
-                        onStateChange = viewModel::onStateChange
+                        onStateChange = viewModel::onStateChange,
+                        onAddWidget = viewModel::addScriptedWidget,
+                        onRemoveWidget = viewModel::removeScriptedWidget
                     )
                 }
             }
