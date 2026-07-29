@@ -23,7 +23,7 @@ class PermissionRationaleActivity : ComponentActivity() {
                         title = "Health data access",
                         rationale = "Waypoint reads your daily step count so scripts can track activity goals and adapt your schedule automatically.",
                         permissionType = PermissionType.RUNTIME,
-                        onGrant = { finish() },
+                        onGrant = { setResult(RESULT_OK); finish() },
                         onDismiss = { finish() }
                     )
                 }
