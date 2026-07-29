@@ -14,10 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HomeViewModel(
     private val stateStore: ScriptStateStore,
@@ -32,7 +34,24 @@ class HomeViewModel(
     private val _scriptList = MutableStateFlow(ScriptRegistry.all())
     val scripts: StateFlow<List<AppScript>> = _scriptList
 
+    // Reset wizard step/substep for user scripts on the very first DataStore emission.
+    // This prevents a stale mid-wizard step (e.g. from a previous crash) from
+    // auto-launching the dialog the next time the app opens.
+    private val launchResetDone = AtomicBoolean(false)
+    private val userScriptIds: Set<String> by lazy {
+        ScriptRegistry.all().filterIsInstance<ScriptedModule>().map { it.id }.toSet()
+    }
+
     val statesById: StateFlow<Map<String, ScriptState>> = stateStore.allStates()
+        .map { states ->
+            if (launchResetDone.compareAndSet(false, true) && userScriptIds.isNotEmpty()) {
+                states.mapValues { (id, state) ->
+                    if (id in userScriptIds && (state.values["step"] ?: 0.0) > 0.0) {
+                        state.copy(values = state.values - "step" - "substep")
+                    } else state
+                }
+            } else states
+        }
         .onEach { env.updateCache(it) }
         .stateIn(
             scope = viewModelScope,
