@@ -45,16 +45,35 @@
             android:exported="false" />
 
         <!--
-            Required by Health Connect: without this activity + intent filter,
-            the HC permission request is silently rejected on all Android versions.
+            Health Connect — rationale activity.
+            The action differs by HC variant:
+              - Standalone HC app (Android 9–13): androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE
+              - Platform HC (Android 14+):        android.intent.action.VIEW_PERMISSION_USAGE
+                                                  via the activity-alias below
         -->
         <activity
             android:name=".permission.PermissionRationaleActivity"
             android:exported="true">
             <intent-filter>
-                <action android:name="androidx.health.connect.client.SHOW_PERMISSIONS_RATIONALE" />
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
+
+        <!--
+            Required for platform Health Connect on Android 14+.
+            Without this alias the permission dialog is silently rejected on
+            devices where HC is baked into the OS instead of a standalone app.
+        -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".permission.PermissionRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".MainActivity"
