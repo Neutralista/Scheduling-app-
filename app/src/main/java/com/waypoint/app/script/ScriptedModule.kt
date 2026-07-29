@@ -147,6 +147,7 @@ private fun NativeObject.jsFloat(key: String): Float? {
 // ── Signals bridge: built-in state exposed to JS ─────────────────────────────
 
 private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scriptable): NativeObject {
+    AppLogger.i("Bridge", "buildSignalsBridge: enter")
     val obj = cx.newObject(scope) as NativeObject
 
     // workSchedule
@@ -313,6 +314,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     ScriptableObject.putProperty(healthObj, "steps", env.healthConnect.cachedSteps.toDouble())
     ScriptableObject.putProperty(obj, "health", healthObj)
 
+    AppLogger.i("Bridge", "buildSignalsBridge: done")
     return obj
 }
 
@@ -416,8 +418,9 @@ class ScriptedModule private constructor(
                 val (scope, obj) = buildScope(cx)
                 val fn = ScriptableObject.getProperty(obj, "onRegister") as? org.mozilla.javascript.Function
                 if (fn != null) {
-                    val signalsJs = runCatching { buildSignalsBridge(env, cx, scope) }.getOrNull()
-                        ?: cx.newObject(scope) as NativeObject
+                    val signalsJs = runCatching { buildSignalsBridge(env, cx, scope) }
+                        .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onRegister) threw ${it.javaClass.name}", it) }
+                        .getOrNull() ?: cx.newObject(scope) as NativeObject
                     val scriptsJs = runCatching { buildScriptsBridge(env, cx, scope) }.getOrNull()
                         ?: cx.newObject(scope) as NativeObject
                     fn.call(cx, scope, obj, arrayOf(signalsJs, scriptsJs))
@@ -487,8 +490,9 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "widget") as? org.mozilla.javascript.Function
                     ?: return ScriptedView(title = displayName)
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
-                    ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                    .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (widget) threw ${it.javaClass.name}", it) }
+                    .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
@@ -529,8 +533,9 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onAction") as? org.mozilla.javascript.Function
                     ?: return state.copy(doneToday = !state.doneToday)
                 val stateJs  = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
-                    ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                    .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onAction) threw ${it.javaClass.name}", it) }
+                    .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
@@ -559,8 +564,9 @@ class ScriptedModule private constructor(
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
                 AppLogger.i("JS[$id]", "onAnswer: buildSignals")
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
-                    ?: cx.newObject(scope) as NativeObject
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                    .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onAnswer) threw ${it.javaClass.name}", it) }
+                    .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 AppLogger.i("JS[$id]", "onAnswer: calling fn")
