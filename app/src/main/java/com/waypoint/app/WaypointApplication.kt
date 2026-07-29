@@ -3,30 +3,52 @@ package com.waypoint.app
 import android.app.Application
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
-import com.waypoint.app.planner.SleepScheduleStore
-import com.waypoint.app.signal.RealSignalSources
-import com.waypoint.app.widget.HabitWidgetRegistry
-import com.waypoint.app.widget.ScriptedWidgetStore
+import com.waypoint.app.persistence.ScriptStateStore
+import com.waypoint.app.script.ScriptRegistry
+import com.waypoint.app.script.ScriptStore
+import com.waypoint.app.script.SleepScheduleScript
+import com.waypoint.app.script.WorkScheduleScript
+import com.waypoint.app.signal.RealScriptEnvironment
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class WaypointApplication : Application() {
 
-    lateinit var signalSources: RealSignalSources
+    lateinit var env: RealScriptEnvironment
         private set
-    lateinit var sleepScheduleStore: SleepScheduleStore
+    lateinit var scriptStateStore: ScriptStateStore
         private set
-    lateinit var scriptedWidgetStore: ScriptedWidgetStore
+    lateinit var scriptStore: ScriptStore
         private set
+
+    private val appScope = MainScope()
 
     override fun onCreate() {
         super.onCreate()
-        signalSources = RealSignalSources(applicationContext)
-        sleepScheduleStore = SleepScheduleStore(applicationContext)
-        sleepScheduleStore.syncToRegistry(signalSources.eventPlanner, signalSources.workSchedule)
-        scriptedWidgetStore = ScriptedWidgetStore(applicationContext)
 
-        // Re-register any scripted widgets the user added in a previous session
-        scriptedWidgetStore.loadAll().forEach { widget ->
-            HabitWidgetRegistry.register(widget, signalSources)
+        scriptStateStore = ScriptStateStore(applicationContext)
+        scriptStore = ScriptStore(applicationContext)
+        env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
+
+        // Shared refresh signal so WorkScheduleScript can trigger SleepScheduleScript recompose
+        val sleepRefresh = MutableStateFlow(0)
+
+        // Register built-in scripts
+        ScriptRegistry.register(
+            WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh),
+            env
+        )
+        ScriptRegistry.register(
+            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh),
+            env
+        )
+
+        // Sync sleep schedule into the event planner on launch
+        env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule)
+
+        // Re-register any user scripts saved in a previous session
+        scriptStore.loadAll().forEach { module ->
+            ScriptRegistry.register(module, env)
         }
 
         NotificationHelper.createChannel(this)

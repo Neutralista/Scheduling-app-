@@ -3,70 +3,95 @@ package com.waypoint.app.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.waypoint.app.persistence.WidgetStateStore
-import com.waypoint.app.widget.HabitWidget
-import com.waypoint.app.widget.HabitWidgetRegistry
-import com.waypoint.app.widget.ScriptedWidget
-import com.waypoint.app.widget.ScriptedWidgetStore
-import com.waypoint.app.widget.SignalSources
-import com.waypoint.app.widget.WidgetState
+import com.waypoint.app.persistence.ScriptStateStore
+import com.waypoint.app.script.AppScript
+import com.waypoint.app.script.ScriptRegistry
+import com.waypoint.app.script.ScriptState
+import com.waypoint.app.script.ScriptStore
+import com.waypoint.app.script.ScriptedModule
+import com.waypoint.app.signal.RealScriptEnvironment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class HomeViewModel(
-    private val store: WidgetStateStore,
-    private val scriptedStore: ScriptedWidgetStore,
-    private val signals: SignalSources
+    private val stateStore: ScriptStateStore,
+    private val scriptStore: ScriptStore,
+    private val env: RealScriptEnvironment
 ) : ViewModel() {
 
-    /** Drives recomposition whenever the widget list changes. */
-    private val _widgetList = MutableStateFlow(HabitWidgetRegistry.all())
-    val widgets: StateFlow<List<HabitWidget>> = _widgetList
+    private val _scriptList = MutableStateFlow(ScriptRegistry.all())
+    val scripts: StateFlow<List<AppScript>> = _scriptList
 
-    val statesById: StateFlow<Map<String, WidgetState>> = store.allStates()
+    val statesById: StateFlow<Map<String, ScriptState>> = stateStore.allStates()
+        .onEach { env.updateCache(it) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyMap()
         )
 
-    fun onStateChange(widgetId: String, newState: WidgetState) {
-        viewModelScope.launch { store.save(widgetId, newState) }
+    fun onStateChange(scriptId: String, newState: ScriptState) {
+        viewModelScope.launch { stateStore.save(scriptId, newState) }
     }
 
     /**
-     * Evaluates [source] as a scripted widget, registers it, and persists the code.
-     * Returns null on success or an error message string on failure.
+     * Evaluates [source] as a user script, registers it, and persists the JS.
+     * Returns null on success or an error message on failure.
      */
-    fun addScriptedWidget(source: String): String? {
+    fun addUserScript(source: String): String? {
         return try {
-            val widget = ScriptedWidget.fromSource(source)
-            HabitWidgetRegistry.register(widget, signals)
-            scriptedStore.save(widget)
-            _widgetList.update { HabitWidgetRegistry.all() }
+            val module = ScriptedModule.fromSource(source)
+            ScriptRegistry.register(module, env)
+            scriptStore.save(module)
+            _scriptList.update { ScriptRegistry.all() }
             null
         } catch (e: Exception) {
             e.message ?: "Unknown error"
         }
     }
 
-    fun removeScriptedWidget(id: String) {
-        HabitWidgetRegistry.unregister(id)
-        scriptedStore.delete(id)
-        _widgetList.update { HabitWidgetRegistry.all() }
+    /**
+     * Re-evaluates and replaces a user script's JS source in place.
+     * The script id in the new source must match [id].
+     */
+    fun updateUserScript(id: String, newSource: String): String? {
+        return try {
+            val module = ScriptedModule.fromSource(newSource)
+            if (module.id != id) return "Script id must stay \"$id\" but got \"${module.id}\""
+            ScriptRegistry.unregister(id)
+            ScriptRegistry.register(module, env)
+            scriptStore.saveSource(id, newSource)
+            _scriptList.update { ScriptRegistry.all() }
+            null
+        } catch (e: Exception) {
+            e.message ?: "Unknown error"
+        }
+    }
+
+    fun removeUserScript(id: String) {
+        ScriptRegistry.unregister(id)
+        scriptStore.delete(id)
+        viewModelScope.launch { stateStore.clear(id) }
+        _scriptList.update { ScriptRegistry.all() }
+    }
+
+    fun resetBuiltInScript(id: String) {
+        val script = ScriptRegistry.get(id) ?: return
+        viewModelScope.launch { script.resetToDefaults() }
     }
 
     class Factory(
-        private val store: WidgetStateStore,
-        private val scriptedStore: ScriptedWidgetStore,
-        private val signals: SignalSources
+        private val stateStore: ScriptStateStore,
+        private val scriptStore: ScriptStore,
+        private val env: RealScriptEnvironment
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(store, scriptedStore, signals) as T
+            HomeViewModel(stateStore, scriptStore, env) as T
     }
 }

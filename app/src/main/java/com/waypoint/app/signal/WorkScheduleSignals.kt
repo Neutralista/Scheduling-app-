@@ -116,6 +116,7 @@ interface WorkScheduleSignals {
     suspend fun setWeekday(isoDay: Int, schedule: DaySchedule)
     suspend fun setDateOverride(dateKey: String, schedule: DaySchedule)
     suspend fun removeDateOverride(dateKey: String)
+    suspend fun resetToDefaults()
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
@@ -244,6 +245,10 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
     override suspend fun removeAfterWorkEvent(id: String) = withContext(Dispatchers.IO) {
         val c = getConfig()
         saveConfig(c.copy(afterWorkEvents = c.afterWorkEvents.filter { it.id != id }))
+    }
+
+    override suspend fun resetToDefaults() = withContext(Dispatchers.IO) {
+        saveConfig(WorkScheduleConfig())
     }
 }
 

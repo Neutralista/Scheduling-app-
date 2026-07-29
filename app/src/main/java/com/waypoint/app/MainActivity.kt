@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
-import com.waypoint.app.persistence.WidgetStateStore
 import com.waypoint.app.ui.theme.WaypointTheme
 
 class MainActivity : ComponentActivity() {
@@ -23,9 +22,9 @@ class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels {
         val app = application as WaypointApplication
         HomeViewModel.Factory(
-            store = WidgetStateStore(applicationContext),
-            scriptedStore = app.scriptedWidgetStore,
-            signals = app.signalSources
+            stateStore = app.scriptStateStore,
+            scriptStore = app.scriptStore,
+            env = app.env
         )
     }
 
@@ -40,23 +39,22 @@ class MainActivity : ComponentActivity() {
         }
 
         val app = application as WaypointApplication
-        val signalSources = app.signalSources
-        val sleepScheduleStore = app.sleepScheduleStore
 
         setContent {
             val statesById by viewModel.statesById.collectAsState()
-            val widgets by viewModel.widgets.collectAsState()
+            val scripts by viewModel.scripts.collectAsState()
             WaypointTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(
-                        workSchedule = signalSources.workSchedule,
-                        eventPlanner = signalSources.eventPlanner,
-                        sleepStore = sleepScheduleStore,
-                        addedWidgets = widgets,
+                        workSchedule = app.env.workSchedule,
+                        eventPlanner = app.env.eventPlanner,
+                        scripts = scripts,
                         statesById = statesById,
                         onStateChange = viewModel::onStateChange,
-                        onAddWidget = viewModel::addScriptedWidget,
-                        onRemoveWidget = viewModel::removeScriptedWidget
+                        onAddScript = viewModel::addUserScript,
+                        onUpdateScript = viewModel::updateUserScript,
+                        onRemoveScript = viewModel::removeUserScript,
+                        onResetScript = viewModel::resetBuiltInScript
                     )
                 }
             }

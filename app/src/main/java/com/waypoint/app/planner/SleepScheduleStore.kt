@@ -48,6 +48,7 @@ class SleepScheduleStore(context: Context) {
     fun setPreferredWakeTime(time: ShiftTime) = save(load().copy(preferredWakeTime = time))
     fun setPreferredBedTime(time: ShiftTime) = save(load().copy(preferredBedTime = time))
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
+    fun resetToDefaults() = save(SleepSchedule())
 
     /**
      * Computes effective wake/bed times from shift constraints:
