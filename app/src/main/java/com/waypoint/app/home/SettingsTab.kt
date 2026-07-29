@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -112,16 +113,6 @@ private fun HealthConnectIntegration(onPermissionGranted: () -> Unit) {
         }
     }
 
-    var granted by remember { mutableStateOf(false) }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        val anyGranted = results.values.any { it }
-        granted = anyGranted
-        if (anyGranted) onPermissionGranted()
-    }
-
     Column(Modifier.fillMaxWidth()) {
         Text(
             text = "Health Connect",
@@ -144,7 +135,6 @@ private fun HealthConnectIntegration(onPermissionGranted: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-
             HealthConnectAvailability.NOT_INSTALLED -> {
                 Text(
                     text = "Health Connect app is not installed",
@@ -153,34 +143,57 @@ private fun HealthConnectIntegration(onPermissionGranted: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = {
-                    val intent = Intent(
-                        Intent.ACTION_VIEW,
-                        Uri.parse("market://details?id=com.google.android.apps.healthdata")
+                    context.startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("market://details?id=com.google.android.apps.healthdata")
+                        )
                     )
-                    context.startActivity(intent)
                 }) {
                     Text("Install Health Connect")
                 }
             }
-
             HealthConnectAvailability.AVAILABLE -> {
-                if (granted) {
-                    StatusChip(connected = true)
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        StatusChip(connected = false)
-                        Button(onClick = {
-                            launcher.launch(
-                                arrayOf("android.permission.health.READ_STEPS").toSet().toTypedArray()
-                            )
-                        }) {
-                            Text("Connect")
-                        }
-                    }
-                }
+                // Extracted into its own composable so rememberLauncherForActivityResult
+                // is called unconditionally with the HC client's own contract.
+                HcConnectButton(onPermissionGranted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HcConnectButton(onPermissionGranted: () -> Unit) {
+    val context = LocalContext.current
+    val client = remember { HealthConnectClient.getOrCreate(context) }
+    var granted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        granted = client.permissionController
+            .getGrantedPermissions()
+            .contains("android.permission.health.READ_STEPS")
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        client.permissionController.requestPermissionsActivityContract()
+    ) { grantedPermissions ->
+        val isGranted = "android.permission.health.READ_STEPS" in grantedPermissions
+        granted = isGranted
+        if (isGranted) onPermissionGranted()
+    }
+
+    if (granted) {
+        StatusChip(connected = true)
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            StatusChip(connected = false)
+            Button(onClick = {
+                launcher.launch(setOf("android.permission.health.READ_STEPS"))
+            }) {
+                Text("Connect")
             }
         }
     }
