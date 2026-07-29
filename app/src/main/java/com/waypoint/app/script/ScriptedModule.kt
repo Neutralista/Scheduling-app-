@@ -164,7 +164,8 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
-                env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime))
+                try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
+                catch (_: Exception) {}
             }
             return null
         }
@@ -175,7 +176,8 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
-                env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime))
+                try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
+                catch (_: Exception) {}
             }
             return null
         }
@@ -203,7 +205,35 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
             val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
             GlobalScope.launch(Dispatchers.IO) {
-                env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
+                try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end)) }
+                catch (_: Exception) {}
+            }
+            return null
+        }
+    })
+    // signals.workSchedule.setSchedulesForDates({ '2026-01-27': { isWork: true, shiftStart: '09:00', shiftEnd: '17:00' }, ... })
+    // Writes all date overrides in a single atomic operation — preferred over calling setScheduleForDate in a loop.
+    @OptIn(DelicateCoroutinesApi::class)
+    ScriptableObject.putProperty(ws, "setSchedulesForDates", object : BaseFunction() {
+        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+            val map = args.getOrNull(0) as? NativeObject ?: return null
+            val overrides = mutableMapOf<String, DaySchedule>()
+            for (rawKey in map.ids) {
+                val dateStr = rawKey.toString()
+                val cal = parseDateStr(dateStr) ?: continue
+                val opts = map.get(dateStr, map) as? NativeObject ?: continue
+                val key    = env.workSchedule.dateKey(cal)
+                val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
+                val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+                val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+                overrides[key] = DaySchedule(isWork, start, end)
+            }
+            if (overrides.isNotEmpty()) {
+                val snapshot = overrides.toMap()
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.workSchedule.setBulkDateOverrides(snapshot) }
+                    catch (_: Exception) {}
+                }
             }
             return null
         }
