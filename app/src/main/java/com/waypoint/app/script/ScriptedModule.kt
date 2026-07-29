@@ -1,5 +1,6 @@
 package com.waypoint.app.script
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -592,6 +594,88 @@ class ScriptedModule private constructor(
                                     TextButton(onClick = {
                                         onStateChange(applyAnswer(current, "%02d:%02d".format(tpState.hour, tpState.minute)))
                                     }) { Text("OK") }
+                                }
+                            }
+                        }
+                    }
+                }
+                "workday" -> {
+                    var isWork by remember(current) { mutableStateOf(true) }
+                    var pickingStart by remember(current) { mutableStateOf(true) }
+                    val sh = remember(current) { dialog.placeholder.split(":").getOrNull(0)?.toIntOrNull() ?: 9 }
+                    val sm = remember(current) { dialog.placeholder.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val eh = remember(current) { dialog.placeholder2.split(":").getOrNull(0)?.toIntOrNull() ?: 17 }
+                    val em = remember(current) { dialog.placeholder2.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val startState = rememberTimePickerState(initialHour = sh, initialMinute = sm, is24Hour = true)
+                    val endState   = rememberTimePickerState(initialHour = eh, initialMinute = em, is24Hour = true)
+                    BasicAlertDialog(onDismissRequest = {}) {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = dialog.question,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = isWork,
+                                        onClick = { isWork = true; pickingStart = true },
+                                        label = { Text(dialog.yesLabel) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = !isWork,
+                                        onClick = { isWork = false },
+                                        label = { Text(dialog.noLabel) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                AnimatedVisibility(visible = isWork) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            text = if (pickingStart) "Shift start" else "Shift end",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        if (pickingStart) TimePicker(state = startState)
+                                        else             TimePicker(state = endState)
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                        Text("Cancel")
+                                    }
+                                    TextButton(onClick = {
+                                        when {
+                                            !isWork -> onStateChange(applyAnswer(current, "off"))
+                                            pickingStart -> pickingStart = false
+                                            else -> {
+                                                val ans = "work|%02d:%02d|%02d:%02d".format(
+                                                    startState.hour, startState.minute,
+                                                    endState.hour,   endState.minute
+                                                )
+                                                onStateChange(applyAnswer(current, ans))
+                                            }
+                                        }
+                                    }) {
+                                        Text(when {
+                                            !isWork      -> "Confirm"
+                                            pickingStart -> "Next"
+                                            else         -> "Confirm"
+                                        })
+                                    }
                                 }
                             }
                         }
