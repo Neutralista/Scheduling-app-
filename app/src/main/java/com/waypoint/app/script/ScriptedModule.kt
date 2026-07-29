@@ -796,44 +796,64 @@ class ScriptedModule private constructor(
                     }
                 }
                 "timerange" -> {
-                    val defStart = dialog.placeholder.ifBlank { "09:00" }
-                    val defEnd   = dialog.placeholder2.ifBlank { "17:00" }
-                    var startText by remember(current) { mutableStateOf(defStart) }
-                    var endText   by remember(current) { mutableStateOf(defEnd) }
-                    AlertDialog(
-                        onDismissRequest = {},
-                        title = { Text(dialog.question) },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                OutlinedTextField(
-                                    value = startText,
-                                    onValueChange = { startText = it },
-                                    singleLine = true,
-                                    label = { Text("Shift start") },
-                                    placeholder = { Text("09:00") }
+                    val sh = remember(current) { dialog.placeholder.split(":").getOrNull(0)?.toIntOrNull() ?: 9 }
+                    val sm = remember(current) { dialog.placeholder.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val eh = remember(current) { dialog.placeholder2.split(":").getOrNull(0)?.toIntOrNull() ?: 17 }
+                    val em = remember(current) { dialog.placeholder2.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
+                    val startState = rememberTimePickerState(initialHour = sh, initialMinute = sm, is24Hour = true)
+                    val endState   = rememberTimePickerState(initialHour = eh, initialMinute = em, is24Hour = true)
+                    var pickingStart by remember(current) { mutableStateOf(true) }
+                    BasicAlertDialog(onDismissRequest = {}) {
+                        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = dialog.question,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                                 )
-                                OutlinedTextField(
-                                    value = endText,
-                                    onValueChange = { endText = it },
-                                    singleLine = true,
-                                    label = { Text("Shift end") },
-                                    placeholder = { Text("17:00") }
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                val s = startText.trim().ifBlank { defStart }
-                                val e = endText.trim().ifBlank { defEnd }
-                                onStateChange(applyAnswer(current, "$s|$e"))
-                            }) { Text("Set") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                                Text("Cancel")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = pickingStart,
+                                        onClick = { pickingStart = true },
+                                        label = { Text("%02d:%02d".format(startState.hour, startState.minute)) },
+                                        leadingIcon = if (pickingStart) {{ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }} else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = !pickingStart,
+                                        onClick = { pickingStart = false },
+                                        label = { Text("%02d:%02d".format(endState.hour, endState.minute)) },
+                                        leadingIcon = if (!pickingStart) {{ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }} else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                if (pickingStart) TimePicker(state = startState)
+                                else             TimePicker(state = endState)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                        Text("Cancel")
+                                    }
+                                    TextButton(onClick = {
+                                        val ans = "%02d:%02d|%02d:%02d".format(
+                                            startState.hour, startState.minute,
+                                            endState.hour,   endState.minute
+                                        )
+                                        onStateChange(applyAnswer(current, ans))
+                                    }) { Text("OK") }
+                                }
                             }
                         }
-                    )
+                    }
                 }
                 else -> {
                     AlertDialog(
