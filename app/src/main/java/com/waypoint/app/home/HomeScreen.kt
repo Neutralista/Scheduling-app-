@@ -88,6 +88,8 @@ fun HomeScreen(
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner)
                 1 -> ScriptsTab(
                     scripts = scripts,
+                    statesById = statesById,
+                    onStateChange = onStateChange,
                     onAddScript = onAddScript,
                     onUpdateScript = onUpdateScript,
                     onRemoveScript = onRemoveScript,

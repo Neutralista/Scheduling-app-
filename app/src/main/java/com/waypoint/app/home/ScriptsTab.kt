@@ -32,9 +32,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,11 +50,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.script.AppScript
+import com.waypoint.app.script.ScriptState
+import com.waypoint.app.script.ScriptedModule
+import com.waypoint.app.script.SettingSpec
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScriptsTab(
     scripts: List<AppScript>,
+    statesById: Map<String, ScriptState>,
+    onStateChange: (String, ScriptState) -> Unit,
     onAddScript: (String) -> String?,
     onUpdateScript: (id: String, newSource: String) -> String?,
     onRemoveScript: (String) -> Unit,
@@ -75,6 +83,8 @@ fun ScriptsTab(
                 items(scripts, key = { it.id }) { script ->
                     ScriptRow(
                         script = script,
+                        state = statesById[script.id] ?: ScriptState(),
+                        onStateChange = { onStateChange(script.id, it) },
                         onUpdate = onUpdateScript,
                         onRemove = { onRemoveScript(script.id) },
                         onReset = { onResetScript(script.id) }
@@ -115,6 +125,8 @@ fun ScriptsTab(
 @Composable
 private fun ScriptRow(
     script: AppScript,
+    state: ScriptState,
+    onStateChange: (ScriptState) -> Unit,
     onUpdate: (id: String, newSource: String) -> String?,
     onRemove: () -> Unit,
     onReset: () -> Unit
@@ -187,6 +199,12 @@ private fun ScriptRow(
                 // Settings panel
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     script.SettingsContent()
+                    val specs = remember(script.id, (script as? ScriptedModule)?.source) {
+                        (script as? ScriptedModule)?.getSettings() ?: emptyList()
+                    }
+                    if (specs.isNotEmpty()) {
+                        ScriptSettingsPanel(specs = specs, state = state, onStateChange = onStateChange)
+                    }
                 }
 
                 // Action buttons
@@ -270,6 +288,59 @@ private fun ScriptRow(
                 TextButton(onClick = { showResetDialog = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun ScriptSettingsPanel(
+    specs: List<SettingSpec>,
+    state: ScriptState,
+    onStateChange: (ScriptState) -> Unit
+) {
+    var prevSection: String? = null
+    specs.forEach { spec ->
+        if (spec.section != null && spec.section != prevSection) {
+            prevSection = spec.section
+            Text(
+                text = spec.section,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+            )
+        }
+        val value = state.settings[spec.id] ?: spec.defaultValue
+        when (spec.type) {
+            "toggle" -> Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = spec.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Switch(
+                    checked = value.equals("true", ignoreCase = true),
+                    onCheckedChange = { checked ->
+                        onStateChange(state.copy(settings = state.settings + (spec.id to checked.toString())))
+                    }
+                )
+            }
+            else -> OutlinedTextField(
+                value = value,
+                onValueChange = { newVal ->
+                    onStateChange(state.copy(settings = state.settings + (spec.id to newVal)))
+                },
+                label = { Text(spec.label) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
     }
 }
 

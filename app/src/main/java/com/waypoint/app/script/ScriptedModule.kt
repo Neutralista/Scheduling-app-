@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -147,6 +148,35 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             return null
         }
     })
+    // read/write schedule for any specific date: signals.workSchedule.getScheduleForDate('2026-01-27')
+    ScriptableObject.putProperty(ws, "getScheduleForDate", object : BaseFunction() {
+        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+            val cal = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
+            val schedule = env.workSchedule.getSchedule(cal)
+            val o = cx.newObject(scope) as NativeObject
+            ScriptableObject.putProperty(o, "isWork", schedule.isWork)
+            ScriptableObject.putProperty(o, "shiftStart", schedule.shiftStart?.displayString ?: "")
+            ScriptableObject.putProperty(o, "shiftEnd",   schedule.shiftEnd?.displayString   ?: "")
+            return o
+        }
+    })
+    // signals.workSchedule.setScheduleForDate('2026-01-27', { isWork: true, shiftStart: '09:00', shiftEnd: '17:00' })
+    @OptIn(DelicateCoroutinesApi::class)
+    ScriptableObject.putProperty(ws, "setScheduleForDate", object : BaseFunction() {
+        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+            val cal  = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
+            val opts = args.getOrNull(1) as? NativeObject ?: return null
+            val key  = env.workSchedule.dateKey(cal)
+            val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
+            val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+            val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+            GlobalScope.launch(Dispatchers.IO) {
+                env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
+            }
+            return null
+        }
+    })
+
     ScriptableObject.putProperty(obj, "workSchedule", ws)
 
     // sleep
@@ -218,6 +248,30 @@ private fun buildScriptsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
 
     return obj
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+private fun parseDateStr(s: String): Calendar? {
+    val parts = s.split("-")
+    if (parts.size != 3) return null
+    val y = parts[0].toIntOrNull() ?: return null
+    val m = parts[1].toIntOrNull()?.minus(1) ?: return null
+    val d = parts[2].toIntOrNull() ?: return null
+    return Calendar.getInstance().apply { set(y, m, d, 0, 0, 0); set(Calendar.MILLISECOND, 0) }
+}
+
+// ── Settings spec ─────────────────────────────────────────────────────────────
+
+/** A single declarative field returned by a script's settings() function. */
+data class SettingSpec(
+    val id: String,
+    val label: String,
+    /** "toggle", "time", or "text" */
+    val type: String,
+    val defaultValue: String,
+    /** Optional section header to group fields visually. */
+    val section: String? = null
+)
 
 // ── ScriptedModule ────────────────────────────────────────────────────────────
 
@@ -380,6 +434,31 @@ class ScriptedModule private constructor(
                 (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
         } catch (e: Exception) { state }
+    }
+
+    // ── Evaluate settings() ───────────────────────────────────────────────────
+
+    fun getSettings(): List<SettingSpec> {
+        return try {
+            val cx = rhino()
+            try {
+                val (scope, obj) = buildScope(cx)
+                val fn = ScriptableObject.getProperty(obj, "settings") as? org.mozilla.javascript.Function
+                    ?: return emptyList()
+                val arr = fn.call(cx, scope, obj, emptyArray()) as? org.mozilla.javascript.NativeArray
+                    ?: return emptyList()
+                (0 until arr.length.toInt()).mapNotNull { i ->
+                    val item = arr.get(i, arr) as? NativeObject ?: return@mapNotNull null
+                    SettingSpec(
+                        id           = item.jsString("id")           ?: return@mapNotNull null,
+                        label        = item.jsString("label")        ?: "",
+                        type         = item.jsString("type")         ?: "text",
+                        defaultValue = item.jsString("defaultValue") ?: "",
+                        section      = item.jsString("section")
+                    )
+                }
+            } finally { Context.exit() }
+        } catch (_: Exception) { emptyList() }
     }
 
     // ── Compose UI ────────────────────────────────────────────────────────────
