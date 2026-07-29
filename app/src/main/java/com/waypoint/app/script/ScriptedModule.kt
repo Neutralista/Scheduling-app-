@@ -16,14 +16,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,6 +71,10 @@ var Script = (function() {
   Script.prototype.onAction   = function(state, signals, scripts) {
     return Object.assign({}, state, { doneToday: !state.doneToday });
   };
+  // onAnswer(state, answer, signals, scripts): called when the user responds to a dialog prompt.
+  // answer is "yes"/"no" for yesno dialogs, the input string for text dialogs, or "cancel".
+  // Return new state or null to keep current.
+  Script.prototype.onAnswer   = function(state, answer, signals, scripts) { return null; };
   return Script;
 })();
 
@@ -80,13 +91,26 @@ var HabitWidget = Script;
 
 // ── View spec produced by JS widget() ────────────────────────────────────────
 
+/** Describes a modal prompt the wizard shows while onAnswer drives the flow. */
+data class ScriptedDialog(
+    val question: String,
+    /** "yesno" for a yes/no choice, "text" for a free-text input. */
+    val type: String = "yesno",
+    val yesLabel: String = "Yes",
+    val noLabel: String = "No",
+    /** Pre-filled hint for text inputs. */
+    val placeholder: String = ""
+)
+
 data class ScriptedView(
     val title: String = "",
     val subtitle: String? = null,
     val value: String? = null,
     val progress: Float? = null,
     val done: Boolean = false,
-    val actionLabel: String = "Done"
+    val actionLabel: String = "Done",
+    /** When non-null, a modal dialog is shown over the widget card for this step. */
+    val dialog: ScriptedDialog? = null
 )
 
 // ── NativeObject helpers ──────────────────────────────────────────────────────
@@ -385,13 +409,22 @@ class ScriptedModule private constructor(
                 val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
                     ?: return ScriptedView(title = displayName)
+                val dialogObj = res.get("dialog", res)
+                val dialog = if (dialogObj is NativeObject) ScriptedDialog(
+                    question    = dialogObj.jsString("question")    ?: "",
+                    type        = dialogObj.jsString("type")        ?: "yesno",
+                    yesLabel    = dialogObj.jsString("yesLabel")    ?: "Yes",
+                    noLabel     = dialogObj.jsString("noLabel")     ?: "No",
+                    placeholder = dialogObj.jsString("placeholder") ?: ""
+                ) else null
                 ScriptedView(
                     title       = res.jsString("title")       ?: displayName,
                     subtitle    = res.jsString("subtitle"),
                     value       = res.jsString("value"),
                     progress    = res.jsFloat("progress"),
                     done        = res.jsBool("done"),
-                    actionLabel = res.jsString("actionLabel") ?: "Done"
+                    actionLabel = res.jsString("actionLabel") ?: "Done",
+                    dialog      = dialog
                 )
             } finally { Context.exit() }
         } catch (e: Exception) {
@@ -414,6 +447,24 @@ class ScriptedModule private constructor(
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
                     ?: return state
                 res.toScriptState(state)
+            } finally { Context.exit() }
+        } catch (e: Exception) { state }
+    }
+
+    // ── Evaluate onAnswer() ───────────────────────────────────────────────────
+
+    fun applyAnswer(state: ScriptState, answer: String): ScriptState {
+        return try {
+            val cx = rhino()
+            try {
+                val (scope, obj) = buildScope(cx)
+                val fn = ScriptableObject.getProperty(obj, "onAnswer") as? org.mozilla.javascript.Function
+                    ?: return state
+                val stateJs   = state.toJS(cx, scope)
+                val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val res = fn.call(cx, scope, obj, arrayOf(stateJs, answer, signalsJs, scriptsJs))
+                (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
         } catch (e: Exception) { state }
     }
@@ -463,11 +514,65 @@ class ScriptedModule private constructor(
 
     // ── Compose UI ────────────────────────────────────────────────────────────
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         val current = state ?: ScriptState()
         val view = remember(current) { renderView(current) }
         ScriptedWidgetCard(view = view, onAction = { onStateChange(applyAction(current)) })
+
+        val dialog = view.dialog
+        if (dialog != null) {
+            if (dialog.type == "text") {
+                var input by remember(current) { mutableStateOf(dialog.placeholder) }
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text(view.title) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(dialog.question, style = MaterialTheme.typography.bodyMedium)
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                singleLine = true,
+                                placeholder = { Text(dialog.placeholder) }
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { onStateChange(applyAnswer(current, input.ifBlank { dialog.placeholder })) }) {
+                            Text("Confirm")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text(view.title) },
+                    text = { Text(dialog.question, style = MaterialTheme.typography.bodyMedium) },
+                    confirmButton = {
+                        TextButton(onClick = { onStateChange(applyAnswer(current, "yes")) }) {
+                            Text(dialog.yesLabel)
+                        }
+                    },
+                    dismissButton = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                Text("Cancel", color = MaterialTheme.colorScheme.outline)
+                            }
+                            TextButton(onClick = { onStateChange(applyAnswer(current, "no")) }) {
+                                Text(dialog.noLabel)
+                            }
+                        }
+                    }
+                )
+            }
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -567,7 +672,7 @@ fun ScriptedWidgetCard(view: ScriptedView, onAction: () -> Unit) {
                     )
                 }
             }
-        } else {
+        } else if (view.dialog == null) {
             Button(onClick = onAction) {
                 Text(view.actionLabel, style = MaterialTheme.typography.labelMedium)
             }
