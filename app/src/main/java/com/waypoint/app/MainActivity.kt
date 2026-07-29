@@ -54,7 +54,8 @@ class MainActivity : ComponentActivity() {
                         onAddScript = viewModel::addUserScript,
                         onUpdateScript = viewModel::updateUserScript,
                         onRemoveScript = viewModel::removeUserScript,
-                        onResetScript = viewModel::resetBuiltInScript
+                        onResetScript = viewModel::resetBuiltInScript,
+                        onPermissionGranted = viewModel::onPermissionGranted
                     )
                 }
             }

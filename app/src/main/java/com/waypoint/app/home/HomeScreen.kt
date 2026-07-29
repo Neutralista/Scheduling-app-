@@ -54,7 +54,8 @@ fun HomeScreen(
     onAddScript: (String) -> String?,
     onUpdateScript: (id: String, newSource: String) -> String?,
     onRemoveScript: (String) -> Unit,
-    onResetScript: (String) -> Unit
+    onResetScript: (String) -> Unit,
+    onPermissionGranted: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -78,6 +79,8 @@ fun HomeScreen(
                 text = { Text("Scripts", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
                 text = { Text("Widgets", style = MaterialTheme.typography.labelMedium) })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 },
+                text = { Text("Settings", style = MaterialTheme.typography.labelMedium) })
         }
 
         Box(Modifier.weight(1f)) {
@@ -95,6 +98,7 @@ fun HomeScreen(
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
+                3 -> SettingsTab(onPermissionGranted = onPermissionGranted)
             }
         }
     }

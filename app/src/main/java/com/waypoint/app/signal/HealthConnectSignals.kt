@@ -2,9 +2,14 @@ package com.waypoint.app.signal
 
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.Record
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.response.ReadRecordsResponse
+import androidx.health.connect.client.time.TimeRangeFilter
+import java.time.LocalDate
+import java.time.ZoneId
 
 enum class HealthConnectAvailability {
     AVAILABLE,
@@ -24,9 +29,32 @@ interface HealthConnectSignals {
     val availability: HealthConnectAvailability
     suspend fun hasPermission(permission: String): Boolean
     suspend fun <T : Record> readRecords(request: ReadRecordsRequest<T>): ReadRecordsResponse<T>
+    val cachedSteps: Long
+    suspend fun refreshCache()
 }
 
 class RealHealthConnectSignals(private val context: Context) : HealthConnectSignals {
+
+    @Volatile override var cachedSteps: Long = 0L
+        private set
+
+    override suspend fun refreshCache() {
+        if (availability != HealthConnectAvailability.AVAILABLE) return
+        val stepsPermission = HealthPermission.getReadPermission(StepsRecord::class)
+        if (!hasPermission(stepsPermission)) return
+        try {
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now()
+            val request = ReadRecordsRequest(
+                recordType = StepsRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(
+                    today.atStartOfDay(zone).toInstant(),
+                    today.plusDays(1).atStartOfDay(zone).toInstant()
+                )
+            )
+            cachedSteps = readRecords(request).records.sumOf { it.count }
+        } catch (_: Exception) {}
+    }
 
     override val availability: HealthConnectAvailability
         get() = when (HealthConnectClient.getSdkStatus(context)) {

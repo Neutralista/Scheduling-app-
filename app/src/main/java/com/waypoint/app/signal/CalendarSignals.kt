@@ -20,9 +20,16 @@ data class CalendarEvent(
 interface CalendarSignals {
     fun hasPermission(): Boolean
     suspend fun todayEvents(): List<CalendarEvent>
+    val cachedEvents: List<CalendarEvent>
+    suspend fun refreshCache()
 }
 
 class RealCalendarSignals(private val context: Context) : CalendarSignals {
+
+    @Volatile override var cachedEvents: List<CalendarEvent> = emptyList()
+        private set
+
+    override suspend fun refreshCache() { cachedEvents = todayEvents() }
 
     override fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_CALENDAR) ==

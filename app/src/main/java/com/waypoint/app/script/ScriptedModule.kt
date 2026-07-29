@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -160,6 +161,27 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
         }
     })
     ScriptableObject.putProperty(obj, "sleep", sleepObj)
+
+    // calendar
+    val calObj = cx.newObject(scope) as NativeObject
+    ScriptableObject.putProperty(calObj, "hasPermission", env.calendar.hasPermission())
+    val calEvents = env.calendar.cachedEvents.map { evt ->
+        val e = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(e, "title", evt.title)
+        ScriptableObject.putProperty(e, "startMillis", evt.startMillis)
+        ScriptableObject.putProperty(e, "endMillis", evt.endMillis)
+        ScriptableObject.putProperty(e, "allDay", evt.allDay)
+        e
+    }
+    ScriptableObject.putProperty(calObj, "events", cx.newArray(scope, calEvents.toTypedArray()))
+    ScriptableObject.putProperty(obj, "calendar", calObj)
+
+    // health
+    val healthObj = cx.newObject(scope) as NativeObject
+    ScriptableObject.putProperty(healthObj, "available",
+        env.healthConnect.availability == HealthConnectAvailability.AVAILABLE)
+    ScriptableObject.putProperty(healthObj, "steps", env.healthConnect.cachedSteps.toDouble())
+    ScriptableObject.putProperty(obj, "health", healthObj)
 
     return obj
 }

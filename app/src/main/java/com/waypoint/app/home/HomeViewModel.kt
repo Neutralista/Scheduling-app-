@@ -10,6 +10,7 @@ import com.waypoint.app.script.ScriptState
 import com.waypoint.app.script.ScriptStore
 import com.waypoint.app.script.ScriptedModule
 import com.waypoint.app.signal.RealScriptEnvironment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,10 @@ class HomeViewModel(
     private val scriptStore: ScriptStore,
     private val env: RealScriptEnvironment
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) { refreshIntegrationCaches() }
+    }
 
     private val _scriptList = MutableStateFlow(ScriptRegistry.all())
     val scripts: StateFlow<List<AppScript>> = _scriptList
@@ -78,6 +83,15 @@ class HomeViewModel(
         scriptStore.delete(id)
         viewModelScope.launch { stateStore.clear(id) }
         _scriptList.update { ScriptRegistry.all() }
+    }
+
+    fun onPermissionGranted() {
+        viewModelScope.launch(Dispatchers.IO) { refreshIntegrationCaches() }
+    }
+
+    private suspend fun refreshIntegrationCaches() {
+        env.calendar.refreshCache()
+        env.healthConnect.refreshCache()
     }
 
     fun resetBuiltInScript(id: String) {
