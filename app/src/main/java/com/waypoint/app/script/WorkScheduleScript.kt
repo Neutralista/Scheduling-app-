@@ -22,6 +22,17 @@ class WorkScheduleScript(
     override suspend fun resetToDefaults() = ws.resetToDefaults()
 
     @Composable
+    override fun SettingsContent() {
+        WorkScheduleCard(
+            ws = ws,
+            onShiftEnd = {
+                sleepStore.syncToRegistry(eventPlanner, ws)
+                sleepRefresh.value++
+            }
+        )
+    }
+
+    @Composable
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         WorkScheduleCard(
             ws = ws,
