@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.AppLogger
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
@@ -165,7 +166,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
-                catch (_: Exception) {}
+                catch (e: Exception) { AppLogger.e("WS", "setShiftStart failed", e) }
             }
             return null
         }
@@ -177,7 +178,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val key = env.workSchedule.dateKey(Calendar.getInstance())
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
-                catch (_: Exception) {}
+                catch (e: Exception) { AppLogger.e("WS", "setShiftEnd failed", e) }
             }
             return null
         }
@@ -206,7 +207,7 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
             GlobalScope.launch(Dispatchers.IO) {
                 try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end)) }
-                catch (_: Exception) {}
+                catch (e: Exception) { AppLogger.e("WS", "setDateOverride failed", e) }
             }
             return null
         }
@@ -231,8 +232,12 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             if (overrides.isNotEmpty()) {
                 val snapshot = overrides.toMap()
                 GlobalScope.launch(Dispatchers.IO) {
-                    try { env.workSchedule.setBulkDateOverrides(snapshot) }
-                    catch (_: Exception) {}
+                    try {
+                        AppLogger.i("WS", "setBulkDateOverrides: ${snapshot.size} dates")
+                        env.workSchedule.setBulkDateOverrides(snapshot)
+                        AppLogger.i("WS", "setBulkDateOverrides: done")
+                    }
+                    catch (e: Exception) { AppLogger.e("WS", "setBulkDateOverrides failed", e) }
                 }
             }
             return null
@@ -394,7 +399,7 @@ class ScriptedModule private constructor(
                     fn.call(cx, scope, obj, arrayOf(signalsJs, scriptsJs))
                 }
             } finally { Context.exit() }
-        } catch (_: Exception) {}
+        } catch (e: Exception) { AppLogger.e("JS[$id]", "onRegister threw", e) }
     }
 
     companion object {
@@ -471,6 +476,7 @@ class ScriptedModule private constructor(
                 )
             } finally { Context.exit() }
         } catch (e: Exception) {
+            AppLogger.e("JS[$id]", "widget threw", e)
             ScriptedView(title = displayName, subtitle = "⚠ ${e.message}")
         }
     }
@@ -478,6 +484,7 @@ class ScriptedModule private constructor(
     // ── Evaluate onAction() ───────────────────────────────────────────────────
 
     fun applyAction(state: ScriptState): ScriptState {
+        AppLogger.i("JS[$id]", "onAction")
         return try {
             val cx = rhino()
             try {
@@ -493,12 +500,18 @@ class ScriptedModule private constructor(
                     ?: return state
                 res.toScriptState(state)
             } finally { Context.exit() }
-        } catch (e: Exception) { state }
+        } catch (e: Exception) {
+            AppLogger.e("JS[$id]", "onAction threw", e)
+            state
+        }
     }
 
     // ── Evaluate onAnswer() ───────────────────────────────────────────────────
 
     fun applyAnswer(state: ScriptState, answer: String): ScriptState {
+        val step    = state.values["step"]?.toInt() ?: 0
+        val substep = state.values["substep"]?.toInt() ?: 0
+        AppLogger.i("JS[$id]", "onAnswer step=$step substep=$substep answer=\"$answer\"")
         return try {
             val cx = rhino()
             try {
@@ -511,9 +524,15 @@ class ScriptedModule private constructor(
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, answer, signalsJs, scriptsJs))
-                (res as? NativeObject)?.toScriptState(state) ?: state
+                val newState = (res as? NativeObject)?.toScriptState(state) ?: state
+                val newStep = newState.values["step"]?.toInt() ?: 0
+                AppLogger.i("JS[$id]", "onAnswer → step=$newStep")
+                newState
             } finally { Context.exit() }
-        } catch (e: Exception) { state }
+        } catch (e: Exception) {
+            AppLogger.e("JS[$id]", "onAnswer threw", e)
+            state
+        }
     }
 
     // ── Evaluate onTick() ─────────────────────────────────────────────────────
@@ -533,7 +552,10 @@ class ScriptedModule private constructor(
                 val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs))
                 (res as? NativeObject)?.toScriptState(state) ?: state
             } finally { Context.exit() }
-        } catch (e: Exception) { state }
+        } catch (e: Exception) {
+            AppLogger.e("JS[$id]", "onTick threw", e)
+            state
+        }
     }
 
     // ── Evaluate settings() ───────────────────────────────────────────────────
