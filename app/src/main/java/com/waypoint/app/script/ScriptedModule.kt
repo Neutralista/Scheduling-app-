@@ -146,175 +146,187 @@ private fun NativeObject.jsFloat(key: String): Float? {
 
 // ── Signals bridge: built-in state exposed to JS ─────────────────────────────
 
+@OptIn(DelicateCoroutinesApi::class)
 private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scriptable): NativeObject {
-    AppLogger.i("Bridge", "buildSignalsBridge: enter")
     val obj = cx.newObject(scope) as NativeObject
 
-    // workSchedule
-    val ws = cx.newObject(scope) as NativeObject
-    val session = env.workSchedule.getTodaySession()
-    val todaySchedule = env.workSchedule.getTodaySchedule()
-    ScriptableObject.putProperty(ws, "shiftStart", todaySchedule.shiftStart?.displayString ?: "")
-    ScriptableObject.putProperty(ws, "shiftEnd",   todaySchedule.shiftEnd?.displayString   ?: "")
-    ScriptableObject.putProperty(ws, "isWorkDay",  todaySchedule.isWork)
-    ScriptableObject.putProperty(ws, "isClockedIn", session.actualStartMillis != null && session.actualEndMillis == null)
-    ScriptableObject.putProperty(ws, "clockedInAt",
-        session.actualStartMillis?.let { java.util.Date(it).toString() } ?: "")
-    // write: signals.workSchedule.setShiftStart('09:00')
-    @OptIn(DelicateCoroutinesApi::class)
-    ScriptableObject.putProperty(ws, "setShiftStart", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            val key = env.workSchedule.dateKey(Calendar.getInstance())
-            GlobalScope.launch(Dispatchers.IO) {
-                try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
-                catch (e: Throwable) { AppLogger.e("WS", "setShiftStart failed ${e.javaClass.name}", e) }
-            }
-            return null
-        }
-    })
-    @OptIn(DelicateCoroutinesApi::class)
-    ScriptableObject.putProperty(ws, "setShiftEnd", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            val key = env.workSchedule.dateKey(Calendar.getInstance())
-            GlobalScope.launch(Dispatchers.IO) {
-                try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
-                catch (e: Throwable) { AppLogger.e("WS", "setShiftEnd failed ${e.javaClass.name}", e) }
-            }
-            return null
-        }
-    })
-    // read/write schedule for any specific date: signals.workSchedule.getScheduleForDate('2026-01-27')
-    ScriptableObject.putProperty(ws, "getScheduleForDate", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val cal = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            val schedule = env.workSchedule.getSchedule(cal)
-            val o = cx.newObject(scope) as NativeObject
-            ScriptableObject.putProperty(o, "isWork", schedule.isWork)
-            ScriptableObject.putProperty(o, "shiftStart", schedule.shiftStart?.displayString ?: "")
-            ScriptableObject.putProperty(o, "shiftEnd",   schedule.shiftEnd?.displayString   ?: "")
-            return o
-        }
-    })
-    // signals.workSchedule.setScheduleForDate('2026-01-27', { isWork: true, shiftStart: '09:00', shiftEnd: '17:00' })
-    @OptIn(DelicateCoroutinesApi::class)
-    ScriptableObject.putProperty(ws, "setScheduleForDate", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val dateArg = args.getOrNull(0)?.toString()
-            AppLogger.i("WS", "setScheduleForDate called date=$dateArg")
-            val cal  = parseDateStr(dateArg ?: return null) ?: run {
-                AppLogger.w("WS", "setScheduleForDate: bad date \"$dateArg\""); return null
-            }
-            val opts = args.getOrNull(1) as? NativeObject ?: run {
-                AppLogger.w("WS", "setScheduleForDate: opts not NativeObject"); return null
-            }
-            val key  = env.workSchedule.dateKey(cal)
-            val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
-            val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-            val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-            AppLogger.i("WS", "setScheduleForDate: key=$key isWork=$isWork start=$start end=$end")
-            GlobalScope.launch(Dispatchers.IO) {
-                try { env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
-                      AppLogger.i("WS", "setDateOverride done key=$key") }
-                catch (e: Throwable) { AppLogger.e("WS", "setDateOverride failed ${e.javaClass.name}", e) }
-            }
-            return null
-        }
-    })
-    // signals.workSchedule.setSchedulesForDates({ '2026-01-27': { isWork: true, shiftStart: '09:00', shiftEnd: '17:00' }, ... })
-    // Writes all date overrides in a single atomic operation — preferred over calling setScheduleForDate in a loop.
-    @OptIn(DelicateCoroutinesApi::class)
-    ScriptableObject.putProperty(ws, "setSchedulesForDates", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val arg0 = args.getOrNull(0)
-            AppLogger.i("WS", "setSchedulesForDates called arg0=${arg0?.javaClass?.simpleName}")
-            val map = arg0 as? NativeObject ?: run {
-                AppLogger.w("WS", "setSchedulesForDates: arg0 not NativeObject, got ${arg0?.javaClass?.simpleName}")
+    // ── workSchedule ─────────────────────────────────────────────────────────
+    try {
+        val ws = cx.newObject(scope) as NativeObject
+        val session = env.workSchedule.getTodaySession()
+        val todaySchedule = env.workSchedule.getTodaySchedule()
+        ScriptableObject.putProperty(ws, "shiftStart", todaySchedule.shiftStart?.displayString ?: "")
+        ScriptableObject.putProperty(ws, "shiftEnd",   todaySchedule.shiftEnd?.displayString   ?: "")
+        ScriptableObject.putProperty(ws, "isWorkDay",  todaySchedule.isWork)
+        ScriptableObject.putProperty(ws, "isClockedIn",
+            session.actualStartMillis != null && session.actualEndMillis == null)
+        ScriptableObject.putProperty(ws, "clockedInAt",
+            session.actualStartMillis?.let { java.util.Date(it).toString() } ?: "")
+        ScriptableObject.putProperty(ws, "setShiftStart", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                val key = env.workSchedule.dateKey(Calendar.getInstance())
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
+                    catch (e: Throwable) { AppLogger.e("WS", "setShiftStart failed", e) }
+                }
                 return null
             }
-            AppLogger.i("WS", "setSchedulesForDates: ${map.ids.size} keys: ${map.ids.take(3).joinToString()}")
-            val overrides = mutableMapOf<String, DaySchedule>()
-            for (rawKey in map.ids) {
-                val dateStr = rawKey.toString()
-                val cal = parseDateStr(dateStr)
-                if (cal == null) {
-                    AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\"")
-                    continue
+        })
+        ScriptableObject.putProperty(ws, "setShiftEnd", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                val key = env.workSchedule.dateKey(Calendar.getInstance())
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
+                    catch (e: Throwable) { AppLogger.e("WS", "setShiftEnd failed", e) }
                 }
-                val opts = map.get(dateStr, map) as? NativeObject
-                if (opts == null) {
-                    AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject")
-                    continue
+                return null
+            }
+        })
+        ScriptableObject.putProperty(ws, "getScheduleForDate", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val cal = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                val schedule = env.workSchedule.getSchedule(cal)
+                val o = cx.newObject(scope) as NativeObject
+                ScriptableObject.putProperty(o, "isWork", schedule.isWork)
+                ScriptableObject.putProperty(o, "shiftStart", schedule.shiftStart?.displayString ?: "")
+                ScriptableObject.putProperty(o, "shiftEnd",   schedule.shiftEnd?.displayString   ?: "")
+                return o
+            }
+        })
+        ScriptableObject.putProperty(ws, "setScheduleForDate", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val dateArg = args.getOrNull(0)?.toString()
+                AppLogger.i("WS", "setScheduleForDate called date=$dateArg")
+                val cal  = parseDateStr(dateArg ?: return null) ?: run {
+                    AppLogger.w("WS", "setScheduleForDate: bad date \"$dateArg\""); return null
+                }
+                val opts = args.getOrNull(1) as? NativeObject ?: run {
+                    AppLogger.w("WS", "setScheduleForDate: opts not NativeObject"); return null
                 }
                 val key    = env.workSchedule.dateKey(cal)
                 val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
                 val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
                 val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-                AppLogger.i("WS", "setSchedulesForDates: $key isWork=$isWork $start-$end")
-                overrides[key] = DaySchedule(isWork, start, end)
-            }
-            AppLogger.i("WS", "setSchedulesForDates: ${overrides.size} valid overrides")
-            if (overrides.isNotEmpty()) {
-                val snapshot = overrides.toMap()
+                AppLogger.i("WS", "setScheduleForDate: key=$key isWork=$isWork start=$start end=$end")
                 GlobalScope.launch(Dispatchers.IO) {
                     try {
-                        env.workSchedule.setBulkDateOverrides(snapshot)
-                        AppLogger.i("WS", "setBulkDateOverrides done: ${snapshot.size} dates")
+                        env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
+                        AppLogger.i("WS", "setDateOverride done key=$key")
                     }
-                    catch (e: Throwable) { AppLogger.e("WS", "setBulkDateOverrides failed ${e.javaClass.name}", e) }
+                    catch (e: Throwable) { AppLogger.e("WS", "setDateOverride failed", e) }
                 }
+                return null
             }
-            return null
-        }
-    })
-
-    ScriptableObject.putProperty(obj, "workSchedule", ws)
-
-    // sleep
-    val sleepObj = cx.newObject(scope) as NativeObject
-    val sleepConfig = env.sleepStore.load()
-    ScriptableObject.putProperty(sleepObj, "bedTime",  sleepConfig.preferredBedTime.displayString)
-    ScriptableObject.putProperty(sleepObj, "wakeTime", sleepConfig.preferredWakeTime.displayString)
-    ScriptableObject.putProperty(sleepObj, "enabled",  sleepConfig.enabled)
-    ScriptableObject.putProperty(sleepObj, "setBedTime", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val t = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            env.sleepStore.setPreferredBedTime(t)
-            return null
-        }
-    })
-    ScriptableObject.putProperty(sleepObj, "setWakeTime", object : BaseFunction() {
-        override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-            val t = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-            env.sleepStore.setPreferredWakeTime(t)
-            return null
-        }
-    })
-    ScriptableObject.putProperty(obj, "sleep", sleepObj)
-
-    // calendar
-    val calObj = cx.newObject(scope) as NativeObject
-    ScriptableObject.putProperty(calObj, "hasPermission", env.calendar.hasPermission())
-    val calEvents = env.calendar.cachedEvents.map { evt ->
-        val e = cx.newObject(scope) as NativeObject
-        ScriptableObject.putProperty(e, "title", evt.title)
-        ScriptableObject.putProperty(e, "startMillis", evt.startMillis)
-        ScriptableObject.putProperty(e, "endMillis", evt.endMillis)
-        ScriptableObject.putProperty(e, "allDay", evt.allDay)
-        e
+        })
+        ScriptableObject.putProperty(ws, "setSchedulesForDates", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val arg0 = args.getOrNull(0)
+                AppLogger.i("WS", "setSchedulesForDates called arg0=${arg0?.javaClass?.simpleName}")
+                val map = arg0 as? NativeObject ?: run {
+                    AppLogger.w("WS", "setSchedulesForDates: arg0 not NativeObject, got ${arg0?.javaClass?.simpleName}")
+                    return null
+                }
+                AppLogger.i("WS", "setSchedulesForDates: ${map.ids.size} keys")
+                val overrides = mutableMapOf<String, DaySchedule>()
+                for (rawKey in map.ids) {
+                    val dateStr = rawKey.toString()
+                    val cal = parseDateStr(dateStr)
+                    if (cal == null) {
+                        AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\"")
+                        continue
+                    }
+                    val opts = map.get(dateStr, map) as? NativeObject
+                    if (opts == null) {
+                        AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject")
+                        continue
+                    }
+                    val key    = env.workSchedule.dateKey(cal)
+                    val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
+                    val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+                    val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
+                    overrides[key] = DaySchedule(isWork, start, end)
+                }
+                AppLogger.i("WS", "setSchedulesForDates: ${overrides.size} valid overrides, launching write")
+                if (overrides.isNotEmpty()) {
+                    val snapshot = overrides.toMap()
+                    GlobalScope.launch(Dispatchers.IO) {
+                        try {
+                            env.workSchedule.setBulkDateOverrides(snapshot)
+                            AppLogger.i("WS", "setBulkDateOverrides done: ${snapshot.size} dates")
+                        }
+                        catch (e: Throwable) { AppLogger.e("WS", "setBulkDateOverrides failed", e) }
+                    }
+                }
+                return null
+            }
+        })
+        ScriptableObject.putProperty(obj, "workSchedule", ws)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "workSchedule section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "workSchedule", cx.newObject(scope))
     }
-    ScriptableObject.putProperty(calObj, "events", cx.newArray(scope, calEvents.toTypedArray()))
-    ScriptableObject.putProperty(obj, "calendar", calObj)
 
-    // health
-    val healthObj = cx.newObject(scope) as NativeObject
-    ScriptableObject.putProperty(healthObj, "available",
-        env.healthConnect.availability == HealthConnectAvailability.AVAILABLE)
-    ScriptableObject.putProperty(healthObj, "steps", env.healthConnect.cachedSteps.toDouble())
-    ScriptableObject.putProperty(obj, "health", healthObj)
+    // ── sleep ────────────────────────────────────────────────────────────────
+    try {
+        val sleepObj = cx.newObject(scope) as NativeObject
+        val sleepConfig = env.sleepStore.load()
+        ScriptableObject.putProperty(sleepObj, "bedTime",  sleepConfig.preferredBedTime.displayString)
+        ScriptableObject.putProperty(sleepObj, "wakeTime", sleepConfig.preferredWakeTime.displayString)
+        ScriptableObject.putProperty(sleepObj, "enabled",  sleepConfig.enabled)
+        ScriptableObject.putProperty(sleepObj, "setBedTime", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val t = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                env.sleepStore.setPreferredBedTime(t)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(sleepObj, "setWakeTime", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val t = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                env.sleepStore.setPreferredWakeTime(t)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(obj, "sleep", sleepObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "sleep section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "sleep", cx.newObject(scope))
+    }
 
-    AppLogger.i("Bridge", "buildSignalsBridge: done")
+    // ── calendar ─────────────────────────────────────────────────────────────
+    try {
+        val calObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(calObj, "hasPermission", env.calendar.hasPermission())
+        val calEvents = env.calendar.cachedEvents.map { evt ->
+            val e = cx.newObject(scope) as NativeObject
+            ScriptableObject.putProperty(e, "title",       evt.title)
+            ScriptableObject.putProperty(e, "startMillis", evt.startMillis.toDouble())
+            ScriptableObject.putProperty(e, "endMillis",   evt.endMillis.toDouble())
+            ScriptableObject.putProperty(e, "allDay",      evt.allDay)
+            e
+        }
+        ScriptableObject.putProperty(calObj, "events",
+            cx.newArray(scope, calEvents.toTypedArray<Any?>()))
+        ScriptableObject.putProperty(obj, "calendar", calObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "calendar section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "calendar", cx.newObject(scope))
+    }
+
+    // ── health ───────────────────────────────────────────────────────────────
+    try {
+        val healthObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(healthObj, "available",
+            env.healthConnect.availability == HealthConnectAvailability.AVAILABLE)
+        ScriptableObject.putProperty(healthObj, "steps", env.healthConnect.cachedSteps.toDouble())
+        ScriptableObject.putProperty(obj, "health", healthObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "health section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "health", cx.newObject(scope))
+    }
+
     return obj
 }
 
