@@ -35,6 +35,18 @@
             android:name=".notification.ShiftEndAlarmReceiver"
             android:exported="false" />
 
+        <!--
+            Required by Health Connect: without this activity + intent filter,
+            the HC permission request is silently rejected on all Android versions.
+        -->
+        <activity
+            android:name=".permission.PermissionRationaleActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.connect.client.SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
