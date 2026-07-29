@@ -46,6 +46,19 @@
             android:name=".notification.ShiftEndAlarmReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".notification.PlannerReminderReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notification.NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.PLANNER_NOT_NOW" />
+                <action android:name="com.waypoint.app.PLANNER_SET_SCHEDULE" />
+            </intent-filter>
+        </receiver>
+
         <!--
             Health Connect — rationale activity.
             The action differs by HC variant:

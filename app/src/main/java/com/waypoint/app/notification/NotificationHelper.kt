@@ -15,6 +15,8 @@ object NotificationHelper {
     private const val NOTIF_ID = 1
     private const val SHIFT_CHANNEL_ID = "waypoint_shift"
     private const val SHIFT_NOTIF_ID = 2
+    const val PLANNER_CHANNEL_ID = "waypoint_planner"
+    const val PLANNER_NOTIF_ID = 3
 
     fun createChannel(context: Context) {
         val channel = NotificationChannel(
@@ -58,6 +60,45 @@ object NotificationHelper {
             .build()
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(SHIFT_NOTIF_ID, notification)
+    }
+
+    fun createPlannerChannel(context: Context) {
+        val channel = NotificationChannel(
+            PLANNER_CHANNEL_ID,
+            "Planner reminders",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Weekly reminder to set your work schedule"
+        }
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(channel)
+    }
+
+    fun sendPlannerReminder(context: Context) {
+        val notNowPi = PendingIntent.getBroadcast(
+            context, 9003,
+            Intent(context, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_NOT_NOW
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val setSchedulePi = PendingIntent.getBroadcast(
+            context, 9004,
+            Intent(context, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_SET_SCHEDULE
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, PLANNER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Plan next week")
+            .setContentText("Set your work schedule for the week ahead")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(0, "Not Now", notNowPi)
+            .addAction(0, "Set Schedule", setSchedulePi)
+            .build()
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(PLANNER_NOTIF_ID, notification)
     }
 
     fun sendDailyReminder(context: Context) {

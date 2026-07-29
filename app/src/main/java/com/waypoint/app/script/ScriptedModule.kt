@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
+import com.waypoint.app.notification.PlannerReminderScheduler
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
@@ -79,6 +80,10 @@ var Script = (function() {
   Script.prototype.onAction   = function(state, signals, scripts) {
     return Object.assign({}, state, { doneToday: !state.doneToday });
   };
+  // onSecondaryAction(state, signals, scripts): called when the secondary widget button is pressed
+  // (shown when widget() returns secondaryActionLabel). Also called by the test button in Scripts tab
+  // when testActionLabel is set on the script object. Return new state or null to keep current.
+  Script.prototype.onSecondaryAction = function(state, signals, scripts) { return null; };
   // onAnswer(state, answer, signals, scripts): called when the user responds to a dialog prompt.
   // answer is "yes"/"no" for yesno dialogs, the input string for text dialogs, or "cancel".
   // Return new state or null to keep current.
@@ -119,6 +124,8 @@ data class ScriptedView(
     val progress: Float? = null,
     val done: Boolean = false,
     val actionLabel: String = "Done",
+    /** When non-null, a second button is rendered below the primary action button. */
+    val secondaryActionLabel: String? = null,
     /** When non-null, a modal dialog is shown over the widget card for this step. */
     val dialog: ScriptedDialog? = null
 )
@@ -327,6 +334,37 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
         ScriptableObject.putProperty(obj, "health", cx.newObject(scope))
     }
 
+    // ── notifications ─────────────────────────────────────────────────────────
+    try {
+        val androidCtx = env.context
+        val notifObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(notifObj, "scheduleWeekly", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val day    = (args.getOrNull(0) as? Number)?.toInt() ?: return null
+                val hour   = (args.getOrNull(1) as? Number)?.toInt() ?: return null
+                val minute = (args.getOrNull(2) as? Number)?.toInt() ?: 0
+                PlannerReminderScheduler.scheduleWeekly(androidCtx, day, hour, minute)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(notifObj, "cancel", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                PlannerReminderScheduler.cancel(androidCtx)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(notifObj, "sendNow", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                PlannerReminderScheduler.sendNow(androidCtx)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(obj, "notifications", notifObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "notifications section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "notifications", cx.newObject(scope))
+    }
+
     return obj
 }
 
@@ -415,7 +453,9 @@ class ScriptedModule private constructor(
     override val displayName: String,
     val uiConfig: WidgetUiConfig,
     override val hasWidget: Boolean,
-    override val replacesId: String?
+    override val replacesId: String?,
+    /** Label for a test button shown in the Scripts tab. Non-null when the JS object sets testActionLabel. */
+    val testActionLabel: String?
 ) : AppScript {
 
     override val isUserScript: Boolean get() = true
@@ -470,7 +510,9 @@ class ScriptedModule private constructor(
                 // replacesId: any script using a built_in.* id is overriding that built-in
                 val replacesId = if (id.startsWith("built_in.")) id else null
 
-                ScriptedModule(source, id, displayName, WidgetUiConfig(size), hasWidget, replacesId)
+                val testActionLabel = obj.jsString("testActionLabel")
+
+                ScriptedModule(source, id, displayName, WidgetUiConfig(size), hasWidget, replacesId, testActionLabel)
             } finally {
                 Context.exit()
             }
@@ -519,13 +561,14 @@ class ScriptedModule private constructor(
                     placeholder2 = dialogObj.jsString("placeholder2") ?: ""
                 ) else null
                 ScriptedView(
-                    title       = res.jsString("title")       ?: displayName,
-                    subtitle    = res.jsString("subtitle"),
-                    value       = res.jsString("value"),
-                    progress    = res.jsFloat("progress"),
-                    done        = res.jsBool("done"),
-                    actionLabel = res.jsString("actionLabel") ?: "Done",
-                    dialog      = dialog
+                    title                = res.jsString("title")               ?: displayName,
+                    subtitle             = res.jsString("subtitle"),
+                    value                = res.jsString("value"),
+                    progress             = res.jsFloat("progress"),
+                    done                 = res.jsBool("done"),
+                    actionLabel          = res.jsString("actionLabel")          ?: "Done",
+                    secondaryActionLabel = res.jsString("secondaryActionLabel"),
+                    dialog               = dialog
                 )
             } finally { Context.exit() }
         } catch (e: Throwable) {
@@ -556,6 +599,30 @@ class ScriptedModule private constructor(
             } finally { Context.exit() }
         } catch (e: Throwable) {
             AppLogger.e("JS[$id]", "onAction threw ${e.javaClass.name}", e)
+            state
+        }
+    }
+
+    // ── Evaluate onSecondaryAction() ──────────────────────────────────────────
+
+    fun applySecondaryAction(state: ScriptState): ScriptState {
+        return try {
+            val cx = rhino()
+            try {
+                val (scope, obj) = buildScope(cx)
+                val fn = ScriptableObject.getProperty(obj, "onSecondaryAction") as? org.mozilla.javascript.Function
+                    ?: return state
+                val stateJs   = state.toJS(cx, scope)
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                    .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onSecondaryAction) threw ${it.javaClass.name}", it) }
+                    .getOrNull() ?: cx.newObject(scope) as NativeObject
+                val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
+                    ?: cx.newObject(scope) as NativeObject
+                val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs))
+                (res as? NativeObject)?.toScriptState(state) ?: state
+            } finally { Context.exit() }
+        } catch (e: Throwable) {
+            AppLogger.e("JS[$id]", "onSecondaryAction threw ${e.javaClass.name}", e)
             state
         }
     }
@@ -650,7 +717,13 @@ class ScriptedModule private constructor(
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         val current = state ?: ScriptState()
         val view = remember(current) { renderView(current) }
-        ScriptedWidgetCard(view = view, onAction = { onStateChange(applyAction(current)) })
+        ScriptedWidgetCard(
+            view = view,
+            onAction = { onStateChange(applyAction(current)) },
+            onSecondaryAction = if (view.secondaryActionLabel != null) {
+                { onStateChange(applySecondaryAction(current)) }
+            } else null
+        )
 
         val dialog = view.dialog
         if (dialog != null) {
@@ -922,7 +995,11 @@ internal fun NativeObject.toScriptState(base: ScriptState): ScriptState {
 // ── Shared widget card renderer ───────────────────────────────────────────────
 
 @Composable
-fun ScriptedWidgetCard(view: ScriptedView, onAction: () -> Unit) {
+fun ScriptedWidgetCard(
+    view: ScriptedView,
+    onAction: () -> Unit,
+    onSecondaryAction: (() -> Unit)? = null
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -979,8 +1056,22 @@ fun ScriptedWidgetCard(view: ScriptedView, onAction: () -> Unit) {
                 }
             }
         } else if (view.dialog == null) {
-            Button(onClick = onAction) {
-                Text(view.actionLabel, style = MaterialTheme.typography.labelMedium)
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Button(onClick = onAction) {
+                    Text(view.actionLabel, style = MaterialTheme.typography.labelMedium)
+                }
+                if (onSecondaryAction != null && view.secondaryActionLabel != null) {
+                    TextButton(onClick = onSecondaryAction) {
+                        Text(
+                            view.secondaryActionLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
         }
     }

@@ -227,6 +227,18 @@ private fun ScriptRow(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                     }
+                    val scriptedModule = script as? ScriptedModule
+                    if (scriptedModule?.testActionLabel != null) {
+                        TextButton(onClick = {
+                            val cur = state
+                            val next = scriptedModule.applySecondaryAction(cur)
+                            if (next !== cur) onStateChange(next)
+                        }) {
+                            Text(scriptedModule.testActionLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
         }

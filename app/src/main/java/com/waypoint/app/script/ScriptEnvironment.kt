@@ -1,5 +1,6 @@
 package com.waypoint.app.script
 
+import android.content.Context
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.AppUsageSignals
@@ -16,6 +17,9 @@ import com.waypoint.app.signal.WorkScheduleSignals
  * context so user scripts can interact with built-in signals and peer scripts.
  */
 interface ScriptEnvironment {
+    // ── Android context (for notification scheduling, etc.) ───────────────────
+    val context: Context
+
     // ── Built-in signal sources ───────────────────────────────────────────────
     val deviceActivity: DeviceActivitySignals
     val appUsage: AppUsageSignals

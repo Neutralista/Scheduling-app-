@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
  * ScriptStateStore.allStates() and calling [updateCache] on each emission.
  */
 class RealScriptEnvironment(
-    context: Context,
+    override val context: Context,
     private val stateStore: ScriptStateStore,
     private val scope: CoroutineScope
 ) : ScriptEnvironment {
