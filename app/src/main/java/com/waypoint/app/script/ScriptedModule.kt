@@ -357,8 +357,10 @@ class ScriptedModule private constructor(
                 val (scope, obj) = buildScope(cx)
                 val fn = ScriptableObject.getProperty(obj, "onRegister") as? org.mozilla.javascript.Function
                 if (fn != null) {
-                    val signalsJs = buildSignalsBridge(env, cx, scope)
-                    val scriptsJs = buildScriptsBridge(env, cx, scope)
+                    val signalsJs = runCatching { buildSignalsBridge(env, cx, scope) }.getOrNull()
+                        ?: cx.newObject(scope) as NativeObject
+                    val scriptsJs = runCatching { buildScriptsBridge(env, cx, scope) }.getOrNull()
+                        ?: cx.newObject(scope) as NativeObject
                     fn.call(cx, scope, obj, arrayOf(signalsJs, scriptsJs))
                 }
             } finally { Context.exit() }
@@ -636,7 +638,7 @@ class ScriptedModule private constructor(
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
-                                AnimatedVisibility(visible = isWork) {
+                                if (isWork) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Spacer(Modifier.height(12.dp))
                                         Text(
