@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Waypoint adaptive icon foreground — 108×108dp canvas, safe zone 18–90dp.
+    Design: classic compass rose in barley gold on a deep-plum background.
 
-    Design: a bold map-pin/waypoint marker in barley gold (#D4A84E) with a
-    round inner cutout (evenOdd fill), on the deep-plum background.
-
-    Pin geometry (all in viewport units):
-      Outer teardrop — circle center (54,43) r=19, tip at (54,83)
-      Inner circle   — center (54,43) r=8.5  (the "window")
-      A thin gold ring below the inner circle gives depth.
+    Structure:
+      • Outer bezel ring     (radius 29.5dp, gold stroke)
+      • 4 intercardinal petals (NE/SE/SW/NW, radius 18dp, medium gold)
+      • 4 cardinal petals    (N/E/S/W, radius 27dp, two-tone gold for depth)
+      • Inner ring           (radius 8dp, gold stroke)
+      • Centre dot           (radius 4dp, bright gold)
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -16,51 +16,73 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Soft gold glow behind the pin -->
-    <path android:pathData="M54,43m-26,0a26,26 0 1,0 52,0a26,26 0 1,0 -52,0">
-        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="0.5"
-                android:centerY="0.4"
-                android:gradientRadius="30"
-                android:startColor="#D4A84E28"
-                android:endColor="#D4A84E00" />
-        </aapt:attr>
-    </path>
-
-    <!-- Pin body + inner-circle cutout (evenOdd creates the hole) -->
+    <!-- Outer bezel ring -->
     <path
-        android:fillType="evenOdd"
-        android:pathData="
-            M54,83
-            C51.5,73.5 35,62.5 35,43
-            A19,19 0 1,1 73,43
-            C73,62.5 56.5,73.5 54,83
-            Z
-            M54,34.5
-            A8.5,8.5 0 1,1 54,51.5
-            A8.5,8.5 0 1,1 54,34.5
-            Z">
-        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="35"
-                android:startY="30"
-                android:endX="73"
-                android:endY="83"
-                android:startColor="#F0C96A"
-                android:endColor="#B8821E" />
-        </aapt:attr>
-    </path>
+        android:fillColor="#00000000"
+        android:strokeColor="#D4A84E"
+        android:strokeWidth="1.1"
+        android:pathData="M54,24.5 A29.5,29.5 0 1,1 54,83.5 A29.5,29.5 0 1,1 54,24.5" />
 
-    <!-- Subtle inner highlight on top-left of pin circle -->
+    <!-- ── Intercardinal petals (underneath the cardinal ones) ──────── -->
+
+    <group android:pivotX="54" android:pivotY="54" android:rotation="45">
+        <path android:fillColor="#C4912C"
+              android:pathData="M54,36 L50,54 L54,59 L58,54 Z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="135">
+        <path android:fillColor="#C4912C"
+              android:pathData="M54,36 L50,54 L54,59 L58,54 Z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="225">
+        <path android:fillColor="#C4912C"
+              android:pathData="M54,36 L50,54 L54,59 L58,54 Z" />
+    </group>
+    <group android:pivotX="54" android:pivotY="54" android:rotation="315">
+        <path android:fillColor="#C4912C"
+              android:pathData="M54,36 L50,54 L54,59 L58,54 Z" />
+    </group>
+
+    <!-- ── Cardinal petals — two-tone (light west face / dark east face) -->
+    <!-- North -->
+    <path android:fillColor="#E8BE5A"
+          android:pathData="M54,27 L47,54 L54,61 Z" />
+    <path android:fillColor="#9C6A0E"
+          android:pathData="M54,27 L61,54 L54,61 Z" />
+
+    <!-- East (N petal rotated 90°) -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="90">
+        <path android:fillColor="#E8BE5A"
+              android:pathData="M54,27 L47,54 L54,61 Z" />
+        <path android:fillColor="#9C6A0E"
+              android:pathData="M54,27 L61,54 L54,61 Z" />
+    </group>
+
+    <!-- South (180°) -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="180">
+        <path android:fillColor="#E8BE5A"
+              android:pathData="M54,27 L47,54 L54,61 Z" />
+        <path android:fillColor="#9C6A0E"
+              android:pathData="M54,27 L61,54 L54,61 Z" />
+    </group>
+
+    <!-- West (270°) -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="270">
+        <path android:fillColor="#E8BE5A"
+              android:pathData="M54,27 L47,54 L54,61 Z" />
+        <path android:fillColor="#9C6A0E"
+              android:pathData="M54,27 L61,54 L54,61 Z" />
+    </group>
+
+    <!-- Inner ring -->
     <path
-        android:fillColor="#FFFDE8"
-        android:fillAlpha="0.18"
-        android:pathData="
-            M45,37
-            C46,32 52,30 57,32
-            C53,31 47,33.5 45,37
-            Z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#D4A84E"
+        android:strokeWidth="0.9"
+        android:pathData="M54,46 A8,8 0 1,1 54,62 A8,8 0 1,1 54,46" />
+
+    <!-- Centre dot -->
+    <path
+        android:fillColor="#F0C870"
+        android:pathData="M54,50 A4,4 0 1,1 54,58 A4,4 0 1,1 54,50" />
+
 </vector>
