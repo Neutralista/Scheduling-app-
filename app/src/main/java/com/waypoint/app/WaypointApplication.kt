@@ -26,6 +26,8 @@ class WaypointApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        AppLogger.init(filesDir)
+
         scriptStateStore = ScriptStateStore(applicationContext)
         scriptStore = ScriptStore(applicationContext)
         env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)

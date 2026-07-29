@@ -122,11 +122,13 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
 @Composable
 private fun LogViewerDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val entries by AppLogger.entries.collectAsState()
+    val current by AppLogger.entries.collectAsState()
+    val last    by AppLogger.lastSession.collectAsState()
     val listState = rememberLazyListState()
 
-    LaunchedEffect(entries.size) {
-        if (entries.isNotEmpty()) listState.scrollToItem(entries.size - 1)
+    val totalSize = last.size + current.size
+    LaunchedEffect(totalSize) {
+        if (totalSize > 0) listState.scrollToItem(totalSize - 1 + if (last.isNotEmpty()) 2 else 0)
     }
 
     Dialog(
@@ -157,7 +159,7 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                     )
-                    TextButton(onClick = { AppLogger.clear() }) { Text("Clear") }
+                    TextButton(onClick = { AppLogger.clearAll() }) { Text("Clear") }
                     TextButton(onClick = {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("Waypoint Logs", AppLogger.copyText()))
@@ -166,7 +168,7 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 // ── Log entries ───────────────────────────────────────────────
-                if (entries.isEmpty()) {
+                if (last.isEmpty() && current.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "No log entries yet",
@@ -178,13 +180,44 @@ private fun LogViewerDialog(onDismiss: () -> Unit) {
                         state = listState,
                         modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        items(entries) { entry ->
-                            LogEntryRow(entry)
+                        if (last.isNotEmpty()) {
+                            item {
+                                SessionHeader(
+                                    label = "Previous Session",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            items(last) { entry -> LogEntryRow(entry) }
+                            item {
+                                SessionHeader(
+                                    label = "Current Session",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
+                        items(current) { entry -> LogEntryRow(entry) }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SessionHeader(label: String, color: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = color.copy(alpha = 0.3f))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            letterSpacing = 0.5.sp
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = color.copy(alpha = 0.3f))
     }
 }
 
