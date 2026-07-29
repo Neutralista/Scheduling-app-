@@ -236,11 +236,15 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             val overrides = mutableMapOf<String, DaySchedule>()
             for (rawKey in map.ids) {
                 val dateStr = rawKey.toString()
-                val cal = parseDateStr(dateStr) ?: run {
-                    AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\""); continue
+                val cal = parseDateStr(dateStr)
+                if (cal == null) {
+                    AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\"")
+                    continue
                 }
-                val opts = map.get(dateStr, map) as? NativeObject ?: run {
-                    AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject"); continue
+                val opts = map.get(dateStr, map) as? NativeObject
+                if (opts == null) {
+                    AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject")
+                    continue
                 }
                 val key    = env.workSchedule.dateKey(cal)
                 val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
