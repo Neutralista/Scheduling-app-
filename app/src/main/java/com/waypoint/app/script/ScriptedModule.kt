@@ -180,7 +180,7 @@ private fun buildScriptsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
         override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
             val id    = args.getOrNull(0)?.toString() ?: return null
             val jsState = args.getOrNull(1) as? NativeObject ?: return null
-            env.setScriptState(id, jsState.toScriptState(env.getScriptState(id)))
+            env.setScriptState(id, jsState.toScriptState(env.getScriptState(id) ?: ScriptState()))
             return null
         }
     })
