@@ -56,6 +56,7 @@ import org.mozilla.javascript.NativeObject
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
 import org.mozilla.javascript.Undefined
+import org.mozilla.javascript.WrapFactory
 import java.util.Calendar
 
 // ── JS base injected into every user script's scope ──────────────────────────
@@ -437,7 +438,20 @@ class ScriptedModule private constructor(
             }
         }
 
-        private fun rhino(): Context = Context.enter().also { it.optimizationLevel = -1 }
+        private fun rhino(): Context = Context.enter().also { cx ->
+            cx.optimizationLevel = -1
+            cx.wrapFactory = object : WrapFactory() {
+                // JavaMembers (used by NativeJavaObject) has a static initializer that references
+                // javax.lang.model.SourceVersion, which does not exist on Android's runtime.
+                // Once it fails to initialize it stays broken for the entire process lifetime,
+                // breaking all subsequent JS→Java bridge calls with NoClassDefFoundError.
+                // Returning null here prevents NativeJavaObject creation entirely; our bridge
+                // exposes everything as NativeObject/BaseFunction so raw wrapping is never needed.
+                override fun wrapAsJavaObject(
+                    cx: Context?, scope: Scriptable?, javaObject: Any?, staticType: Class<*>?
+                ): Scriptable? = null
+            }
+        }
     }
 
     // ── Evaluate widget() ─────────────────────────────────────────────────────
