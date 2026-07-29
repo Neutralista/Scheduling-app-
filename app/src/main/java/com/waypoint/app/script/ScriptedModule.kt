@@ -52,17 +52,26 @@ var Script = (function() {
     this.displayName = opts.displayName || opts.id;
     this.size        = opts.size || 'WIDE_ROW';
   }
-  Script.prototype.settings = function() { return []; };
-  // widget: null means "no widget". Override to return a view-spec object.
-  Script.prototype.widget   = null;
-  // onTick: called when state changes. Return new state or null to keep current.
-  Script.prototype.onTick   = function(state, signals, scripts) { return null; };
-  // onAction: called when the widget's action button is pressed.
-  Script.prototype.onAction = function(state, signals, scripts) {
+  Script.prototype.settings   = function() { return []; };
+  // widget(state, signals, scripts): return a view-spec object, or leave null for no widget.
+  Script.prototype.widget     = null;
+  // onRegister(signals, scripts): called once when the script is first loaded. Use for setup.
+  Script.prototype.onRegister = function(signals, scripts) {};
+  // onTick(state, signals, scripts): called when state changes. Return new state or null.
+  Script.prototype.onTick     = function(state, signals, scripts) { return null; };
+  // onAction(state, signals, scripts): called when the widget button is pressed.
+  Script.prototype.onAction   = function(state, signals, scripts) {
     return Object.assign({}, state, { doneToday: !state.doneToday });
   };
   return Script;
 })();
+
+// Built-in script IDs — use these to read/write built-in state or to override a built-in
+// entirely by creating a script with the same id.
+var BUILTIN = {
+  WORK_SCHEDULE:  'built_in.work_schedule',
+  SLEEP_SCHEDULE: 'built_in.sleep_schedule'
+};
 
 // Kept for backward-compat: scripts written against the old HabitWidget API still work.
 var HabitWidget = Script;
@@ -223,7 +232,7 @@ private fun buildScriptsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
  *   StepGoal.prototype = Object.create(Script.prototype);
  *
  *   // Declare a widget (optional):
- *   StepGoal.prototype.widget = function(state, signals) {
+ *   StepGoal.prototype.widget = function(state, signals, scripts) {
  *     return {
  *       title:       'Steps today',
  *       value:       state.values.steps || 0,
@@ -246,13 +255,29 @@ class ScriptedModule private constructor(
     override val id: String,
     override val displayName: String,
     val uiConfig: WidgetUiConfig,
-    override val hasWidget: Boolean
+    override val hasWidget: Boolean,
+    override val replacesId: String?
 ) : AppScript {
 
     override val isUserScript: Boolean get() = true
 
     private var env: ScriptEnvironment? = null
-    override fun onAttached(env: ScriptEnvironment) { this.env = env }
+
+    override fun onAttached(env: ScriptEnvironment) {
+        this.env = env
+        try {
+            val cx = rhino()
+            try {
+                val (scope, obj) = buildScope(cx)
+                val fn = ScriptableObject.getProperty(obj, "onRegister") as? org.mozilla.javascript.Function
+                if (fn != null) {
+                    val signalsJs = buildSignalsBridge(env, cx, scope)
+                    val scriptsJs = buildScriptsBridge(env, cx, scope)
+                    fn.call(cx, scope, obj, arrayOf(signalsJs, scriptsJs))
+                }
+            } finally { Context.exit() }
+        } catch (_: Exception) {}
+    }
 
     companion object {
         fun fromSource(source: String): ScriptedModule {
@@ -280,7 +305,10 @@ class ScriptedModule private constructor(
                     && widgetProp != ScriptableObject.NOT_FOUND
                     && widgetProp !is Boolean
 
-                ScriptedModule(source, id, displayName, WidgetUiConfig(size), hasWidget)
+                // replacesId: any script using a built_in.* id is overriding that built-in
+                val replacesId = if (id.startsWith("built_in.")) id else null
+
+                ScriptedModule(source, id, displayName, WidgetUiConfig(size), hasWidget, replacesId)
             } finally {
                 Context.exit()
             }
@@ -298,9 +326,10 @@ class ScriptedModule private constructor(
                 val (scope, obj) = buildScope(cx)
                 val fn = ScriptableObject.getProperty(obj, "widget") as? org.mozilla.javascript.Function
                     ?: return ScriptedView(title = displayName)
-                val stateJs = state.toJS(cx, scope)
+                val stateJs   = state.toJS(cx, scope)
                 val signalsJs = env?.let { buildSignalsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
-                val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs)) as? NativeObject
+                val scriptsJs = env?.let { buildScriptsBridge(it, cx, scope) } ?: cx.newObject(scope) as NativeObject
+                val res = fn.call(cx, scope, obj, arrayOf(stateJs, signalsJs, scriptsJs)) as? NativeObject
                     ?: return ScriptedView(title = displayName)
                 ScriptedView(
                     title       = res.jsString("title")       ?: displayName,

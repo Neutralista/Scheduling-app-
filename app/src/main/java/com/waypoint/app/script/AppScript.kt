@@ -22,6 +22,12 @@ interface AppScript {
     /** True when this script is user-installed (as opposed to built-in). */
     val isUserScript: Boolean get() = false
 
+    /**
+     * If non-null, this user script overrides the script with this ID.
+     * Automatically set for any script whose id matches a built-in ("built_in.*").
+     */
+    val replacesId: String? get() = null
+
     /** True when this built-in script's configuration can be reset to factory defaults. */
     val canResetToDefaults: Boolean get() = false
 

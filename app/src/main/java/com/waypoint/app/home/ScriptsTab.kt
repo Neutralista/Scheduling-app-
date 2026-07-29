@@ -150,7 +150,11 @@ private fun ScriptRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 3.dp)
                 ) {
-                    ScriptBadge(if (script.isUserScript) "User" else "Built-in")
+                    if (script.replacesId != null) {
+                        ScriptBadge("Override", isAccent = true)
+                    } else {
+                        ScriptBadge(if (script.isUserScript) "User" else "Built-in")
+                    }
                     if (script.hasWidget) ScriptBadge("Widget")
                 }
             }
@@ -270,16 +274,18 @@ private fun ScriptRow(
 }
 
 @Composable
-private fun ScriptBadge(label: String) {
+private fun ScriptBadge(label: String, isAccent: Boolean = false) {
     Surface(
         shape = RoundedCornerShape(4.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer
+        color = if (isAccent) MaterialTheme.colorScheme.tertiaryContainer
+                else MaterialTheme.colorScheme.secondaryContainer
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+            color = if (isAccent) MaterialTheme.colorScheme.onTertiaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
         )
     }
 }
