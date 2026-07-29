@@ -378,20 +378,6 @@ internal fun NativeObject.toScriptState(base: ScriptState): ScriptState {
     return ScriptState(doneToday = newDone, values = newValues, settings = newSettings)
 }
 
-private fun NativeObject.jsString(key: String): String? {
-    val v = get(key, this)
-    return if (v == null || v is Undefined || v == ScriptableObject.NOT_FOUND) null else v.toString()
-}
-private fun NativeObject.jsBool(key: String, default: Boolean = false): Boolean {
-    val v = get(key, this)
-    return when {
-        v == null || v is Undefined || v == ScriptableObject.NOT_FOUND -> default
-        v is Boolean -> v
-        else -> v.toString().equals("true", ignoreCase = true)
-    }
-}
-private fun NativeObject.jsFloat(key: String): Float? = (get(key, this) as? Number)?.toFloat()
-
 // ── Shared widget card renderer ───────────────────────────────────────────────
 
 @Composable
