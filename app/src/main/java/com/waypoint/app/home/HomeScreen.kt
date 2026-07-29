@@ -314,7 +314,7 @@ private fun HabitsTab(
         AlertDialog(
             onDismissRequest = { removeConfirmId = null },
             title = { Text("Remove widget") },
-            text = { Text("Remove "$name"? This can't be undone from the app — you'll need to paste the code again.") },
+            text = { Text("Remove \"$name\"? This can't be undone from the app — you'll need to paste the code again.") },
             confirmButton = {
                 TextButton(onClick = { onRemoveWidget(id); removeConfirmId = null }) {
                     Text("Remove", color = MaterialTheme.colorScheme.error)

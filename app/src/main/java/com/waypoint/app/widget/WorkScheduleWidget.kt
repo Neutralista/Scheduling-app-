@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -50,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.notification.ShiftAlarmScheduler
+import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.signal.AfterWorkEvent
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.ShiftSession
@@ -842,32 +841,7 @@ private fun DayScheduleRow(
 
 @Composable
 private fun TimeField(value: String, onValueChange: (String) -> Unit) {
-    BasicTextField(
-        value = value,
-        onValueChange = { raw ->
-            val filtered = raw.filter { it.isDigit() || it == ':' }.take(5)
-            onValueChange(filtered)
-        },
-        textStyle = MaterialTheme.typography.bodySmall.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            fontFeatureSettings = "tnum"
-        ),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        singleLine = true,
-        decorationBox = { inner ->
-            Box(
-                Modifier
-                    .width(50.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) { inner() }
-        }
-    )
+    TimePickerChip(value = value, onValueChange = onValueChange, modifier = Modifier.width(50.dp))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

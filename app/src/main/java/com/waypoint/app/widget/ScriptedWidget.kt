@@ -211,7 +211,7 @@ class ScriptedWidget private constructor(
                 val newValues = if (valuesObj != null) {
                     valuesObj.ids.associate { k ->
                         val v = valuesObj.get(k.toString(), valuesObj)
-                        k.toString() to (v as? Number)?.toDouble() ?: 0.0
+                        k.toString() to ((v as? Number)?.toDouble() ?: 0.0)
                     }
                 } else state.values
                 WidgetState(doneToday = newDone, values = newValues)
