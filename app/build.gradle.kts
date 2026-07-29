@@ -30,7 +30,20 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        create("ci") {
+            storeFile = System.getenv("SIGNING_STORE_PATH")?.let { file(it).takeIf { f -> f.exists() } }
+            storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+            keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+            keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
+        debug {
+            val ciConfig = signingConfigs.getByName("ci")
+            if (ciConfig.storeFile != null) signingConfig = ciConfig
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
