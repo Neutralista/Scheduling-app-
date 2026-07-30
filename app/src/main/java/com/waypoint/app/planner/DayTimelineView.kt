@@ -80,7 +80,8 @@ fun DayTimelineView(
             set(Calendar.SECOND, 0);      set(Calendar.MILLISECOND, 0)
         }
     }
-    val isToday = date == LocalDate.now()
+    val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
+    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
     var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
     // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window
@@ -95,7 +96,7 @@ fun DayTimelineView(
 
     // Scroll to a sensible position when the date changes
     LaunchedEffect(date) {
-        val scrollMin = if (isToday) (nowMin - 60) else (4 * 60)
+        val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
         val scrollPx = with(density) {
             scrollMin.coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()
         }.toInt()
@@ -118,9 +119,9 @@ fun DayTimelineView(
         }
     }
 
-    // 1-minute ticker: update now-line and re-evaluate plan (today only)
+    // 1-minute ticker: update now-line and re-evaluate plan (when now falls in this window)
     LaunchedEffect(viewStartMs) {
-        if (isToday) {
+        if (isNowVisible) {
             while (true) {
                 delay(60_000L)
                 nowMin = minutesFromViewStart(viewStartMs)
@@ -398,8 +399,8 @@ fun DayTimelineView(
                     }
                 }
 
-                // Current-time indicator — red dot + line (today only)
-                if (isToday) {
+                // Current-time indicator — red dot + line (when now falls in this window)
+                if (isNowVisible) {
                     val clampedNow = nowMin.coerceIn(0, TOTAL_HOURS * 60)
                     val nowY = minToY(clampedNow)
                     val redC = Color(0xFFE53935)
