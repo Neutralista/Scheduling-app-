@@ -24,6 +24,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <queries>
         <!-- Standalone Health Connect app (Android 9–13) -->
@@ -63,6 +66,11 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="shortService"
             tools:node="merge" />
+
+        <service
+            android:name=".notification.WakeRingerService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
 
         <receiver
             android:name=".notification.ScriptNotificationReceiver"

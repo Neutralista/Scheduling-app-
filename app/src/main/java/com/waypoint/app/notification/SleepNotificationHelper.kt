@@ -28,7 +28,6 @@ object SleepNotificationHelper {
     private const val NOTIF_NUDGE        = 102
     private const val NOTIF_WAKE_SOFT    = 110
     private const val NOTIF_WAKE_MED     = 111
-    private const val NOTIF_WAKE_FULL    = 112
     private const val NOTIF_ALARM_STATUS = 120
 
     private const val NUDGE_COOLDOWN_MS = 20 * 60_000L
@@ -169,32 +168,6 @@ object SleepNotificationHelper {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
         )
-    }
-
-    fun sendWakeFullNotification(context: Context) {
-        val dismissPi = PendingIntent.getBroadcast(
-            context, 212,
-            Intent(WakeAlarmReceiver.ACTION_DISMISS).setPackage(context.packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        nm(context).notify(
-            NOTIF_WAKE_FULL,
-            NotificationCompat.Builder(context, CH_WAKE_FULL)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Wake up!")
-                .setContentText("Time to start your day")
-                .setContentIntent(openAppPi(context, 213))
-                .addAction(0, "Dismiss", dismissPi)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVibrate(longArrayOf(500, 1000, 500, 1000))
-                .setAutoCancel(true)
-                .build()
-        )
-    }
-
-    fun dismissWakeAlarm(context: Context) {
-        nm(context).cancel(NOTIF_WAKE_FULL)
     }
 
     // ─── Alarm status (persistent, silent) ────────────────────────────────────

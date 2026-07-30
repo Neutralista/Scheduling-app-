@@ -9,8 +9,8 @@ class WakeAlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_GENTLE  -> SleepNotificationHelper.sendWakeGentleNotification(context)
             ACTION_MEDIUM  -> SleepNotificationHelper.sendWakeMediumNotification(context)
-            ACTION_FULL    -> SleepNotificationHelper.sendWakeFullNotification(context)
-            ACTION_DISMISS -> SleepNotificationHelper.dismissWakeAlarm(context)
+            ACTION_FULL    -> WakeRingerService.start(context)
+            ACTION_DISMISS -> WakeRingerService.stop(context)
         }
     }
 

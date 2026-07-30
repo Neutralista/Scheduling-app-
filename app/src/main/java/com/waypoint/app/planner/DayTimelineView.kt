@@ -350,9 +350,9 @@ fun DayTimelineView(
                     // (epochMs, label or null for minor ticks)
                     val alarmPoints = listOf(
                         sleepBlock.startMillis - 30 * 60_000L to "Pre-sleep",
-                        sleepBlock.endMillis   - 15 * 60_000L to "Wake alarm",
-                        sleepBlock.endMillis   - 10 * 60_000L to null,
-                        sleepBlock.endMillis   -  5 * 60_000L to null,
+                        sleepBlock.endMillis   - 15 * 60_000L to "Gentle",
+                        sleepBlock.endMillis   - 10 * 60_000L to "Alarm",
+                        sleepBlock.endMillis                   to "Ring",
                     )
                     alarmPoints.forEach { (alarmMs, label) ->
                         val alarmMin = msToMin(alarmMs, viewStartMs)
