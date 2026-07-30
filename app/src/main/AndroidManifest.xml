@@ -24,9 +24,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <queries>
         <!-- Standalone Health Connect app (Android 9–13) -->
@@ -38,6 +35,13 @@
         -->
         <intent>
             <action android:name="androidx.health.connect.client.action.REQUEST_HEALTH_PERMISSIONS" />
+        </intent>
+        <!-- System Clock app — required for ACTION_SET_ALARM / ACTION_DISMISS_ALARM on API 30+ -->
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_ALARM" />
         </intent>
     </queries>
 
@@ -66,11 +70,6 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="shortService"
             tools:node="merge" />
-
-        <service
-            android:name=".notification.WakeRingerService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
 
         <receiver
             android:name=".notification.ScriptNotificationReceiver"
@@ -111,8 +110,6 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.WAKE_GENTLE" />
                 <action android:name="com.waypoint.app.WAKE_MEDIUM" />
-                <action android:name="com.waypoint.app.WAKE_FULL" />
-                <action android:name="com.waypoint.app.WAKE_DISMISS" />
             </intent-filter>
         </receiver>
 

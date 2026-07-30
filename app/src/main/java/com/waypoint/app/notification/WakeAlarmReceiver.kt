@@ -7,17 +7,13 @@ import android.content.Intent
 class WakeAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            ACTION_GENTLE  -> SleepNotificationHelper.sendWakeGentleNotification(context)
-            ACTION_MEDIUM  -> SleepNotificationHelper.sendWakeMediumNotification(context)
-            ACTION_FULL    -> WakeRingerService.start(context)
-            ACTION_DISMISS -> WakeRingerService.stop(context)
+            ACTION_GENTLE -> SleepNotificationHelper.sendWakeGentleNotification(context)
+            ACTION_MEDIUM -> SleepNotificationHelper.sendWakeMediumNotification(context)
         }
     }
 
     companion object {
-        const val ACTION_GENTLE  = "com.waypoint.app.WAKE_GENTLE"
-        const val ACTION_MEDIUM  = "com.waypoint.app.WAKE_MEDIUM"
-        const val ACTION_FULL    = "com.waypoint.app.WAKE_FULL"
-        const val ACTION_DISMISS = "com.waypoint.app.WAKE_DISMISS"
+        const val ACTION_GENTLE = "com.waypoint.app.WAKE_GENTLE"
+        const val ACTION_MEDIUM = "com.waypoint.app.WAKE_MEDIUM"
     }
 }
