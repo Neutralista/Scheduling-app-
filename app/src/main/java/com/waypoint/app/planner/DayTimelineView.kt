@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -336,6 +338,61 @@ fun DayTimelineView(
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                     color = fg.copy(alpha = 0.65f)
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Alarm markers — derived from the sleep block's bed/wake times
+                val alarmAccent = Color(0xFFF59E0B)
+                val sleepBlock = mergedScheduled.firstOrNull { it.event.category == EventCategory.SLEEP }
+                if (sleepBlock != null) {
+                    // (epochMs, label or null for minor ticks)
+                    val alarmPoints = listOf(
+                        sleepBlock.startMillis - 30 * 60_000L to "Pre-sleep",
+                        sleepBlock.endMillis   - 15 * 60_000L to "Wake alarm",
+                        sleepBlock.endMillis   - 10 * 60_000L to null,
+                        sleepBlock.endMillis   -  5 * 60_000L to null,
+                    )
+                    alarmPoints.forEach { (alarmMs, label) ->
+                        val alarmMin = msToMin(alarmMs, viewStartMs)
+                        if (alarmMin !in 0..(TOTAL_HOURS * 60)) return@forEach
+                        val alarmY = minToY(alarmMin)
+                        Canvas(
+                            Modifier
+                                .yOffset(alarmY)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                        ) {
+                            drawLine(
+                                color = alarmAccent.copy(alpha = 0.5f),
+                                start = Offset(0f, 0f),
+                                end = Offset(size.width, 0f),
+                                strokeWidth = 1.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 3.dp.toPx()))
+                            )
+                        }
+                        if (label != null) {
+                            Row(
+                                Modifier
+                                    .yOffset(alarmY - 8.dp)
+                                    .fillMaxWidth()
+                                    .padding(end = 6.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(alarmAccent.copy(alpha = 0.12f))
+                                        .border(1.dp, alarmAccent.copy(alpha = 0.28f), RoundedCornerShape(4.dp))
+                                ) {
+                                    Text(
+                                        "$label · ${fmtMs(alarmMs)}",
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                        color = alarmAccent.copy(alpha = 0.9f)
+                                    )
+                                }
                             }
                         }
                     }
