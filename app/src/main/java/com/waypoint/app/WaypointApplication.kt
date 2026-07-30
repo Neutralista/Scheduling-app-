@@ -4,6 +4,8 @@ import android.app.Application
 import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
+import com.waypoint.app.notification.SleepNotificationHelper
+import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.script.ScriptRegistry
 import com.waypoint.app.script.ScriptStore
@@ -35,6 +37,7 @@ class WaypointApplication : Application() {
 
         // Shared refresh signal so WorkScheduleScript can trigger SleepScheduleScript recompose
         val sleepRefresh = MutableStateFlow(0)
+        val sleepLogStore = SleepLogStore(applicationContext)
 
         // Register built-in scripts
         ScriptRegistry.register(
@@ -42,7 +45,7 @@ class WaypointApplication : Application() {
             env
         )
         ScriptRegistry.register(
-            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh),
+            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore),
             env
         )
 
@@ -57,6 +60,7 @@ class WaypointApplication : Application() {
         NotificationHelper.createChannel(this)
         NotificationHelper.createShiftChannel(this)
         NotificationHelper.createScriptsChannel(this)
+        SleepNotificationHelper.createChannels(this)
         ReminderScheduler.schedule(this, hourOfDay = 9)
         ScriptTickWorker.schedule(this)
     }

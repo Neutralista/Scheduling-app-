@@ -62,6 +62,42 @@
             android:name=".notification.ScriptNotificationActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".planner.SleepCheckReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.SLEEP_CHECK" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".notification.SleepAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.SLEEP_PRE_REMINDER" />
+                <action android:name="com.waypoint.app.SLEEP_BEDTIME" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".notification.SleepActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.ENTER_SLEEP_MODE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".notification.WakeAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.WAKE_GENTLE" />
+                <action android:name="com.waypoint.app.WAKE_MEDIUM" />
+                <action android:name="com.waypoint.app.WAKE_FULL" />
+                <action android:name="com.waypoint.app.WAKE_DISMISS" />
+            </intent-filter>
+        </receiver>
+
         <!--
             Health Connect — rationale activity.
             The action differs by HC variant:

@@ -34,7 +34,7 @@ fun SleepScheduleCard(
     var schedule by remember { mutableStateOf(store.load()) }
     val todaySchedule = remember { ws.getTodaySchedule() }
     val isWorkDay = todaySchedule.isWork && todaySchedule.shiftStart != null && todaySchedule.shiftEnd != null
-    val effective = remember(schedule, refreshKey) { store.computeEffectiveTimes(ws) }
+    val effective = remember(schedule, refreshKey) { store.computeEffectiveTimes(ws, registry) }
 
     fun commit() {
         store.syncToRegistry(registry, ws)
