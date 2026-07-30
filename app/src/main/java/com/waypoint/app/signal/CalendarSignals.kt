@@ -1,6 +1,8 @@
 package com.waypoint.app.signal
 
 import android.Manifest
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
@@ -8,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.TimeZone
 
 data class CalendarEvent(
     val title: String,
@@ -19,9 +22,14 @@ data class CalendarEvent(
 
 interface CalendarSignals {
     fun hasPermission(): Boolean
+    fun hasWritePermission(): Boolean
     suspend fun todayEvents(): List<CalendarEvent>
     val cachedEvents: List<CalendarEvent>
     suspend fun refreshCache()
+    /** Creates an event in the primary calendar. Returns the new event ID, or -1 on failure. */
+    suspend fun createEvent(title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Long
+    /** Deletes an event by ID. Returns true if deleted. */
+    suspend fun deleteEvent(eventId: Long): Boolean
 }
 
 class RealCalendarSignals(private val context: Context) : CalendarSignals {
@@ -33,6 +41,10 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
 
     override fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED
+
+    override fun hasWritePermission(): Boolean =
+        context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) ==
                 PackageManager.PERMISSION_GRANTED
 
     override suspend fun todayEvents(): List<CalendarEvent> = withContext(Dispatchers.IO) {
@@ -77,5 +89,49 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             }
         }
         events
+    }
+
+    override suspend fun createEvent(
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        description: String,
+        allDay: Boolean
+    ): Long = withContext(Dispatchers.IO) {
+        if (!hasWritePermission()) return@withContext -1L
+        val calId = primaryCalendarId() ?: return@withContext -1L
+        val values = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, startMillis)
+            put(CalendarContract.Events.DTEND, endMillis)
+            put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            if (description.isNotEmpty()) put(CalendarContract.Events.DESCRIPTION, description)
+            put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
+        }
+        val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+            ?: return@withContext -1L
+        uri.lastPathSegment?.toLongOrNull() ?: -1L
+    }
+
+    override suspend fun deleteEvent(eventId: Long): Boolean = withContext(Dispatchers.IO) {
+        if (!hasWritePermission()) return@withContext false
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+        context.contentResolver.delete(uri, null, null) > 0
+    }
+
+    private fun primaryCalendarId(): Long? {
+        if (!hasPermission()) return null
+        val projection = arrayOf(CalendarContract.Calendars._ID)
+        context.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            projection,
+            "${CalendarContract.Calendars.VISIBLE} = 1",
+            null,
+            "${CalendarContract.Calendars.IS_PRIMARY} DESC, ${CalendarContract.Calendars._ID} ASC"
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getLong(0)
+        }
+        return null
     }
 }

@@ -252,25 +252,27 @@ private fun LogEntryRow(entry: LogEntry) {
 private fun CalendarIntegration(onPermissionGranted: () -> Unit) {
     val context = LocalContext.current
 
-    var granted by remember {
-        mutableStateOf(
-            context.checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
-                    PackageManager.PERMISSION_GRANTED
-        )
+    var readGranted by remember {
+        mutableStateOf(context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED)
     }
 
     val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        granted = isGranted
-        if (isGranted) onPermissionGranted()
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        readGranted = perms[Manifest.permission.READ_CALENDAR] == true
+        if (readGranted) onPermissionGranted()
     }
 
     IntegrationRow(
         title = "Calendar",
-        description = "Read today's events in scripts via signals.calendar.events",
-        granted = granted,
-        onConnect = { launcher.launch(Manifest.permission.READ_CALENDAR) }
+        description = "Events visible in Plan view · scripts can read events and create/delete events via signals.calendar",
+        granted = readGranted,
+        onConnect = {
+            launcher.launch(arrayOf(
+                Manifest.permission.READ_CALENDAR,
+                Manifest.permission.WRITE_CALENDAR
+            ))
+        }
     )
 }
 

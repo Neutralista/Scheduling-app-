@@ -346,6 +346,35 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
         }
         ScriptableObject.putProperty(calObj, "events",
             cx.newArray(scope, calEvents.toTypedArray<Any?>()))
+        ScriptableObject.putProperty(calObj, "hasWritePermission", env.calendar.hasWritePermission())
+        ScriptableObject.putProperty(calObj, "createEvent", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val opts = args.getOrNull(0) as? NativeObject ?: return -1.0
+                val title  = opts.jsString("title")  ?: return -1.0
+                val startMs = (opts.get("startMillis", opts) as? Number)?.toLong() ?: return -1.0
+                val endMs   = (opts.get("endMillis",   opts) as? Number)?.toLong() ?: return -1.0
+                val desc   = opts.jsString("description") ?: ""
+                val allDay = opts.jsBool("allDay")
+                return try {
+                    kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                        env.calendar.createEvent(title, startMs, endMs, desc, allDay)
+                    }.toDouble()
+                } catch (e: Throwable) {
+                    AppLogger.e("Bridge", "calendar.createEvent failed", e)
+                    -1.0
+                }
+            }
+        })
+        ScriptableObject.putProperty(calObj, "deleteEvent", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val eventId = (args.getOrNull(0) as? Number)?.toLong() ?: return null
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.calendar.deleteEvent(eventId) }
+                    catch (e: Throwable) { AppLogger.e("Bridge", "calendar.deleteEvent failed", e) }
+                }
+                return null
+            }
+        })
         ScriptableObject.putProperty(obj, "calendar", calObj)
     } catch (e: Throwable) {
         AppLogger.e("Bridge", "calendar section failed: ${e.javaClass.name}: ${e.message}")
