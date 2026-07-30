@@ -109,14 +109,9 @@ class SleepScheduleStore(private val context: Context) {
             return EffectiveSleepTimes(s.preferredWakeTime, ShiftTime(bedMin / 60, bedMin % 60), isConstrained = false)
         }
 
-        // Step 1: Morning buffer — latest wake time before the shift
+        // Step 1: Compute hard constraints from shift buffers
         val latestWakeMin = schedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
-        var effectiveWake = if (latestWakeMin > 0)
-            ShiftTime(latestWakeMin / 60, latestWakeMin % 60)
-        else
-            s.preferredWakeTime
 
-        // Step 2: Evening buffer — earliest bed time after shift end
         val shiftEndMinAbs: Int = if (date == LocalDate.now()) {
             val session = ws.getTodaySession()
             if (session.actualEndMillis != null) {
@@ -134,23 +129,35 @@ class SleepScheduleStore(private val context: Context) {
             schedule.shiftEnd.totalMinutes
         }
 
-        val earliestBedMinAbs = shiftEndMinAbs + s.minEveningBufferMinutes
-        val bedMin = earliestBedMinAbs % (24 * 60)
-        var effectiveBed = ShiftTime(bedMin / 60, bedMin % 60)
+        val earliestBedMin = (shiftEndMinAbs + s.minEveningBufferMinutes) % (24 * 60)
 
-        // Step 3: Cap at preferred sleep duration by pushing bed later
-        val rawSleepMin = if (effectiveBed.totalMinutes > effectiveWake.totalMinutes)
-            effectiveWake.totalMinutes + (1440 - effectiveBed.totalMinutes)
+        // Step 2: Anchor wake on preferred time, clamped by morning constraint
+        var effectiveWakeMin = s.preferredWakeTime.totalMinutes
+        if (latestWakeMin > 0 && effectiveWakeMin > latestWakeMin) effectiveWakeMin = latestWakeMin
+        var effectiveWake = ShiftTime(effectiveWakeMin / 60, effectiveWakeMin % 60)
+
+        // Step 3: Derive bed from target duration (wake − target)
+        var effectiveBedMin = ((effectiveWakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
+        var effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
+
+        // Step 4: If derived bed falls before the evening buffer, push the window forward.
+        // For midnight-crossing shifts the valid bed zone is [earliestBedMin, latestWakeMin]
+        // (both small, post-midnight values). For normal shifts bed should be ≥ earliestBedMin.
+        val bedTooEarly = if (schedule.crossesMidnight)
+            effectiveBedMin !in earliestBedMin..latestWakeMin
         else
-            effectiveWake.totalMinutes - effectiveBed.totalMinutes
+            effectiveBedMin < earliestBedMin
 
-        if (rawSleepMin > s.targetSleepMinutes) {
-            val excess = rawSleepMin - s.targetSleepMinutes
-            val newBedMin = (effectiveBed.totalMinutes + excess) % 1440
-            effectiveBed = ShiftTime(newBedMin / 60, newBedMin % 60)
+        if (bedTooEarly) {
+            effectiveBedMin = earliestBedMin
+            effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
+            val newWakeMin = (effectiveBedMin + s.targetSleepMinutes) % 1440
+            // Clamp if the full target doesn't fit before the morning constraint
+            effectiveWakeMin = if (latestWakeMin > 0 && newWakeMin > latestWakeMin) latestWakeMin else newWakeMin
+            effectiveWake = ShiftTime(effectiveWakeMin / 60, effectiveWakeMin % 60)
         }
 
-        // Step 4: 15-min transition buffer around non-sleep events that crowd bedtime
+        // Step 5: 15-min transition buffer around non-sleep events that crowd bedtime
         val zone = ZoneId.systemDefault()
         val isPostMidnight = effectiveBed.totalMinutes < effectiveWake.totalMinutes
         var bedEpochMs = if (isPostMidnight)
