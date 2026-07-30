@@ -126,7 +126,9 @@ data class ScriptedDialog(
     /** Default value / pre-fill for time/text inputs. */
     val placeholder: String = "",
     /** Second default for timerange (end time). */
-    val placeholder2: String = ""
+    val placeholder2: String = "",
+    /** Optional label for a Back button rendered next to Cancel. Sends "back" to onAnswer when tapped. */
+    val backLabel: String? = null
 )
 
 data class ScriptedView(
@@ -920,7 +922,8 @@ class ScriptedModule private constructor(
                     yesLabel     = dialogObj.jsString("yesLabel")     ?: "Yes",
                     noLabel      = dialogObj.jsString("noLabel")      ?: "No",
                     placeholder  = dialogObj.jsString("placeholder")  ?: "",
-                    placeholder2 = dialogObj.jsString("placeholder2") ?: ""
+                    placeholder2 = dialogObj.jsString("placeholder2") ?: "",
+                    backLabel    = dialogObj.jsString("backLabel")
                 ) else null
                 ScriptedView(
                     title                = res.jsString("title")               ?: displayName,
@@ -1203,8 +1206,15 @@ class ScriptedModule private constructor(
                                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                                        Text("Cancel")
+                                    Row {
+                                        if (dialog.backLabel != null) {
+                                            TextButton(onClick = { onStateChange(applyAnswer(current, "back")) }) {
+                                                Text(dialog.backLabel)
+                                            }
+                                        }
+                                        TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                            Text("Cancel")
+                                        }
                                     }
                                     TextButton(onClick = {
                                         when {
@@ -1275,8 +1285,15 @@ class ScriptedModule private constructor(
                                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                                        Text("Cancel")
+                                    Row {
+                                        if (dialog.backLabel != null) {
+                                            TextButton(onClick = { onStateChange(applyAnswer(current, "back")) }) {
+                                                Text(dialog.backLabel)
+                                            }
+                                        }
+                                        TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
+                                            Text("Cancel")
+                                        }
                                     }
                                     TextButton(onClick = {
                                         val ans = "%02d:%02d|%02d:%02d".format(
@@ -1302,6 +1319,11 @@ class ScriptedModule private constructor(
                         },
                         dismissButton = {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (dialog.backLabel != null) {
+                                    TextButton(onClick = { onStateChange(applyAnswer(current, "back")) }) {
+                                        Text(dialog.backLabel, color = MaterialTheme.colorScheme.outline)
+                                    }
+                                }
                                 TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
                                     Text("Cancel", color = MaterialTheme.colorScheme.outline)
                                 }
