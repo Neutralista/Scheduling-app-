@@ -254,16 +254,22 @@ fun DayTimelineView(
                 // the 4AM-4AM window, then stitch adjacent SLEEP blocks into one.
                 val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
                 val mergedScheduled = run {
+                    // Exclude next-day events whose ID is already covered in today's plan
+                    // (the extended planner may have placed the same event past midnight).
+                    val todayIds = plan.scheduled.map { it.event.id }.toSet()
                     val combined = (plan.scheduled +
-                        nextDayScheduled.filter { it.startMillis < viewEndMs })
+                        nextDayScheduled.filter { it.startMillis < viewEndMs && it.event.id !in todayIds })
                         .sortedBy { it.startMillis }
+                    // Stitch adjacent blocks of the same logical event:
+                    // - same event ID (any category), or
+                    // - both SLEEP (sleep_evening + sleep_morning have different IDs but same category)
                     val out = mutableListOf<ScheduledEvent>()
                     for (se in combined) {
                         val last = out.lastOrNull()
-                        if (last != null &&
-                            last.event.category == EventCategory.SLEEP &&
-                            se.event.category == EventCategory.SLEEP &&
-                            last.endMillis == se.startMillis
+                        if (last != null && last.endMillis == se.startMillis &&
+                            (last.event.id == se.event.id ||
+                             (last.event.category == EventCategory.SLEEP &&
+                              se.event.category == EventCategory.SLEEP))
                         ) {
                             out[out.size - 1] = last.copy(endMillis = se.endMillis)
                         } else {
