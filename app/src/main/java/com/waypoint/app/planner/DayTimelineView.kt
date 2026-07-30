@@ -80,6 +80,10 @@ fun DayTimelineView(
     val isToday = date == LocalDate.now()
 
     var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
+    // Next-day plan provides post-midnight events (e.g. sleep_morning) inside the 4AM-4AM window
+    var nextDayScheduled by remember(date) {
+        mutableStateOf(registry.planForDate(date.plusDays(1), ws).scheduled)
+    }
     val dateSchedule = remember(date) { ws.getSchedule(dateCal) }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
@@ -104,6 +108,7 @@ fun DayTimelineView(
                 delay(60_000L)
                 nowMin = minutesFromViewStart(viewStartMs)
                 plan = registry.planForDate(date, ws)
+                nextDayScheduled = registry.planForDate(date.plusDays(1), ws).scheduled
             }
         }
     }
@@ -245,11 +250,33 @@ fun DayTimelineView(
                 }
 
                 // Planner event blocks
+                // Merge today's events with post-midnight next-day events that fall inside
+                // the 4AM-4AM window, then stitch adjacent SLEEP blocks into one.
+                val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
+                val mergedScheduled = run {
+                    val combined = (plan.scheduled +
+                        nextDayScheduled.filter { it.startMillis < viewEndMs })
+                        .sortedBy { it.startMillis }
+                    val out = mutableListOf<ScheduledEvent>()
+                    for (se in combined) {
+                        val last = out.lastOrNull()
+                        if (last != null &&
+                            last.event.category == EventCategory.SLEEP &&
+                            se.event.category == EventCategory.SLEEP &&
+                            last.endMillis == se.startMillis
+                        ) {
+                            out[out.size - 1] = last.copy(endMillis = se.endMillis)
+                        } else {
+                            out += se
+                        }
+                    }
+                    out
+                }
                 val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
                 val sleepBg = Color(0xFF1A2540)
                 val sleepFg = Color(0xFF6B8ABD)
                 var habitIdx = 0
-                plan.scheduled.forEach { se ->
+                mergedScheduled.forEach { se ->
                     val isSleep = se.event.category == EventCategory.SLEEP
                     val seStartMin = msToMin(se.startMillis, viewStartMs)
                     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
