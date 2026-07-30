@@ -118,6 +118,9 @@ class SleepScheduleStore(private val context: Context) {
         var effectiveWake: ShiftTime
         var effectiveBed: ShiftTime
         var isConstrained: Boolean
+        // Floor for backward bed-slide on work days: epoch ms of shiftEnd + eveningBuffer.
+        // Long.MIN_VALUE = no floor (day off — slide as far as needed to hit target duration).
+        var shiftFloorBedEpochMs = Long.MIN_VALUE
 
         if (!schedule.isWork || schedule.shiftStart == null || schedule.shiftEnd == null) {
             // Day off: anchor wake at preferred time, derive bed from target duration
@@ -151,6 +154,14 @@ class SleepScheduleStore(private val context: Context) {
             }
 
             val earliestBedMin = (shiftEndMinAbs + s.minEveningBufferMinutes) % (24 * 60)
+            val isFloorNextDay = shiftEndMinAbs + s.minEveningBufferMinutes >= 24 * 60
+            val floorZone = ZoneId.systemDefault()
+            shiftFloorBedEpochMs = if (isFloorNextDay)
+                date.plusDays(1).atTime(earliestBedMin / 60, earliestBedMin % 60)
+                    .atZone(floorZone).toInstant().toEpochMilli()
+            else
+                date.atTime(earliestBedMin / 60, earliestBedMin % 60)
+                    .atZone(floorZone).toInstant().toEpochMilli()
 
             // Step 2: Anchor wake on preferred time, clamped by morning constraint
             effectiveWakeMin = s.preferredWakeTime.totalMinutes
@@ -219,6 +230,7 @@ class SleepScheduleStore(private val context: Context) {
         }
 
         // Wake pull: event starts inside the sleep window → pull wake earlier
+        val wakeBeforePull = wakeEpochMs
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
             if (se.startMillis > bedEpochMs && se.startMillis < wakeEpochMs) {
@@ -228,6 +240,15 @@ class SleepScheduleStore(private val context: Context) {
         for ((evStart, _) in calEvents) {
             if (evStart > bedEpochMs && evStart < wakeEpochMs) {
                 wakeEpochMs = maxOf(evStart - 15 * 60_000L, bedEpochMs + minSleepMs)
+            }
+        }
+
+        // Slide bed back to preserve target duration when wake was pulled in.
+        // On work days, bed can't go before the shift's evening-buffer floor.
+        if (wakeEpochMs < wakeBeforePull) {
+            val targetBedMs = wakeEpochMs - s.targetSleepMinutes * 60_000L
+            if (targetBedMs < bedEpochMs) {
+                bedEpochMs = maxOf(targetBedMs, shiftFloorBedEpochMs)
             }
         }
 
