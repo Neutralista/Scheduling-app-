@@ -86,7 +86,7 @@ object NotificationHelper {
             .setContentTitle(config.title)
             .setContentText(config.body)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
+            .setOngoing(true)
         config.actions.forEachIndexed { i, action ->
             val actionIntent = Intent(context, ScriptNotificationActionReceiver::class.java).apply {
                 this.action = when (action.behavior) {
