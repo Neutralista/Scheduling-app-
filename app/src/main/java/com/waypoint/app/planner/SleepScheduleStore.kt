@@ -18,11 +18,9 @@ data class SleepSchedule(
     val preferredBedTime: ShiftTime = ShiftTime(23, 0),
     val minMorningBufferMinutes: Int = 120,
     val minEveningBufferMinutes: Int = 120,
-    val enabled: Boolean = true
-) {
-    val totalSleepMinutes: Int
-        get() = preferredWakeTime.totalMinutes + (24 * 60 - preferredBedTime.totalMinutes)
-}
+    val enabled: Boolean = true,
+    val targetSleepMinutes: Int = 480
+)
 
 data class EffectiveSleepTimes(
     val wakeTime: ShiftTime,
@@ -52,6 +50,7 @@ class SleepScheduleStore(private val context: Context) {
     fun setPreferredWakeTime(time: ShiftTime) = save(load().copy(preferredWakeTime = time))
     fun setPreferredBedTime(time: ShiftTime) = save(load().copy(preferredBedTime = time))
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
+    fun setTargetSleepMinutes(minutes: Int) = save(load().copy(targetSleepMinutes = minutes.coerceIn(240, 720)))
     fun resetToDefaults() = save(SleepSchedule())
 
     /** Effective wake/bed for today — used by SleepScheduleCard to display adjusted times. */
@@ -104,7 +103,10 @@ class SleepScheduleStore(private val context: Context) {
         val schedule = ws.getSchedule(cal)
 
         if (!schedule.isWork || schedule.shiftStart == null || schedule.shiftEnd == null) {
-            return EffectiveSleepTimes(s.preferredWakeTime, s.preferredBedTime, isConstrained = false)
+            // Day off: anchor wake at preferred time, derive bed from target duration
+            val wakeMin = s.preferredWakeTime.totalMinutes
+            val bedMin = ((wakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
+            return EffectiveSleepTimes(s.preferredWakeTime, ShiftTime(bedMin / 60, bedMin % 60), isConstrained = false)
         }
 
         // Step 1: Morning buffer — latest wake time before the shift
@@ -142,8 +144,8 @@ class SleepScheduleStore(private val context: Context) {
         else
             effectiveWake.totalMinutes - effectiveBed.totalMinutes
 
-        if (rawSleepMin > s.totalSleepMinutes) {
-            val excess = rawSleepMin - s.totalSleepMinutes
+        if (rawSleepMin > s.targetSleepMinutes) {
+            val excess = rawSleepMin - s.targetSleepMinutes
             val newBedMin = (effectiveBed.totalMinutes + excess) % 1440
             effectiveBed = ShiftTime(newBedMin / 60, newBedMin % 60)
         }
