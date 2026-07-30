@@ -12,8 +12,30 @@ object WakeAlarmScheduler {
     private const val RC_MEDIUM = 8021
     private const val RC_FULL   = 8022
 
+    /**
+     * Full replace: cancel existing alarms then schedule from [wakeMs].
+     * Use when the wake time has definitively changed (e.g. user updates settings).
+     */
     fun scheduleAlarms(context: Context, wakeMs: Long) {
         cancelAlarms(context)
+        val now = System.currentTimeMillis()
+
+        val gentleMs = wakeMs - 15 * 60_000L
+        val mediumMs = wakeMs - 10 * 60_000L
+        val fullMs   = wakeMs -  5 * 60_000L
+
+        if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
+        if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
+        if (fullMs   > now) scheduleExact(context, fullMs,   buildPi(context, RC_FULL,   WakeAlarmReceiver.ACTION_FULL))
+    }
+
+    /**
+     * Safe periodic refresh: only reschedule an alarm if the new time differs from what is
+     * already armed (FLAG_UPDATE_CURRENT replaces the trigger time in AlarmManager). Skips
+     * cancelling so a background CalendarSyncWorker run that lands within seconds of a
+     * pending alarm can't cause it to be dropped.
+     */
+    fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long) {
         val now = System.currentTimeMillis()
 
         val gentleMs = wakeMs - 15 * 60_000L

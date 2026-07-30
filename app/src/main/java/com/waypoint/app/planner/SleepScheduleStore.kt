@@ -90,8 +90,18 @@ class SleepScheduleStore(private val context: Context) {
             if (dayOffset == 0) {
                 val (bedMs, wakeMs) = sleepMillis(date, effective.bedTime, effective.wakeTime)
                 SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs)
-                WakeAlarmScheduler.scheduleAlarms(context, wakeMs)
-                SleepLogStore(context).updateScheduledTimes(bedMs, wakeMs)
+                // Schedule wake alarms without first cancelling already-armed ones so a
+                // CalendarSyncWorker run that lands within seconds of a pending alarm can't
+                // cancel it and fail to reschedule it (target slips into the past).
+                WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
+                val logStore = SleepLogStore(context)
+                // Don't overwrite cached sleep window while sleep mode is active:
+                // after midnight LocalDate.now() advances to the next day, so syncToRegistry
+                // would cache tomorrow night's times, breaking maybeNudge for the remainder
+                // of the current night.
+                if (logStore.getSleepModeState() == SleepModeState.IDLE) {
+                    logStore.updateScheduledTimes(bedMs, wakeMs)
+                }
                 SleepNotificationHelper.showAlarmStatus(context, bedMs, wakeMs)
             }
         }
