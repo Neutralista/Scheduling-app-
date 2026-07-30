@@ -42,15 +42,20 @@ class HomeViewModel(
         ScriptRegistry.all().filterIsInstance<ScriptedModule>().map { it.id }.toSet()
     }
 
+    private val _initialLoadComplete = MutableStateFlow(false)
+    val initialLoadComplete: StateFlow<Boolean> = _initialLoadComplete
+
     val statesById: StateFlow<Map<String, ScriptState>> = stateStore.allStates()
         .map { states ->
-            if (launchResetDone.compareAndSet(false, true) && userScriptIds.isNotEmpty()) {
+            val result = if (launchResetDone.compareAndSet(false, true) && userScriptIds.isNotEmpty()) {
                 states.mapValues { (id, state) ->
                     if (id in userScriptIds && (state.values["step"] ?: 0.0) > 0.0) {
                         state.copy(values = state.values - "step" - "substep")
                     } else state
                 }
             } else states
+            _initialLoadComplete.value = true
+            result
         }
         .onEach { env.updateCache(it) }
         .stateIn(
@@ -61,6 +66,12 @@ class HomeViewModel(
 
     fun onStateChange(scriptId: String, newState: ScriptState) {
         viewModelScope.launch { stateStore.save(scriptId, newState) }
+    }
+
+    fun triggerScriptAction(scriptId: String) {
+        val script = _scriptList.value.filterIsInstance<ScriptedModule>().find { it.id == scriptId } ?: return
+        val newState = script.applyAction(statesById.value[scriptId] ?: ScriptState())
+        onStateChange(scriptId, newState)
     }
 
     /**

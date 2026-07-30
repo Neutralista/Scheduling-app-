@@ -13,9 +13,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
 import com.waypoint.app.ui.theme.WaypointTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -40,6 +43,15 @@ class MainActivity : ComponentActivity() {
 
         val app = application as WaypointApplication
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0
+        val triggerScriptId = intent?.getStringExtra("triggerScriptAction").orEmpty()
+
+        if (triggerScriptId.isNotEmpty()) {
+            lifecycleScope.launch {
+                // Wait until the launch-reset pass has finished so our trigger isn't undone.
+                viewModel.initialLoadComplete.first { it }
+                viewModel.triggerScriptAction(triggerScriptId)
+            }
+        }
 
         setContent {
             val statesById by viewModel.statesById.collectAsState()

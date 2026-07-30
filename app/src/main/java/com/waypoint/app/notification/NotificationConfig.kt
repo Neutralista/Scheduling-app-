@@ -2,9 +2,10 @@ package com.waypoint.app.notification
 
 data class ActionConfig(
     val label: String,
-    val behavior: String, // "snooze", "openTab", "dismiss"
+    val behavior: String, // "snooze", "openTab", "triggerScript", "dismiss"
     val snoozeMinutes: Int = 60,
-    val tab: String = "scripts"
+    val tab: String = "widgets",
+    val scriptId: String = ""
 )
 
 data class WeeklyTrigger(

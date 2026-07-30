@@ -43,6 +43,7 @@ private fun configToJson(config: NotificationConfig): JSONObject {
             ao.put("behavior",      a.behavior)
             ao.put("snoozeMinutes", a.snoozeMinutes)
             ao.put("tab",           a.tab)
+            ao.put("scriptId",      a.scriptId)
         })
     }
     o.put("actions", arr)
@@ -66,7 +67,8 @@ private fun jsonToConfig(o: JSONObject): NotificationConfig {
                 label         = ao.optString("label", ""),
                 behavior      = ao.optString("behavior", "dismiss"),
                 snoozeMinutes = ao.optInt("snoozeMinutes", 60),
-                tab           = ao.optString("tab", "scripts")
+                tab           = ao.optString("tab", "widgets"),
+                scriptId      = ao.optString("scriptId", "")
             )
         }
     }

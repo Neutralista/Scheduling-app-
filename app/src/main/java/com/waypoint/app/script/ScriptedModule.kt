@@ -166,7 +166,8 @@ private fun NativeObject.toNotificationConfig(): NotificationConfig? {
                 label         = ao.jsString("label") ?: "",
                 behavior      = ao.jsString("behavior") ?: "dismiss",
                 snoozeMinutes = (ao.get("snoozeMinutes", ao) as? Number)?.toInt() ?: 60,
-                tab           = ao.jsString("tab") ?: "scripts"
+                tab           = ao.jsString("tab") ?: "widgets",
+                scriptId      = ao.jsString("scriptId") ?: ""
             )
         }
     } ?: emptyList()

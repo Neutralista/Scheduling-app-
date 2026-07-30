@@ -90,14 +90,19 @@ object NotificationHelper {
         config.actions.forEachIndexed { i, action ->
             val actionIntent = Intent(context, ScriptNotificationActionReceiver::class.java).apply {
                 this.action = when (action.behavior) {
-                    "snooze"  -> ScriptNotificationActionReceiver.ACTION_SNOOZE
-                    "openTab" -> ScriptNotificationActionReceiver.ACTION_OPEN_TAB
-                    else      -> ScriptNotificationActionReceiver.ACTION_DISMISS
+                    "snooze"        -> ScriptNotificationActionReceiver.ACTION_SNOOZE
+                    "openTab"       -> ScriptNotificationActionReceiver.ACTION_OPEN_TAB
+                    "triggerScript" -> ScriptNotificationActionReceiver.ACTION_TRIGGER_SCRIPT
+                    else            -> ScriptNotificationActionReceiver.ACTION_DISMISS
                 }
                 putExtra(ScriptNotificationActionReceiver.EXTRA_NOTIF_ID, config.id)
                 when (action.behavior) {
-                    "snooze"  -> putExtra(ScriptNotificationActionReceiver.EXTRA_SNOOZE_MINUTES, action.snoozeMinutes)
-                    "openTab" -> putExtra(ScriptNotificationActionReceiver.EXTRA_TAB, action.tab)
+                    "snooze"        -> putExtra(ScriptNotificationActionReceiver.EXTRA_SNOOZE_MINUTES, action.snoozeMinutes)
+                    "openTab"       -> putExtra(ScriptNotificationActionReceiver.EXTRA_TAB, action.tab)
+                    "triggerScript" -> {
+                        putExtra(ScriptNotificationActionReceiver.EXTRA_SCRIPT_ID, action.scriptId)
+                        putExtra(ScriptNotificationActionReceiver.EXTRA_TAB, action.tab)
+                    }
                 }
             }
             val pi = PendingIntent.getBroadcast(
