@@ -602,12 +602,16 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     try {
         val streakObj = cx.newObject(scope) as NativeObject
         ScriptableObject.putProperty(streakObj, "get", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
-                env.streak.get(args.getOrNull(0)?.toString() ?: return null).toDouble()
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val key = args.getOrNull(0)?.toString() ?: return null
+                return env.streak.get(key).toDouble()
+            }
         })
         ScriptableObject.putProperty(streakObj, "increment", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
-                env.streak.increment(args.getOrNull(0)?.toString() ?: return null).toDouble()
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val key = args.getOrNull(0)?.toString() ?: return null
+                return env.streak.increment(key).toDouble()
+            }
         })
         ScriptableObject.putProperty(streakObj, "reset", object : BaseFunction() {
             override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
@@ -616,8 +620,10 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             }
         })
         ScriptableObject.putProperty(streakObj, "lastDate", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
-                env.streak.lastDate(args.getOrNull(0)?.toString() ?: return null) ?: ""
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val key = args.getOrNull(0)?.toString() ?: return null
+                return env.streak.lastDate(key) ?: ""
+            }
         })
         ScriptableObject.putProperty(obj, "streak", streakObj)
     } catch (e: Throwable) {
