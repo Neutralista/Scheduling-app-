@@ -16,6 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
+import com.waypoint.app.notification.WakeAlarmScheduler
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.ui.theme.WaypointTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -42,6 +45,20 @@ class MainActivity : ComponentActivity() {
         }
 
         val app = application as WaypointApplication
+
+        // Set the system Clock alarm from the foreground — background activity starts
+        // (from Application.onCreate or WorkManager) are blocked on Android 10+ and can
+        // crash on some OEM builds. We read the wake time computed by syncToRegistry and
+        // push it to the Clock app now that we have a foreground Activity context.
+        val sleepEnabled = SleepScheduleStore(applicationContext).load().enabled
+        if (sleepEnabled) {
+            val scheduledWakeMs = SleepLogStore(applicationContext).getScheduledWakeMs()
+            if (scheduledWakeMs != null) {
+                WakeAlarmScheduler.syncSystemClock(this, scheduledWakeMs)
+            }
+        } else {
+            WakeAlarmScheduler.clearSystemClock(this)
+        }
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0
         val triggerScriptId = intent?.getStringExtra("triggerScriptAction").orEmpty()
 

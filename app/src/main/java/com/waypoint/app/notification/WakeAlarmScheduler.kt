@@ -17,6 +17,7 @@ object WakeAlarmScheduler {
     /**
      * Full replace: cancel existing alarms then schedule from [wakeMs].
      * Use when the wake time has definitively changed (e.g. user updates settings).
+     * Does NOT touch the system Clock app — call [syncSystemClock] from an Activity.
      */
     fun scheduleAlarms(context: Context, wakeMs: Long) {
         cancelAlarms(context)
@@ -25,13 +26,13 @@ object WakeAlarmScheduler {
         val mediumMs = wakeMs - 10 * 60_000L
         if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
         if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
-        if (wakeMs   > now) setSystemAlarm(context, wakeMs)
     }
 
     /**
      * Safe periodic refresh: only reschedule alarms if the target is still in the future.
      * Does not cancel first, so a background CalendarSyncWorker run that lands within
      * seconds of a pending alarm can't cause it to be dropped.
+     * Does NOT touch the system Clock app — call [syncSystemClock] from an Activity.
      */
     fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long) {
         val now = System.currentTimeMillis()
@@ -39,21 +40,29 @@ object WakeAlarmScheduler {
         val mediumMs = wakeMs - 10 * 60_000L
         if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
         if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
-        if (wakeMs   > now) setSystemAlarm(context, wakeMs)
     }
 
     fun cancelAlarms(context: Context) {
         cancel(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE)
         cancel(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM)
-        cancelSystemAlarm(context)
     }
 
     /**
      * Creates an alarm in the system Clock app via ACTION_SET_ALARM.
-     * EXTRA_SKIP_UI suppresses the Clock app opening. Wrapped in try/catch because
-     * background activity starts are blocked on Android 10+ — the next foreground
-     * open of the app will retry via syncToRegistry.
+     * Must be called from a foreground Activity — background activity starts are
+     * blocked on Android 10+ and may crash on some OEM builds even inside try/catch.
+     * EXTRA_SKIP_UI suppresses the Clock app opening.
      */
+    fun syncSystemClock(context: Context, wakeMs: Long) {
+        if (wakeMs > System.currentTimeMillis()) setSystemAlarm(context, wakeMs)
+    }
+
+    /**
+     * Cancels the Waypoint Wake alarm in the system Clock app.
+     * Must be called from a foreground Activity for the same reason as [syncSystemClock].
+     */
+    fun clearSystemClock(context: Context) = cancelSystemAlarm(context)
+
     private fun setSystemAlarm(context: Context, wakeMs: Long) {
         val cal = Calendar.getInstance().apply { timeInMillis = wakeMs }
         try {
