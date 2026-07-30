@@ -61,7 +61,8 @@ class SleepScheduleStore(private val context: Context) {
     fun computeEffectiveTimes(ws: WorkScheduleSignals, registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
         val plan = registry.planForDate(today, ws)
-        return computeEffectiveTimesForDate(today, plan, ws, load(), calendarEventsForDate(today))
+        val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
+        return computeEffectiveTimesForDate(today, plan, ws, load(), calEvents)
     }
 
     /**
@@ -81,7 +82,7 @@ class SleepScheduleStore(private val context: Context) {
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
             val plan = registry.planForDate(date, ws)
-            val calEvents = calendarEventsForDate(date)
+            val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
             val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
 
@@ -186,22 +187,39 @@ class SleepScheduleStore(private val context: Context) {
             date.atTime(effectiveBed.hour, effectiveBed.minute)
                 .atZone(zone).toInstant().toEpochMilli()
 
-        val wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
+        var wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
             .atZone(zone).toInstant().toEpochMilli()
+        val minSleepMs = 60 * 60_000L // never compress sleep below 1h
 
+        // Bed push: event ends after bed → push bed later
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
             if (se.endMillis + 15 * 60_000L > bedEpochMs) {
                 bedEpochMs = minOf(maxOf(bedEpochMs, se.endMillis + 15 * 60_000L), wakeEpochMs)
             }
         }
-        for ((evStart, evEnd) in calEvents) {
-            if (evEnd + 15 * 60_000L > bedEpochMs && evStart < wakeEpochMs) {
+        for ((_, evEnd) in calEvents) {
+            if (evEnd + 15 * 60_000L > bedEpochMs) {
                 bedEpochMs = minOf(maxOf(bedEpochMs, evEnd + 15 * 60_000L), wakeEpochMs)
             }
         }
 
+        // Wake pull: event starts inside the sleep window → pull wake earlier
+        for (se in plan.scheduled) {
+            if (se.event.category == EventCategory.SLEEP) continue
+            if (se.startMillis > bedEpochMs && se.startMillis < wakeEpochMs) {
+                wakeEpochMs = maxOf(se.startMillis - 15 * 60_000L, bedEpochMs + minSleepMs)
+            }
+        }
+        for ((evStart, _) in calEvents) {
+            if (evStart > bedEpochMs && evStart < wakeEpochMs) {
+                wakeEpochMs = maxOf(evStart - 15 * 60_000L, bedEpochMs + minSleepMs)
+            }
+        }
+
         effectiveBed = Calendar.getInstance().apply { timeInMillis = bedEpochMs }
+            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+        effectiveWake = Calendar.getInstance().apply { timeInMillis = wakeEpochMs }
             .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
 
         return EffectiveSleepTimes(effectiveWake, effectiveBed, isConstrained = isConstrained)
