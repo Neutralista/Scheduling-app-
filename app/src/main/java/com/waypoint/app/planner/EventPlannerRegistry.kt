@@ -46,9 +46,7 @@ class EventPlannerRegistry {
         val isWorkDay = schedule.isWork
 
         val dayStartMs = cal.timeInMillis
-        // Extend planning window to 4 AM next day to allow cross-midnight events.
-        // Must stay in sync with VIEW_START_HOUR in DayTimelineView.
-        val dayEndMs = dayStartMs + 28 * 3600_000L
+        val dayEndMs = dayStartMs + 24 * 3600_000L
 
         val shiftStartMs = if (isWorkDay) schedule.shiftStart?.let { toMs(it.hour, it.minute) } else null
         val shiftEndMs = if (isWorkDay) schedule.shiftEnd?.let { t ->
@@ -88,13 +86,8 @@ class EventPlannerRegistry {
                 val fitStart: Long
                 val fitEnd: Long
                 if (tw != null) {
-                    val twStart = toMs(tw.startHour, tw.startMin)
-                    // If the window end is at or before the window start in same-day terms,
-                    // it wraps past midnight — add 24h to get the next-day timestamp.
-                    var twEnd = toMs(tw.endHour, tw.endMin)
-                    if (twEnd <= twStart) twEnd += 24 * 3600_000L
-                    fitStart = maxOf(blockStart, twStart)
-                    fitEnd   = minOf(blockEnd,   twEnd)
+                    fitStart = maxOf(blockStart, toMs(tw.startHour, tw.startMin))
+                    fitEnd   = minOf(blockEnd,   toMs(tw.endHour,   tw.endMin))
                 } else {
                     fitStart = blockStart; fitEnd = blockEnd
                 }
