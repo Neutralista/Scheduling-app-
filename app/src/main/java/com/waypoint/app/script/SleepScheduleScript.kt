@@ -11,6 +11,7 @@ import com.waypoint.app.planner.SleepLogCard
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepScheduleCard
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.signal.ClockAlarmSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -19,7 +20,8 @@ class SleepScheduleScript(
     private val registry: EventPlannerRegistry,
     private val ws: WorkScheduleSignals,
     private val sleepRefresh: MutableStateFlow<Int>,
-    private val logStore: SleepLogStore
+    private val logStore: SleepLogStore,
+    private val clockAlarm: ClockAlarmSignals
 ) : AppScript {
 
     override val id = "built_in.sleep_schedule"
@@ -29,14 +31,14 @@ class SleepScheduleScript(
 
     override suspend fun resetToDefaults() {
         store.resetToDefaults()
-        store.syncToRegistry(registry, ws)
+        store.syncToRegistry(registry, ws, clockAlarm)
     }
 
     @Composable
     override fun SettingsContent() {
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
+            SleepScheduleCard(store = store, registry = registry, ws = ws, clockAlarm = clockAlarm, refreshKey = refreshKey)
             SleepLogCard(logStore = logStore)
         }
     }
@@ -45,7 +47,7 @@ class SleepScheduleScript(
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
+            SleepScheduleCard(store = store, registry = registry, ws = ws, clockAlarm = clockAlarm, refreshKey = refreshKey)
             SleepLogCard(logStore = logStore)
         }
     }

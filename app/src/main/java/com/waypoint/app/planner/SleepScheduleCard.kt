@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.signal.ClockAlarmSignals
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.ui.components.TimePickerChip
@@ -29,6 +30,7 @@ fun SleepScheduleCard(
     store: SleepScheduleStore,
     registry: EventPlannerRegistry,
     ws: WorkScheduleSignals,
+    clockAlarm: ClockAlarmSignals? = null,
     refreshKey: Int = 0,
     modifier: Modifier = Modifier
 ) {
@@ -38,7 +40,7 @@ fun SleepScheduleCard(
     val effective = remember(schedule, refreshKey) { store.computeEffectiveTimes(ws, registry) }
 
     fun commit() {
-        store.syncToRegistry(registry, ws)
+        store.syncToRegistry(registry, ws, clockAlarm)
         schedule = store.load()
     }
 

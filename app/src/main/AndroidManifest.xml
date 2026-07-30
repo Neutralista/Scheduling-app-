@@ -28,6 +28,13 @@
     <queries>
         <!-- Standalone Health Connect app (Android 9–13) -->
         <package android:name="com.google.android.apps.healthdata" />
+        <!-- System Clock app — required for ACTION_SET_ALARM / ACTION_DISMISS_ALARM on API 30+ -->
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_ALARM" />
+        </intent>
         <!--
             On Android 14+ Health Connect is built into the OS under a different
             component name. Querying by intent action covers both variants so

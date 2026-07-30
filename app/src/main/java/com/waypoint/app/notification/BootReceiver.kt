@@ -10,6 +10,6 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
             intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val app = context.applicationContext as? WaypointApplication ?: return
-        app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+        app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule, app.env.clockAlarm)
     }
 }

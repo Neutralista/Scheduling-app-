@@ -7,6 +7,7 @@ import android.provider.CalendarContract
 import com.waypoint.app.notification.SleepAlarmScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
+import com.waypoint.app.signal.ClockAlarmSignals
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
 import java.time.LocalDate
@@ -70,10 +71,15 @@ class SleepScheduleStore(private val context: Context) {
      * Each event spans bed-time on date D to wake-time on date D+1, and is split
      * naturally at midnight by the planner then stitched in the timeline view.
      */
-    fun syncToRegistry(registry: EventPlannerRegistry, ws: WorkScheduleSignals) {
+    fun syncToRegistry(
+        registry: EventPlannerRegistry,
+        ws: WorkScheduleSignals,
+        clockAlarm: ClockAlarmSignals? = null
+    ) {
         registry.clearSleepEvents()
         val s = load()
         if (!s.enabled) {
+            clockAlarm?.queueClearAlarm()
             SleepNotificationHelper.clearAlarmStatus(context)
             return
         }
@@ -118,6 +124,7 @@ class SleepScheduleStore(private val context: Context) {
                 // CalendarSyncWorker run that lands within seconds of a pending alarm can't
                 // cancel it and fail to reschedule it (target slips into the past).
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
+                clockAlarm?.queueWakeAlarm(wakeMs)
                 val logStore = SleepLogStore(context)
                 // Don't overwrite cached sleep window while sleep mode is active:
                 // after midnight LocalDate.now() advances to the next day, so syncToRegistry

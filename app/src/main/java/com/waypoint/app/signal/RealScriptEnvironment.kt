@@ -28,6 +28,7 @@ class RealScriptEnvironment(
     override val appUsage: AppUsageSignals = RealAppUsageSignals(context)
     override val healthConnect: HealthConnectSignals = RealHealthConnectSignals(context)
     override val calendar: CalendarSignals = RealCalendarSignals(context)
+    override val clockAlarm: ClockAlarmSignals = RealClockAlarmSignals(context)
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)

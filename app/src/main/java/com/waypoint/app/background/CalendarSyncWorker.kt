@@ -13,7 +13,7 @@ class CalendarSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 
     override suspend fun doWork(): Result {
         val app = applicationContext as WaypointApplication
-        app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+        app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule, app.env.clockAlarm)
         return Result.success()
     }
 
