@@ -4,7 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Location
 import android.location.LocationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,9 +24,13 @@ interface LocationSignals {
 
 class RealLocationSignals(private val context: Context) : LocationSignals {
 
-    @Volatile override var cachedLatitude:  Double = 0.0; private set
-    @Volatile override var cachedLongitude: Double = 0.0; private set
-    @Volatile override var cachedAccuracy:  Float  = Float.MAX_VALUE; private set
+    @Volatile private var _latitude:  Double = 0.0
+    @Volatile private var _longitude: Double = 0.0
+    @Volatile private var _accuracy:  Float  = Float.MAX_VALUE
+
+    override val cachedLatitude:  Double get() = _latitude
+    override val cachedLongitude: Double get() = _longitude
+    override val cachedAccuracy:  Float  get() = _accuracy
 
     override fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
@@ -44,9 +47,9 @@ class RealLocationSignals(private val context: Context) : LocationSignals {
         ).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
          .minByOrNull { it.accuracy }
         if (best != null) {
-            cachedLatitude  = best.latitude
-            cachedLongitude = best.longitude
-            cachedAccuracy  = best.accuracy
+            _latitude  = best.latitude
+            _longitude = best.longitude
+            _accuracy  = best.accuracy
         }
     }
 
