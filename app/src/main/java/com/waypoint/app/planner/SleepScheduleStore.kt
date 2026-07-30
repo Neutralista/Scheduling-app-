@@ -204,16 +204,17 @@ class SleepScheduleStore(private val context: Context) {
             .atZone(zone).toInstant().toEpochMilli()
         val minSleepMs = 60 * 60_000L // never compress sleep below 1h
 
-        // Bed push: event ends after bed → push bed later
+        // Bed push: event straddles bedtime (starts before bed, ends after) → push bed later.
+        // Events entirely inside the sleep window are handled by wake-pull below.
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
-            if (se.endMillis < wakeEpochMs && se.endMillis + 15 * 60_000L > bedEpochMs) {
-                bedEpochMs = minOf(maxOf(bedEpochMs, se.endMillis + 15 * 60_000L), wakeEpochMs)
+            if (se.startMillis <= bedEpochMs && se.endMillis > bedEpochMs) {
+                bedEpochMs = minOf(se.endMillis + 15 * 60_000L, wakeEpochMs)
             }
         }
-        for ((_, evEnd) in calEvents) {
-            if (evEnd < wakeEpochMs && evEnd + 15 * 60_000L > bedEpochMs) {
-                bedEpochMs = minOf(maxOf(bedEpochMs, evEnd + 15 * 60_000L), wakeEpochMs)
+        for ((evStart, evEnd) in calEvents) {
+            if (evStart <= bedEpochMs && evEnd > bedEpochMs) {
+                bedEpochMs = minOf(evEnd + 15 * 60_000L, wakeEpochMs)
             }
         }
 
