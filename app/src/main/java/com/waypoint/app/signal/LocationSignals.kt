@@ -1,6 +1,7 @@
 package com.waypoint.app.signal
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -32,6 +33,7 @@ class RealLocationSignals(private val context: Context) : LocationSignals {
         context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED
 
+    @SuppressLint("MissingPermission")
     override suspend fun refreshCache() = withContext(Dispatchers.IO) {
         if (!hasPermission()) return@withContext
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
