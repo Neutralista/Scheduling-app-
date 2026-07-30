@@ -2,6 +2,7 @@ package com.waypoint.app.signal
 
 import android.content.Context
 import com.waypoint.app.persistence.ScriptStateStore
+import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.script.ScriptEnvironment
@@ -28,6 +29,7 @@ class RealScriptEnvironment(
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
+    override val memory: SharedMemoryStore = SharedMemoryStore(context)
 
     // Synchronous cache for JS inter-script reads
     private val stateCache = mutableMapOf<String, ScriptState>()

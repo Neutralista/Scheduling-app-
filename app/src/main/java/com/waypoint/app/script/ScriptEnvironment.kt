@@ -1,6 +1,7 @@
 package com.waypoint.app.script
 
 import android.content.Context
+import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.AppUsageSignals
@@ -28,6 +29,7 @@ interface ScriptEnvironment {
     val workSchedule: WorkScheduleSignals
     val eventPlanner: EventPlannerRegistry
     val sleepStore: SleepScheduleStore
+    val memory: SharedMemoryStore
 
     // ── Script-to-script state access ─────────────────────────────────────────
     /** Read another script's persisted state snapshot. Returns null if unknown. */

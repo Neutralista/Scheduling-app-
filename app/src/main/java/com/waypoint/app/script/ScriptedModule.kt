@@ -43,10 +43,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import com.waypoint.app.notification.ActionConfig
 import com.waypoint.app.notification.NotificationConfig
 import com.waypoint.app.notification.ScriptNotificationScheduler
 import com.waypoint.app.notification.WeeklyTrigger
+import com.waypoint.app.planner.EventCategory
+import com.waypoint.app.planner.EventCondition
+import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
@@ -56,6 +62,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.mozilla.javascript.BaseFunction
 import org.mozilla.javascript.Context
+import org.mozilla.javascript.NativeArray
 import org.mozilla.javascript.NativeObject
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
@@ -423,6 +430,170 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     } catch (e: Throwable) {
         AppLogger.e("Bridge", "notifications section failed: ${e.javaClass.name}: ${e.message}")
         ScriptableObject.putProperty(obj, "notifications", cx.newObject(scope))
+    }
+
+    // ── time ─────────────────────────────────────────────────────────────────
+    try {
+        val timeObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(timeObj, "now", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                System.currentTimeMillis().toDouble()
+        })
+        ScriptableObject.putProperty(timeObj, "today", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                Calendar.getInstance().let { c ->
+                    "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+                }
+        })
+        ScriptableObject.putProperty(timeObj, "minutesUntil", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val parts = args.getOrNull(0)?.toString()?.split(":") ?: return -1.0
+                val h = parts.getOrNull(0)?.toIntOrNull() ?: return -1.0
+                val m = parts.getOrNull(1)?.toIntOrNull() ?: return -1.0
+                val now = Calendar.getInstance()
+                val target = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
+                    set(Calendar.SECOND, 0);      set(Calendar.MILLISECOND, 0)
+                }
+                if (!target.after(now)) target.add(Calendar.DAY_OF_YEAR, 1)
+                return (target.timeInMillis - now.timeInMillis) / 60_000.0
+            }
+        })
+        ScriptableObject.putProperty(timeObj, "format", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val ms = (args.getOrNull(0) as? Number)?.toLong() ?: return ""
+                return Calendar.getInstance().apply { timeInMillis = ms }
+                    .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+            }
+        })
+        ScriptableObject.putProperty(obj, "time", timeObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "time section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "time", cx.newObject(scope))
+    }
+
+    // ── device ───────────────────────────────────────────────────────────────
+    try {
+        val deviceObj = cx.newObject(scope) as NativeObject
+        val battIntent = env.context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level  = battIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale  = battIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val pct    = if (level >= 0 && scale > 0) level * 100 / scale else -1
+        val status = battIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        ScriptableObject.putProperty(deviceObj, "batteryLevel",       pct)
+        ScriptableObject.putProperty(deviceObj, "isCharging",         charging)
+        ScriptableObject.putProperty(deviceObj, "hasUsagePermission", env.appUsage.hasPermission)
+        ScriptableObject.putProperty(deviceObj, "appUsageMinutes", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val pkg = args.getOrNull(0)?.toString() ?: return 0.0
+                return env.appUsage.usageToday(pkg).toMinutes().toDouble()
+            }
+        })
+        ScriptableObject.putProperty(obj, "device", deviceObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "device section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "device", cx.newObject(scope))
+    }
+
+    // ── planner ──────────────────────────────────────────────────────────────
+    try {
+        val plannerObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(plannerObj, "register", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val opts     = args.getOrNull(0) as? NativeObject ?: return null
+                val id       = opts.jsString("id")    ?: return null
+                val title    = opts.jsString("title") ?: return null
+                val duration = (opts.get("durationMinutes", opts) as? Number)?.toInt() ?: return null
+                val priority = (opts.get("priority", opts) as? Number)?.toInt() ?: 5
+                val category = if (opts.jsString("category") == "sleep") EventCategory.SLEEP else EventCategory.DEFAULT
+                val condArr  = opts.get("conditions", opts) as? NativeArray
+                val conditions = condArr?.let { arr ->
+                    (0 until arr.length.toInt()).mapNotNull { i ->
+                        val co = arr.get(i, arr) as? NativeObject ?: return@mapNotNull null
+                        when (co.jsString("type")) {
+                            "timeWindow" -> {
+                                val s = co.jsString("start")?.split(":") ?: return@mapNotNull null
+                                val e = co.jsString("end")?.split(":")   ?: return@mapNotNull null
+                                EventCondition.TimeWindow(
+                                    s[0].toIntOrNull() ?: 0, s[1].toIntOrNull() ?: 0,
+                                    e[0].toIntOrNull() ?: 0, e[1].toIntOrNull() ?: 0
+                                )
+                            }
+                            "workDayOnly"    -> EventCondition.WorkDayOnly
+                            "dayOffOnly"     -> EventCondition.DayOffOnly
+                            "notDuringShift" -> EventCondition.NotDuringShift
+                            "daysOfWeek"     -> {
+                                val dArr = co.get("days", co) as? NativeArray ?: return@mapNotNull null
+                                val days = (0 until dArr.length.toInt())
+                                    .mapNotNull { j -> (dArr.get(j, dArr) as? Number)?.toInt() }
+                                    .toSet()
+                                EventCondition.DaysOfWeek(days)
+                            }
+                            else -> null
+                        }
+                    }
+                } ?: emptyList()
+                env.eventPlanner.register(PlannerEvent(id, title, duration, priority, conditions, category = category))
+                return null
+            }
+        })
+        ScriptableObject.putProperty(plannerObj, "unregister", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                env.eventPlanner.unregister(args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(plannerObj, "getEvents", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val arr = env.eventPlanner.events.map { evt ->
+                    val o = cx.newObject(scope) as NativeObject
+                    ScriptableObject.putProperty(o, "id",              evt.id)
+                    ScriptableObject.putProperty(o, "title",           evt.title)
+                    ScriptableObject.putProperty(o, "durationMinutes", evt.durationMinutes.toDouble())
+                    ScriptableObject.putProperty(o, "priority",        evt.priority.toDouble())
+                    o
+                }
+                return cx.newArray(scope, arr.toTypedArray<Any?>())
+            }
+        })
+        ScriptableObject.putProperty(obj, "planner", plannerObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "planner section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "planner", cx.newObject(scope))
+    }
+
+    // ── memory ───────────────────────────────────────────────────────────────
+    try {
+        val memObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(memObj, "set", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val key   = args.getOrNull(0)?.toString() ?: return null
+                val value = args.getOrNull(1)?.toString() ?: return null
+                env.memory.set(key, value)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(memObj, "get", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val raw = env.memory.get(args.getOrNull(0)?.toString() ?: return null) ?: return null
+                return raw.toDoubleOrNull() ?: raw
+            }
+        })
+        ScriptableObject.putProperty(memObj, "delete", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                env.memory.delete(args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(memObj, "keys", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                cx.newArray(scope, env.memory.keys().toTypedArray<Any?>())
+        })
+        ScriptableObject.putProperty(obj, "memory", memObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "memory section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "memory", cx.newObject(scope))
     }
 
     return obj

@@ -14,6 +14,10 @@ class EventPlannerRegistry {
         _events.add(event)
     }
 
+    fun unregister(eventId: String) {
+        _events.removeAll { it.id == eventId }
+    }
+
     fun unregisterByWidget(widgetId: String) {
         _events.removeAll { it.sourceWidgetId == widgetId }
     }
