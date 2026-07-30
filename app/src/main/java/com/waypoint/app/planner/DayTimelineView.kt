@@ -276,8 +276,7 @@ fun DayTimelineView(
                     out
                 }
                 val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
-                val sleepBg = Color(0xFF1A2540)
-                val sleepFg = Color(0xFF6B8ABD)
+                val sleepAccent = Color(0xFF6B8ABD)
                 var habitIdx = 0
                 mergedScheduled.forEach { se ->
                     val isSleep = se.event.category == EventCategory.SLEEP
@@ -286,7 +285,7 @@ fun DayTimelineView(
                     val startY  = minToY(seStartMin)
                     val eventH  = (minToY(seEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
                     val (bg, fg) = if (isSleep) {
-                        sleepBg to sleepFg
+                        sleepAccent.copy(alpha = 0.13f) to sleepAccent
                     } else {
                         eventColors[habitIdx++ % eventColors.size]
                     }
@@ -299,6 +298,10 @@ fun DayTimelineView(
                             .padding(horizontal = 6.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(bg)
+                            .then(
+                                if (isSleep) Modifier.border(1.dp, sleepAccent.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
+                                else Modifier
+                            )
                     ) {
                         Column(
                             Modifier

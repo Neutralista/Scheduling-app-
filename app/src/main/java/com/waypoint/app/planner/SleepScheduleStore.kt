@@ -1,6 +1,9 @@
 package com.waypoint.app.planner
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.provider.CalendarContract
 import com.waypoint.app.notification.SleepAlarmScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
@@ -58,7 +61,7 @@ class SleepScheduleStore(private val context: Context) {
     fun computeEffectiveTimes(ws: WorkScheduleSignals, registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
         val plan = registry.planForDate(today, ws)
-        return computeEffectiveTimesForDate(today, plan, ws, load())
+        return computeEffectiveTimesForDate(today, plan, ws, load(), calendarEventsForDate(today))
     }
 
     /**
@@ -78,7 +81,8 @@ class SleepScheduleStore(private val context: Context) {
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
             val plan = registry.planForDate(date, ws)
-            val effective = computeEffectiveTimesForDate(date, plan, ws, s)
+            val calEvents = calendarEventsForDate(date)
+            val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
 
             // Schedule alarms and cache scheduled times for today only
@@ -96,7 +100,8 @@ class SleepScheduleStore(private val context: Context) {
         date: LocalDate,
         plan: DayPlan,
         ws: WorkScheduleSignals,
-        s: SleepSchedule
+        s: SleepSchedule,
+        calEvents: List<Pair<Long, Long>> = emptyList()
     ): EffectiveSleepTimes {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -172,10 +177,18 @@ class SleepScheduleStore(private val context: Context) {
             date.atTime(effectiveBed.hour, effectiveBed.minute)
                 .atZone(zone).toInstant().toEpochMilli()
 
+        val wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
+            .atZone(zone).toInstant().toEpochMilli()
+
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
             if (se.endMillis + 15 * 60_000L > bedEpochMs) {
-                bedEpochMs = maxOf(bedEpochMs, se.endMillis + 15 * 60_000L)
+                bedEpochMs = minOf(maxOf(bedEpochMs, se.endMillis + 15 * 60_000L), wakeEpochMs)
+            }
+        }
+        for ((evStart, evEnd) in calEvents) {
+            if (evEnd + 15 * 60_000L > bedEpochMs && evStart < wakeEpochMs) {
+                bedEpochMs = minOf(maxOf(bedEpochMs, evEnd + 15 * 60_000L), wakeEpochMs)
             }
         }
 
@@ -219,5 +232,32 @@ class SleepScheduleStore(private val context: Context) {
             date.atTime(bed.hour, bed.minute).atZone(zone).toInstant().toEpochMilli() to
             date.plusDays(1).atTime(wake.hour, wake.minute).atZone(zone).toInstant().toEpochMilli()
         }
+    }
+
+    /** Synchronous ContentResolver query for non-all-day calendar events on [date]. */
+    private fun calendarEventsForDate(date: LocalDate): List<Pair<Long, Long>> {
+        if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) !=
+            PackageManager.PERMISSION_GRANTED) return emptyList()
+        val zone = ZoneId.systemDefault()
+        val startMs = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMs = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+            .appendPath(startMs.toString()).appendPath(endMs.toString()).build()
+        val projection = arrayOf(
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.ALL_DAY
+        )
+        val events = mutableListOf<Pair<Long, Long>>()
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            val beginIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
+            while (cursor.moveToNext()) {
+                if (cursor.getInt(allDayIdx) == 0)
+                    events += cursor.getLong(beginIdx) to cursor.getLong(endIdx)
+            }
+        }
+        return events
     }
 }
