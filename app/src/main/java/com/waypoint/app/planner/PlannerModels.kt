@@ -18,7 +18,15 @@ data class PlannerEvent(
     val priority: Int = 5,
     val conditions: List<EventCondition> = emptyList(),
     val sourceWidgetId: String? = null,
-    val category: EventCategory = EventCategory.DEFAULT
+    val category: EventCategory = EventCategory.DEFAULT,
+    /**
+     * When both are set this is a one-off fixed event anchored to an absolute
+     * time range. planForDate places it at the intersection with the planned day
+     * (naturally splitting at midnight) and ignores day-condition checks.
+     * durationMinutes is ignored — the range defines the length.
+     */
+    val fixedStartMillis: Long? = null,
+    val fixedEndMillis: Long? = null
 )
 
 sealed class EventCondition {

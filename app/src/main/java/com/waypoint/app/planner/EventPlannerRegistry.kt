@@ -64,7 +64,16 @@ class EventPlannerRegistry {
 
         val eligible = mutableListOf<PlannerEvent>()
         val blocked = mutableListOf<BlockedEvent>()
+        val scheduled = mutableListOf<ScheduledEvent>()
+
         for (event in _events) {
+            // Fixed one-off events: place at intersection with this day, skip day conditions.
+            if (event.fixedStartMillis != null && event.fixedEndMillis != null) {
+                val start = maxOf(event.fixedStartMillis, dayStartMs)
+                val end   = minOf(event.fixedEndMillis,   dayEndMs)
+                if (end > start) scheduled += ScheduledEvent(event, start, end)
+                continue
+            }
             val reason = checkDayConditions(event, date, isWorkDay)
             if (reason != null) blocked += BlockedEvent(event, reason) else eligible += event
         }
@@ -72,7 +81,6 @@ class EventPlannerRegistry {
         eligible.sortByDescending { it.priority }
 
         val remaining = freeBlocks.map { it.startMillis to it.endMillis }.toMutableList()
-        val scheduled = mutableListOf<ScheduledEvent>()
 
         for (event in eligible) {
             val durationMs = event.durationMinutes * 60_000L
