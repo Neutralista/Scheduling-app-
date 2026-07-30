@@ -133,8 +133,17 @@ class SleepScheduleStore(context: Context) {
         bed: ShiftTime
     ) {
         val zone = ZoneId.systemDefault()
-        val bedMs  = date.atTime(bed.hour, bed.minute).atZone(zone).toInstant().toEpochMilli()
-        val wakeMs = date.plusDays(1).atTime(wake.hour, wake.minute).atZone(zone).toInstant().toEpochMilli()
+        // When bed < wake in clock time (e.g. 02:00 → 14:00 after a night shift ending past midnight),
+        // the sleep falls entirely on the next calendar day — not a midnight-crossing span.
+        val bedMs: Long
+        val wakeMs: Long
+        if (bed.totalMinutes < wake.totalMinutes) {
+            bedMs  = date.plusDays(1).atTime(bed.hour, bed.minute).atZone(zone).toInstant().toEpochMilli()
+            wakeMs = date.plusDays(1).atTime(wake.hour, wake.minute).atZone(zone).toInstant().toEpochMilli()
+        } else {
+            bedMs  = date.atTime(bed.hour, bed.minute).atZone(zone).toInstant().toEpochMilli()
+            wakeMs = date.plusDays(1).atTime(wake.hour, wake.minute).atZone(zone).toInstant().toEpochMilli()
+        }
         if (wakeMs <= bedMs) return
 
         registry.register(PlannerEvent(
