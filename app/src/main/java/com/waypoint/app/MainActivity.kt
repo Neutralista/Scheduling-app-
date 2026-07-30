@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
                     HomeScreen(
                         workSchedule = app.env.workSchedule,
                         eventPlanner = app.env.eventPlanner,
+                        calendarSignals = app.env.calendar,
                         scripts = scripts,
                         statesById = statesById,
                         onStateChange = viewModel::onStateChange,

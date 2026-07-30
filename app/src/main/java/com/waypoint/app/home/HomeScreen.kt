@@ -38,6 +38,7 @@ import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
+import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
 import java.time.LocalDate
@@ -48,6 +49,7 @@ import java.util.Locale
 fun HomeScreen(
     workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
+    calendarSignals: CalendarSignals,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -86,7 +88,7 @@ fun HomeScreen(
 
         Box(Modifier.weight(1f)) {
             when (selectedTab) {
-                0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner)
+                0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
                 1 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
@@ -198,8 +200,12 @@ private fun AppHeader(
 // ── Plan tab ──────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PlanTab(workSchedule: WorkScheduleSignals, eventPlanner: EventPlannerRegistry) {
+private fun PlanTab(
+    workSchedule: WorkScheduleSignals,
+    eventPlanner: EventPlannerRegistry,
+    calendarSignals: CalendarSignals
+) {
     Column(Modifier.fillMaxSize()) {
-        DayTimelineView(ws = workSchedule, registry = eventPlanner, modifier = Modifier.weight(1f))
+        DayTimelineView(ws = workSchedule, registry = eventPlanner, calendarSignals = calendarSignals, modifier = Modifier.weight(1f))
     }
 }

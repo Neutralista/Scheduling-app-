@@ -35,6 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
 import java.util.Calendar
@@ -49,11 +51,13 @@ private val LABEL_WIDTH = 44.dp
 fun DayTimelineView(
     ws: WorkScheduleSignals,
     registry: EventPlannerRegistry,
+    calendarSignals: CalendarSignals? = null,
     modifier: Modifier = Modifier
 ) {
     var plan by remember { mutableStateOf(registry.planToday(ws)) }
     val todaySchedule = ws.getTodaySchedule()
     var nowMin by remember { mutableIntStateOf(minutesNow()) }
+    var calEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
@@ -63,6 +67,9 @@ fun DayTimelineView(
             ((nowMin - START_HOUR * 60 - 60).coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()).toInt()
         }
         scrollState.animateScrollTo(scrollPx)
+        if (calendarSignals?.hasPermission() == true) {
+            calEvents = calendarSignals.todayEvents()
+        }
         while (true) {
             delay(60_000L)
             nowMin = minutesNow()
@@ -159,7 +166,49 @@ fun DayTimelineView(
                     }
                 }
 
-                // Event blocks
+                // Calendar event blocks — rendered first so planner events appear on top
+                calEvents.filter { !it.allDay }.forEach { evt ->
+                    val ceStartMin = msToMin(evt.startMillis)
+                    val ceEndMin   = msToMin(evt.endMillis)
+                    if (ceStartMin >= END_HOUR * 60 || ceEndMin <= START_HOUR * 60) return@forEach
+                    val startY  = minToY(ceStartMin)
+                    val eventH  = (minToY(ceEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
+                    val calColor = if (evt.calendarColor != 0) Color(evt.calendarColor)
+                                   else MaterialTheme.colorScheme.primary
+                    Box(
+                        Modifier
+                            .yOffset(startY + 1.dp)
+                            .fillMaxWidth()
+                            .height(eventH)
+                            .padding(horizontal = 6.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(calColor.copy(alpha = 0.13f))
+                            .border(1.dp, calColor.copy(alpha = 0.38f), RoundedCornerShape(6.dp))
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                evt.title,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = calColor.copy(alpha = 0.85f),
+                                maxLines = 1
+                            )
+                            if (eventH >= 36.dp) {
+                                Text(
+                                    "${fmtMs(evt.startMillis)} – ${fmtMs(evt.endMillis)}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = calColor.copy(alpha = 0.55f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Planner event blocks
                 val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
                 val sleepBg = Color(0xFF1A2540)
                 val sleepFg = Color(0xFF6B8ABD)
