@@ -182,10 +182,21 @@ class SleepScheduleStore(private val context: Context) {
             effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
 
             // Step 4: If derived bed falls before the evening buffer, push the window forward.
-            val bedTooEarly = if (schedule.crossesMidnight)
+            // derivedBedIsPostMidnight: bed wraps past midnight (e.g. 5h target → 02:00 AM bed).
+            // In that case the real-time ordering is floor(PM) < bed(next-day AM), so "too early"
+            // comparisons must account for the day boundary, not just clock minutes.
+            val derivedBedIsPostMidnight = effectiveBedMin < effectiveWakeMin
+            val bedTooEarly = if (schedule.crossesMidnight) {
                 effectiveBedMin !in earliestBedMin..latestWakeMin
-            else
+            } else if (derivedBedIsPostMidnight && !isFloorNextDay) {
+                // next-morning bed is always after a same-evening floor in real time
+                false
+            } else if (!derivedBedIsPostMidnight && isFloorNextDay) {
+                // same-evening bed is always before a next-morning floor in real time
+                true
+            } else {
                 effectiveBedMin < earliestBedMin
+            }
 
             if (bedTooEarly) {
                 effectiveBedMin = earliestBedMin
