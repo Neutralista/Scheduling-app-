@@ -18,6 +18,8 @@
     -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -46,6 +48,11 @@
         <receiver
             android:name=".notification.ShiftEndAlarmReceiver"
             android:exported="false" />
+
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="shortService"
+            tools:node="merge" />
 
         <receiver
             android:name=".notification.ScriptNotificationReceiver"

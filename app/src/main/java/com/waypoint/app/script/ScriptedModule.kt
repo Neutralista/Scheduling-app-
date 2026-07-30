@@ -43,8 +43,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
+import android.Manifest
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
 import com.waypoint.app.notification.ActionConfig
 import com.waypoint.app.notification.NotificationConfig
@@ -594,6 +596,129 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     } catch (e: Throwable) {
         AppLogger.e("Bridge", "memory section failed: ${e.javaClass.name}: ${e.message}")
         ScriptableObject.putProperty(obj, "memory", cx.newObject(scope))
+    }
+
+    // ── streak ───────────────────────────────────────────────────────────────
+    try {
+        val streakObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(streakObj, "get", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                env.streak.get(args.getOrNull(0)?.toString() ?: return null).toDouble()
+        })
+        ScriptableObject.putProperty(streakObj, "increment", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                env.streak.increment(args.getOrNull(0)?.toString() ?: return null).toDouble()
+        })
+        ScriptableObject.putProperty(streakObj, "reset", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                env.streak.reset(args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(streakObj, "lastDate", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                env.streak.lastDate(args.getOrNull(0)?.toString() ?: return null) ?: ""
+        })
+        ScriptableObject.putProperty(obj, "streak", streakObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "streak section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "streak", cx.newObject(scope))
+    }
+
+    // ── countdown ─────────────────────────────────────────────────────────────
+    try {
+        val cdObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(cdObj, "set", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val key   = args.getOrNull(0)?.toString() ?: return null
+                val endMs = (args.getOrNull(1) as? Number)?.toLong() ?: return null
+                env.countdown.set(key, endMs)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(cdObj, "remaining", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val ms = env.countdown.remaining(args.getOrNull(0)?.toString() ?: return null)
+                return if (ms == Long.MIN_VALUE) null else ms.toDouble()
+            }
+        })
+        ScriptableObject.putProperty(cdObj, "remainingMinutes", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val m = env.countdown.remainingMinutes(args.getOrNull(0)?.toString() ?: return null)
+                return if (m == Int.MIN_VALUE) null else m.toDouble()
+            }
+        })
+        ScriptableObject.putProperty(cdObj, "endMs", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val v = env.countdown.endMs(args.getOrNull(0)?.toString() ?: return null)
+                return if (v < 0) null else v.toDouble()
+            }
+        })
+        ScriptableObject.putProperty(cdObj, "clear", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                env.countdown.clear(args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(cdObj, "keys", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? =
+                cx.newArray(scope, env.countdown.keys().toTypedArray<Any?>())
+        })
+        ScriptableObject.putProperty(obj, "countdown", cdObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "countdown section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "countdown", cx.newObject(scope))
+    }
+
+    // ── location ──────────────────────────────────────────────────────────────
+    try {
+        val locObj = cx.newObject(scope) as NativeObject
+        val hasLoc = env.context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        ScriptableObject.putProperty(locObj, "hasPermission", hasLoc)
+        ScriptableObject.putProperty(locObj, "latitude",      env.location.cachedLatitude)
+        ScriptableObject.putProperty(locObj, "longitude",     env.location.cachedLongitude)
+        ScriptableObject.putProperty(locObj, "accuracy",      env.location.cachedAccuracy.toDouble())
+        ScriptableObject.putProperty(locObj, "isNear", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val lat    = (args.getOrNull(0) as? Number)?.toDouble() ?: return false
+                val lon    = (args.getOrNull(1) as? Number)?.toDouble() ?: return false
+                val radius = (args.getOrNull(2) as? Number)?.toDouble() ?: 200.0
+                val dist   = env.location.distanceMetres(env.location.cachedLatitude, env.location.cachedLongitude, lat, lon)
+                return dist <= radius
+            }
+        })
+        ScriptableObject.putProperty(obj, "location", locObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "location section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "location", cx.newObject(scope))
+    }
+
+    // ── log ───────────────────────────────────────────────────────────────────
+    try {
+        val logObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(logObj, "info", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                AppLogger.i("Script", args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(logObj, "warn", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                AppLogger.w("Script", args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(logObj, "error", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                AppLogger.e("Script", args.getOrNull(0)?.toString() ?: return null)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(obj, "log", logObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "log section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "log", cx.newObject(scope))
     }
 
     return obj

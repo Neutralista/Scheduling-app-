@@ -88,6 +88,13 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
+        LocationIntegration(onPermissionGranted)
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
         HealthConnectIntegration(onPermissionGranted)
 
         HorizontalDivider(
@@ -271,6 +278,34 @@ private fun CalendarIntegration(onPermissionGranted: () -> Unit) {
             launcher.launch(arrayOf(
                 Manifest.permission.READ_CALENDAR,
                 Manifest.permission.WRITE_CALENDAR
+            ))
+        }
+    )
+}
+
+// ── Location ──────────────────────────────────────────────────────────────────
+
+@Composable
+private fun LocationIntegration(onPermissionGranted: () -> Unit) {
+    val context = LocalContext.current
+    var granted by remember {
+        mutableStateOf(context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        granted = perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+                  perms[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        if (granted) onPermissionGranted()
+    }
+    IntegrationRow(
+        title = "Location",
+        description = "Scripts can read current coordinates and check proximity via signals.location",
+        granted = granted,
+        onConnect = {
+            launcher.launch(arrayOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
             ))
         }
     )

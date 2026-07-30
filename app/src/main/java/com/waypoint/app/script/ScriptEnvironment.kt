@@ -1,13 +1,16 @@
 package com.waypoint.app.script
 
 import android.content.Context
+import com.waypoint.app.persistence.CountdownStore
 import com.waypoint.app.persistence.SharedMemoryStore
+import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.AppUsageSignals
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.DeviceActivitySignals
 import com.waypoint.app.signal.HealthConnectSignals
+import com.waypoint.app.signal.LocationSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 
 /**
@@ -30,6 +33,9 @@ interface ScriptEnvironment {
     val eventPlanner: EventPlannerRegistry
     val sleepStore: SleepScheduleStore
     val memory: SharedMemoryStore
+    val streak: StreakStore
+    val countdown: CountdownStore
+    val location: LocationSignals
 
     // ── Script-to-script state access ─────────────────────────────────────────
     /** Read another script's persisted state snapshot. Returns null if unknown. */

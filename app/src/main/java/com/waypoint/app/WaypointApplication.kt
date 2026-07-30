@@ -1,6 +1,7 @@
 package com.waypoint.app
 
 import android.app.Application
+import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
 import com.waypoint.app.persistence.ScriptStateStore
@@ -57,5 +58,6 @@ class WaypointApplication : Application() {
         NotificationHelper.createShiftChannel(this)
         NotificationHelper.createScriptsChannel(this)
         ReminderScheduler.schedule(this, hourOfDay = 9)
+        ScriptTickWorker.schedule(this)
     }
 }
