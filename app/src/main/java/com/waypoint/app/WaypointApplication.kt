@@ -55,7 +55,7 @@ class WaypointApplication : Application() {
 
         NotificationHelper.createChannel(this)
         NotificationHelper.createShiftChannel(this)
-        NotificationHelper.createPlannerChannel(this)
+        NotificationHelper.createScriptsChannel(this)
         ReminderScheduler.schedule(this, hourOfDay = 9)
     }
 }

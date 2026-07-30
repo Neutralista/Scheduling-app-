@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
-import com.waypoint.app.notification.NotificationActionReceiver
 import com.waypoint.app.ui.theme.WaypointTheme
 
 class MainActivity : ComponentActivity() {
@@ -40,7 +39,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val app = application as WaypointApplication
-        val initialTab = intent?.getIntExtra(NotificationActionReceiver.EXTRA_TAB, 0) ?: 0
+        val initialTab = intent?.getIntExtra("tab", 0) ?: 0
 
         setContent {
             val statesById by viewModel.statesById.collectAsState()

@@ -43,7 +43,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
-import com.waypoint.app.notification.PlannerReminderScheduler
+import com.waypoint.app.notification.ActionConfig
+import com.waypoint.app.notification.NotificationConfig
+import com.waypoint.app.notification.ScriptNotificationScheduler
+import com.waypoint.app.notification.WeeklyTrigger
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
@@ -149,6 +152,32 @@ private fun NativeObject.jsBool(key: String, default: Boolean = false): Boolean 
 private fun NativeObject.jsFloat(key: String): Float? {
     val v = get(key, this)
     return (v as? Number)?.toFloat()
+}
+
+private fun NativeObject.toNotificationConfig(): NotificationConfig? {
+    val id    = jsString("id") ?: return null
+    val title = jsString("title") ?: ""
+    val body  = jsString("body")  ?: ""
+    val actionsArr = get("actions", this) as? org.mozilla.javascript.NativeArray
+    val actions = actionsArr?.let { arr ->
+        (0 until arr.length.toInt()).mapNotNull { i ->
+            val ao = arr.get(i, arr) as? NativeObject ?: return@mapNotNull null
+            ActionConfig(
+                label         = ao.jsString("label") ?: "",
+                behavior      = ao.jsString("behavior") ?: "dismiss",
+                snoozeMinutes = (ao.get("snoozeMinutes", ao) as? Number)?.toInt() ?: 60,
+                tab           = ao.jsString("tab") ?: "scripts"
+            )
+        }
+    } ?: emptyList()
+    val weekly = (get("weekly", this) as? NativeObject)?.let { w ->
+        WeeklyTrigger(
+            day    = (w.get("day",    w) as? Number)?.toInt() ?: 1,
+            hour   = (w.get("hour",   w) as? Number)?.toInt() ?: 16,
+            minute = (w.get("minute", w) as? Number)?.toInt() ?: 0
+        )
+    }
+    return NotificationConfig(id, title, body, actions, weekly)
 }
 
 // ── Signals bridge: built-in state exposed to JS ─────────────────────────────
@@ -338,24 +367,25 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     try {
         val androidCtx = env.context
         val notifObj = cx.newObject(scope) as NativeObject
-        ScriptableObject.putProperty(notifObj, "scheduleWeekly", object : BaseFunction() {
+        ScriptableObject.putProperty(notifObj, "schedule", object : BaseFunction() {
             override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val day    = (args.getOrNull(0) as? Number)?.toInt() ?: return null
-                val hour   = (args.getOrNull(1) as? Number)?.toInt() ?: return null
-                val minute = (args.getOrNull(2) as? Number)?.toInt() ?: 0
-                PlannerReminderScheduler.scheduleWeekly(androidCtx, day, hour, minute)
-                return null
-            }
-        })
-        ScriptableObject.putProperty(notifObj, "cancel", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                PlannerReminderScheduler.cancel(androidCtx)
+                val cfg = (args.getOrNull(0) as? NativeObject)?.toNotificationConfig() ?: return null
+                ScriptNotificationScheduler.schedule(androidCtx, cfg)
                 return null
             }
         })
         ScriptableObject.putProperty(notifObj, "sendNow", object : BaseFunction() {
             override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                PlannerReminderScheduler.sendNow(androidCtx)
+                when (val arg = args.getOrNull(0)) {
+                    is NativeObject -> ScriptNotificationScheduler.sendNow(androidCtx, arg.toNotificationConfig() ?: return null)
+                    else            -> ScriptNotificationScheduler.sendNow(androidCtx, arg?.toString() ?: return null)
+                }
+                return null
+            }
+        })
+        ScriptableObject.putProperty(notifObj, "cancel", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                ScriptNotificationScheduler.cancel(androidCtx, args.getOrNull(0)?.toString() ?: return null)
                 return null
             }
         })
