@@ -1,14 +1,17 @@
 package com.waypoint.app.home
 
 import android.Manifest
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.AlarmClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.waypoint.app.WaypointApplication
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,6 +85,13 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
         Spacer(Modifier.height(12.dp))
 
         CalendarIntegration(onPermissionGranted)
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        ClockIntegration()
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
@@ -412,6 +422,37 @@ private fun HcConnectButton(onPermissionGranted: () -> Unit) {
     }
 }
 
+// ── Clock ─────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ClockIntegration() {
+    val context = LocalContext.current
+
+    val hasClockApp = remember {
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+        context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).isNotEmpty()
+    }
+
+    val app = remember { context.applicationContext as WaypointApplication }
+    var synced by remember { mutableStateOf(false) }
+
+    IntegrationRow(
+        title = "Clock",
+        description = if (hasClockApp)
+            "Sets your wake alarm in the system Clock app · managed by Sleep Schedule"
+        else
+            "No Clock app found on this device",
+        granted = synced || !hasClockApp,
+        connectLabel = "Sync Now",
+        onConnect = {
+            (context as? Activity)?.let { activity ->
+                app.env.clockAlarm.syncFromActivity(activity)
+                synced = true
+            }
+        }
+    )
+}
+
 // ── Shared row layout ─────────────────────────────────────────────────────────
 
 @Composable
@@ -419,6 +460,7 @@ private fun IntegrationRow(
     title: String,
     description: String,
     granted: Boolean,
+    connectLabel: String = "Connect",
     onConnect: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -442,7 +484,7 @@ private fun IntegrationRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 StatusChip(connected = false)
-                Button(onClick = onConnect) { Text("Connect") }
+                Button(onClick = onConnect) { Text(connectLabel) }
             }
         }
     }
