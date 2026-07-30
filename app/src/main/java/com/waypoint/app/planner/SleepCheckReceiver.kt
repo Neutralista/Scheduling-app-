@@ -8,6 +8,9 @@ import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import com.waypoint.app.notification.SleepNotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class SleepCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -15,7 +18,7 @@ class SleepCheckReceiver : BroadcastReceiver() {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val isInteractive = pm.isInteractive
 
-        logStore.onCheckAlarm(isInteractive)
+        val wasLogged = logStore.onCheckAlarm(isInteractive)
 
         val state = logStore.getSleepModeState()
         if (state != SleepModeState.IDLE) {
@@ -23,6 +26,21 @@ class SleepCheckReceiver : BroadcastReceiver() {
                 SleepNotificationHelper.maybeNudge(context, logStore)
             }
             scheduleNextCheck(context)
+        }
+
+        // Auto-logged a completed sleep session → write to calendar asynchronously
+        if (wasLogged && isInteractive) {
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val entry = logStore.loadToday()
+                    if (entry != null) {
+                        SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, null)
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
+            }
         }
     }
 

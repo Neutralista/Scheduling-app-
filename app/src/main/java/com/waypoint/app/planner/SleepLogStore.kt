@@ -11,7 +11,8 @@ import java.time.LocalDate
 data class SleepLogEntry(
     val dateIso: String,
     val bedMillis: Long,
-    val wakeMillis: Long
+    val wakeMillis: Long,
+    val calendarEventId: Long? = null
 )
 
 enum class SleepModeState { IDLE, MONITORING, SLEEPING }
@@ -158,8 +159,20 @@ class SleepLogStore(context: Context) {
         pruneOldEntries()
     }
 
-    fun clearToday() {
-        prefs.edit().remove("log_${LocalDate.now()}").apply()
+    /** Removes today's log entry and returns it (caller can use it to delete the calendar event). */
+    fun clearToday(): SleepLogEntry? {
+        val key = "log_${LocalDate.now()}"
+        val raw = prefs.getString(key, null)
+        val entry = raw?.let { try { json.decodeFromString<SleepLogEntry>(it) } catch (_: Exception) { null } }
+        if (raw != null) prefs.edit().remove(key).apply()
+        return entry
+    }
+
+    fun updateCalendarEventId(eventId: Long) {
+        val key = "log_${LocalDate.now()}"
+        val raw = prefs.getString(key, null) ?: return
+        val entry = try { json.decodeFromString<SleepLogEntry>(raw) } catch (_: Exception) { return }
+        prefs.edit().putString(key, json.encodeToString(entry.copy(calendarEventId = eventId))).apply()
     }
 
     private fun pruneOldEntries() {

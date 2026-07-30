@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +28,7 @@ import com.waypoint.app.ui.components.TimePickerChip
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
+import kotlinx.coroutines.launch
 
 @Composable
 fun SleepLogCard(
@@ -34,6 +36,8 @@ fun SleepLogCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
     var todayEntry by remember { mutableStateOf(logStore.loadToday()) }
     var isEditing by remember { mutableStateOf(false) }
@@ -44,10 +48,18 @@ fun SleepLogCard(
     var bedText by remember { mutableStateOf(scheduledBedMs?.let { epochMsToHHMM(it) } ?: "23:00") }
     var wakeText by remember { mutableStateOf(scheduledWakeMs?.let { epochMsToHHMM(it) } ?: "07:00") }
 
+    // Detect phone-active when the card composes (app opened while SLEEPING)
     LaunchedEffect(Unit) {
         val logged = logStore.recordPhoneActive()
         sleepState = logStore.getSleepModeState()
-        if (logged) todayEntry = logStore.loadToday()
+        if (logged) {
+            todayEntry = logStore.loadToday()
+            val entry = todayEntry
+            if (entry != null) {
+                SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, null)
+                todayEntry = logStore.loadToday()
+            }
+        }
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -110,8 +122,10 @@ fun SleepLogCard(
                             isEditing = true
                         }) { Text("Edit") }
                         TextButton(onClick = {
-                            logStore.clearToday()
+                            val cleared = logStore.clearToday()
                             todayEntry = null
+                            val eventId = cleared?.calendarEventId
+                            if (eventId != null) scope.launch { SleepCalendarSync.delete(context, eventId) }
                         }) { Text("Clear") }
                     }
                 }
@@ -179,9 +193,14 @@ fun SleepLogCard(
                                 today.atTime(bed.hour, bed.minute)
                                     .atZone(zone).toInstant().toEpochMilli()
                             }
+                            val oldEventId = todayEntry?.calendarEventId
                             logStore.logManual(bedMs, wakeMs)
                             todayEntry = logStore.loadToday()
                             isEditing = false
+                            scope.launch {
+                                SleepCalendarSync.write(context, logStore, bedMs, wakeMs, oldEventId)
+                                todayEntry = logStore.loadToday()
+                            }
                         }) { Text("Save") }
                         if (isEditing) {
                             TextButton(onClick = { isEditing = false }) { Text("Cancel") }
