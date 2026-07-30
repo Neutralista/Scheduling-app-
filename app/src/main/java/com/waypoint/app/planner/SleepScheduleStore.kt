@@ -79,6 +79,9 @@ class SleepScheduleStore(private val context: Context) {
         }
 
         val today = LocalDate.now()
+        var prevNightDate: LocalDate? = null
+        var prevNightEffective: EffectiveSleepTimes? = null
+
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
             val plan = registry.planForDate(date, ws)
@@ -86,9 +89,30 @@ class SleepScheduleStore(private val context: Context) {
             val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
 
+            if (dayOffset == -1) {
+                prevNightDate = date
+                prevNightEffective = effective
+            }
+
             // Schedule alarms and cache scheduled times for today only
             if (dayOffset == 0) {
-                val (bedMs, wakeMs) = sleepMillis(date, effective.bedTime, effective.wakeTime)
+                val now = System.currentTimeMillis()
+
+                // After midnight LocalDate.now() advances to the new day, but the previous
+                // night's sleep window may still be active (we haven't woken up yet).
+                // If yesterday's wakeMs is still in the future, schedule for that window
+                // so the background worker doesn't overwrite this-morning's alarms with
+                // tomorrow night's via FLAG_UPDATE_CURRENT.
+                val (bedMs, wakeMs) = run {
+                    val pd = prevNightDate
+                    val pe = prevNightEffective
+                    if (pd != null && pe != null) {
+                        val (prevBedMs, prevWakeMs) = sleepMillis(pd, pe.bedTime, pe.wakeTime)
+                        if (prevWakeMs > now) return@run prevBedMs to prevWakeMs
+                    }
+                    sleepMillis(date, effective.bedTime, effective.wakeTime)
+                }
+
                 SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs)
                 // Schedule wake alarms without first cancelling already-armed ones so a
                 // CalendarSyncWorker run that lands within seconds of a pending alarm can't
