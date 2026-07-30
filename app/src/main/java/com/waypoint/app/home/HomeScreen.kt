@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -215,6 +216,10 @@ private fun PlanTab(
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
+    var calRefreshKey by remember { mutableIntStateOf(0) }
+
+    // Refresh calendar whenever the Plan tab enters composition (app open or tab switch)
+    LaunchedEffect(Unit) { calRefreshKey++ }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -271,6 +276,14 @@ private fun PlanTab(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            IconButton(onClick = { calRefreshKey++ }) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = "Refresh calendar",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         DayTimelineView(
@@ -278,6 +291,7 @@ private fun PlanTab(
             registry = eventPlanner,
             calendarSignals = calendarSignals,
             date = selectedDate,
+            refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f)
         )
     }

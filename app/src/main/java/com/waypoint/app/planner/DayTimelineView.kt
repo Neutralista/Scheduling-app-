@@ -59,6 +59,7 @@ fun DayTimelineView(
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
     date: LocalDate = LocalDate.now(),
+    refreshKey: Int = 0,
     modifier: Modifier = Modifier
 ) {
     // Anchor: 4 AM on the viewed date in ms. All "minute" values are relative to this.
@@ -90,19 +91,33 @@ fun DayTimelineView(
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
+    // Scroll to a sensible position when the date changes
     LaunchedEffect(date) {
-        // Non-today: scroll to 8 AM = 4 hours after the 4 AM view start
         val scrollMin = if (isToday) (nowMin - 60) else (4 * 60)
         val scrollPx = with(density) {
             scrollMin.coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()
         }.toInt()
         scrollState.animateScrollTo(scrollPx)
-        if (calendarSignals?.hasPermission() == true) {
-            // Fetch current date and next date to cover the full 4AM-4AM window
-            val today = calendarSignals.eventsForDate(date)
-            val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
-            calEvents = (today + nextDay)
+    }
+
+    // Calendar fetch: runs immediately, then every 15 minutes; also re-runs on refreshKey change
+    LaunchedEffect(date, refreshKey) {
+        suspend fun fetchCal() {
+            if (calendarSignals?.hasPermission() == true) {
+                val today = calendarSignals.eventsForDate(date)
+                val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
+                calEvents = (today + nextDay)
+            }
         }
+        fetchCal()
+        while (true) {
+            delay(15 * 60_000L)
+            fetchCal()
+        }
+    }
+
+    // 1-minute ticker: update now-line and re-evaluate plan (today only)
+    LaunchedEffect(viewStartMs) {
         if (isToday) {
             while (true) {
                 delay(60_000L)
