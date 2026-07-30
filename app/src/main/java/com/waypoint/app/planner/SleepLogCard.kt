@@ -103,6 +103,21 @@ fun SleepLogCard(
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
+                            // Sleep was detected — log the session before resetting state
+                            val sleepStart = logStore.getSleepStartMillis()
+                            val now = System.currentTimeMillis()
+                            if (sleepStart != null && now > sleepStart) {
+                                val oldEventId = todayEntry?.calendarEventId
+                                logStore.logManual(sleepStart, now)
+                                todayEntry = logStore.loadToday()
+                                scope.launch {
+                                    val entry = todayEntry
+                                    if (entry != null) {
+                                        SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, oldEventId)
+                                        todayEntry = logStore.loadToday()
+                                    }
+                                }
+                            }
                             logStore.cancelSleepMode()
                             SleepCheckReceiver.cancel(context)
                             sleepState = SleepModeState.IDLE
@@ -111,7 +126,7 @@ fun SleepLogCard(
                             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) { Text("Cancel") }
+                    ) { Text("Done") }
                 }
 
                 todayEntry != null && !isEditing -> {
