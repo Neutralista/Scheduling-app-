@@ -36,13 +36,7 @@
         <intent>
             <action android:name="androidx.health.connect.client.action.REQUEST_HEALTH_PERMISSIONS" />
         </intent>
-        <!-- System Clock app — required for ACTION_SET_ALARM / ACTION_DISMISS_ALARM on API 30+ -->
-        <intent>
-            <action android:name="android.intent.action.SET_ALARM" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.DISMISS_ALARM" />
-        </intent>
+
     </queries>
 
     <application

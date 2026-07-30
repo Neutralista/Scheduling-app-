@@ -5,20 +5,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.provider.AlarmClock
-import java.util.Calendar
 
 object WakeAlarmScheduler {
 
-    private const val RC_GENTLE   = 8020
-    private const val RC_MEDIUM   = 8021
-    private const val ALARM_LABEL = "Waypoint Wake"
+    private const val RC_GENTLE = 8020
+    private const val RC_MEDIUM = 8021
 
-    /**
-     * Full replace: cancel existing alarms then schedule from [wakeMs].
-     * Use when the wake time has definitively changed (e.g. user updates settings).
-     * Does NOT touch the system Clock app — call [syncSystemClock] from an Activity.
-     */
     fun scheduleAlarms(context: Context, wakeMs: Long) {
         cancelAlarms(context)
         val now = System.currentTimeMillis()
@@ -28,12 +20,6 @@ object WakeAlarmScheduler {
         if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
     }
 
-    /**
-     * Safe periodic refresh: only reschedule alarms if the target is still in the future.
-     * Does not cancel first, so a background CalendarSyncWorker run that lands within
-     * seconds of a pending alarm can't cause it to be dropped.
-     * Does NOT touch the system Clock app — call [syncSystemClock] from an Activity.
-     */
     fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long) {
         val now = System.currentTimeMillis()
         val gentleMs = wakeMs - 15 * 60_000L
@@ -45,54 +31,6 @@ object WakeAlarmScheduler {
     fun cancelAlarms(context: Context) {
         cancel(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE)
         cancel(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM)
-    }
-
-    /**
-     * Creates an alarm in the system Clock app via ACTION_SET_ALARM.
-     * Must be called from a foreground Activity — background activity starts are
-     * blocked on Android 10+ and may crash on some OEM builds even inside try/catch.
-     * EXTRA_SKIP_UI suppresses the Clock app opening.
-     */
-    fun syncSystemClock(context: Context, wakeMs: Long) {
-        if (wakeMs > System.currentTimeMillis()) setSystemAlarm(context, wakeMs)
-    }
-
-    /**
-     * Cancels the Waypoint Wake alarm in the system Clock app.
-     * Must be called from a foreground Activity for the same reason as [syncSystemClock].
-     */
-    fun clearSystemClock(context: Context) = cancelSystemAlarm(context)
-
-    private fun setSystemAlarm(context: Context, wakeMs: Long) {
-        val cal = Calendar.getInstance().apply { timeInMillis = wakeMs }
-        try {
-            context.startActivity(
-                Intent(AlarmClock.ACTION_SET_ALARM).apply {
-                    putExtra(AlarmClock.EXTRA_HOUR, cal.get(Calendar.HOUR_OF_DAY))
-                    putExtra(AlarmClock.EXTRA_MINUTES, cal.get(Calendar.MINUTE))
-                    putExtra(AlarmClock.EXTRA_MESSAGE, ALARM_LABEL)
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-        } catch (_: Exception) { }
-    }
-
-    /**
-     * Dismisses the Waypoint Wake alarm in the system Clock app by label.
-     * ACTION_DISMISS_ALARM support varies by manufacturer — best-effort only.
-     */
-    private fun cancelSystemAlarm(context: Context) {
-        try {
-            context.startActivity(
-                Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
-                    putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
-                    putExtra(AlarmClock.EXTRA_MESSAGE, ALARM_LABEL)
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-        } catch (_: Exception) { }
     }
 
     private fun scheduleExact(context: Context, triggerMs: Long, pi: PendingIntent) {
