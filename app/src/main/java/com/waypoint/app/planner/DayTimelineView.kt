@@ -40,10 +40,15 @@ import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Calendar
 
-private const val START_HOUR = 0
-private const val END_HOUR = 24
+// The visible window runs from VIEW_START_HOUR on the selected date to
+// VIEW_START_HOUR on the following date (e.g. 4 AM → 4 AM).
+// All internal "minute" values are relative to that 4 AM anchor.
+private const val VIEW_START_HOUR = 4
+private const val START_HOUR = 0          // relative minute 0 = VIEW_START_HOUR
+private const val END_HOUR   = 24         // relative minute 1440 = next-day VIEW_START_HOUR
 private const val TOTAL_HOURS = END_HOUR - START_HOUR
 private val HOUR_HEIGHT = 58.dp
 private val LABEL_WIDTH = 44.dp
@@ -56,6 +61,13 @@ fun DayTimelineView(
     date: LocalDate = LocalDate.now(),
     modifier: Modifier = Modifier
 ) {
+    // Anchor: 4 AM on the viewed date in ms. All "minute" values are relative to this.
+    val viewStartMs = remember(date) {
+        date.atTime(VIEW_START_HOUR, 0)
+            .atZone(ZoneId.systemDefault())
+            .toInstant().toEpochMilli()
+    }
+
     val dateCal = remember(date) {
         Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -69,24 +81,28 @@ fun DayTimelineView(
 
     var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
     val dateSchedule = remember(date) { ws.getSchedule(dateCal) }
-    var nowMin by remember { mutableIntStateOf(minutesNow()) }
+    var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
     LaunchedEffect(date) {
-        val scrollMin = if (isToday) (nowMin - 60) else (8 * 60)
+        // Non-today: scroll to 8 AM = 4 hours after the 4 AM view start
+        val scrollMin = if (isToday) (nowMin - 60) else (4 * 60)
         val scrollPx = with(density) {
-            ((scrollMin - START_HOUR * 60).coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()).toInt()
-        }
+            scrollMin.coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()
+        }.toInt()
         scrollState.animateScrollTo(scrollPx)
         if (calendarSignals?.hasPermission() == true) {
-            calEvents = calendarSignals.eventsForDate(date)
+            // Fetch current date and next date to cover the full 4AM-4AM window
+            val today = calendarSignals.eventsForDate(date)
+            val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
+            calEvents = (today + nextDay)
         }
         if (isToday) {
             while (true) {
                 delay(60_000L)
-                nowMin = minutesNow()
+                nowMin = minutesFromViewStart(viewStartMs)
                 plan = registry.planForDate(date, ws)
             }
         }
@@ -100,10 +116,15 @@ fun DayTimelineView(
     val onSecCont  = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont  = MaterialTheme.colorScheme.onTertiaryContainer
 
-    val shiftStartMin = dateSchedule.shiftStart?.let { it.hour * 60 + it.minute }
+    // Convert absolute LocalTime to relative minutes from the 4 AM view start
+    fun absToRel(absMin: Int): Int {
+        val rel = absMin - VIEW_START_HOUR * 60
+        return if (rel < 0) rel + 1440 else rel
+    }
+    val shiftStartMin = dateSchedule.shiftStart?.let { absToRel(it.hour * 60 + it.minute) }
     val shiftEndMin   = dateSchedule.shiftEnd?.let { t ->
-        val m = t.hour * 60 + t.minute
-        if (dateSchedule.crossesMidnight) m + 1440 else m
+        val absMin = t.hour * 60 + t.minute + if (dateSchedule.crossesMidnight) 1440 else 0
+        absToRel(absMin)
     }
 
     fun minToY(minutes: Int): Dp =
@@ -120,7 +141,7 @@ fun DayTimelineView(
                 for (h in START_HOUR..END_HOUR) {
                     val yOff = (HOUR_HEIGHT * (h - START_HOUR) - 8.dp).coerceAtLeast(2.dp)
                     Text(
-                        text = "%02d:00".format(h),
+                        text = "%02d:00".format((VIEW_START_HOUR + h) % 24),
                         modifier = Modifier.yOffset(yOff),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                         color = onSV.copy(alpha = 0.38f)
@@ -183,8 +204,8 @@ fun DayTimelineView(
 
                 // Calendar event blocks — rendered first so planner events appear on top
                 calEvents.filter { !it.allDay }.forEach { evt ->
-                    val ceStartMin = msToMin(evt.startMillis)
-                    val ceEndMin   = msToMin(evt.endMillis)
+                    val ceStartMin = msToMin(evt.startMillis, viewStartMs)
+                    val ceEndMin   = msToMin(evt.endMillis,   viewStartMs)
                     if (ceStartMin >= END_HOUR * 60 || ceEndMin <= START_HOUR * 60) return@forEach
                     val startY  = minToY(ceStartMin)
                     val eventH  = (minToY(ceEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
@@ -230,8 +251,8 @@ fun DayTimelineView(
                 var habitIdx = 0
                 plan.scheduled.forEach { se ->
                     val isSleep = se.event.category == EventCategory.SLEEP
-                    val seStartMin = msToMin(se.startMillis)
-                    val seEndMin   = msToMin(se.endMillis)
+                    val seStartMin = msToMin(se.startMillis, viewStartMs)
+                    val seEndMin   = msToMin(se.endMillis,   viewStartMs)
                     val startY  = minToY(seStartMin)
                     val eventH  = (minToY(seEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
                     val (bg, fg) = if (isSleep) {
@@ -274,7 +295,7 @@ fun DayTimelineView(
 
                 // Current-time indicator — red dot + line (today only)
                 if (isToday) {
-                    val clampedNow = nowMin.coerceIn(START_HOUR * 60, END_HOUR * 60)
+                    val clampedNow = nowMin.coerceIn(0, TOTAL_HOURS * 60)
                     val nowY = minToY(clampedNow)
                     val redC = Color(0xFFE53935)
                     Canvas(
@@ -301,12 +322,13 @@ private fun Modifier.yOffset(y: Dp): Modifier = layout { measurable, constraints
     }
 }
 
-private fun minutesNow(): Int =
-    Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+/** Returns minutes elapsed since the 4 AM view-start anchor. Negative = before the window. */
+private fun minutesFromViewStart(viewStartMs: Long): Int =
+    ((System.currentTimeMillis() - viewStartMs) / 60_000L).toInt()
 
-private fun msToMin(ms: Long): Int =
-    Calendar.getInstance().apply { timeInMillis = ms }
-        .let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+/** Converts an absolute timestamp to minutes relative to the 4 AM view-start anchor. */
+private fun msToMin(ms: Long, viewStartMs: Long): Int =
+    ((ms - viewStartMs) / 60_000L).toInt()
 
 private fun fmtMs(ms: Long): String =
     Calendar.getInstance().apply { timeInMillis = ms }
