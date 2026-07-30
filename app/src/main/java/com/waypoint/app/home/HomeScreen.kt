@@ -2,6 +2,7 @@ package com.waypoint.app.home
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,9 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -205,7 +212,73 @@ private fun PlanTab(
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals
 ) {
+    var dayOffset by remember { mutableIntStateOf(0) }
+    val selectedDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()) }
+    val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
+
     Column(Modifier.fillMaxSize()) {
-        DayTimelineView(ws = workSchedule, registry = eventPlanner, calendarSignals = calendarSignals, modifier = Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { dayOffset-- }) {
+                Icon(
+                    Icons.Filled.KeyboardArrowLeft,
+                    contentDescription = "Previous day",
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(if (dayOffset != 0) Modifier.clickable { dayOffset = 0 } else Modifier)
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val label = when (dayOffset) {
+                    -1 -> "Yesterday"
+                    0  -> "Today"
+                    1  -> "Tomorrow"
+                    else -> selectedDate.format(dateFmt)
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                if (dayOffset == -1 || dayOffset == 1) {
+                    Text(
+                        text = selectedDate.format(dateFmt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (dayOffset != 0) {
+                    Text(
+                        text = "tap to return to today",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                }
+            }
+            IconButton(onClick = { dayOffset++ }) {
+                Icon(
+                    Icons.Filled.KeyboardArrowRight,
+                    contentDescription = "Next day",
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        DayTimelineView(
+            ws = workSchedule,
+            registry = eventPlanner,
+            calendarSignals = calendarSignals,
+            date = selectedDate,
+            modifier = Modifier.weight(1f)
+        )
     }
 }

@@ -24,6 +24,7 @@ interface CalendarSignals {
     fun hasPermission(): Boolean
     fun hasWritePermission(): Boolean
     suspend fun todayEvents(): List<CalendarEvent>
+    suspend fun eventsForDate(date: LocalDate): List<CalendarEvent>
     val cachedEvents: List<CalendarEvent>
     suspend fun refreshCache()
     /** Creates an event in the primary calendar. Returns the new event ID, or -1 on failure. */
@@ -47,13 +48,14 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) ==
                 PackageManager.PERMISSION_GRANTED
 
-    override suspend fun todayEvents(): List<CalendarEvent> = withContext(Dispatchers.IO) {
+    override suspend fun todayEvents(): List<CalendarEvent> = eventsForDate(LocalDate.now())
+
+    override suspend fun eventsForDate(date: LocalDate): List<CalendarEvent> = withContext(Dispatchers.IO) {
         if (!hasPermission()) return@withContext emptyList()
 
         val zone = ZoneId.systemDefault()
-        val today = LocalDate.now()
-        val startMillis = today.atStartOfDay(zone).toInstant().toEpochMilli()
-        val endMillis = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val startMillis = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMillis = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
             .appendPath(startMillis.toString())
@@ -73,9 +75,9 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             uri, projection, null, null,
             CalendarContract.Instances.BEGIN + " ASC"
         )?.use { cursor ->
-            val titleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
-            val beginIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
-            val endIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val titleIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
+            val beginIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
             val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
             val colorIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
             while (cursor.moveToNext()) {

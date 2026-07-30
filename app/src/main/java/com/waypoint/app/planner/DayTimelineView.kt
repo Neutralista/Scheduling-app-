@@ -39,6 +39,7 @@ import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
+import java.time.LocalDate
 import java.util.Calendar
 
 private const val START_HOUR = 0
@@ -52,28 +53,42 @@ fun DayTimelineView(
     ws: WorkScheduleSignals,
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
+    date: LocalDate = LocalDate.now(),
     modifier: Modifier = Modifier
 ) {
-    var plan by remember { mutableStateOf(registry.planToday(ws)) }
-    val todaySchedule = ws.getTodaySchedule()
+    val dateCal = remember(date) {
+        Calendar.getInstance().apply {
+            set(Calendar.YEAR, date.year)
+            set(Calendar.MONTH, date.monthValue - 1)
+            set(Calendar.DAY_OF_MONTH, date.dayOfMonth)
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0);      set(Calendar.MILLISECOND, 0)
+        }
+    }
+    val isToday = date == LocalDate.now()
+
+    var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
+    val dateSchedule = remember(date) { ws.getSchedule(dateCal) }
     var nowMin by remember { mutableIntStateOf(minutesNow()) }
-    var calEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
-    LaunchedEffect(Unit) {
-        // Scroll so current time is visible (one hour of context above)
+    LaunchedEffect(date) {
+        val scrollMin = if (isToday) (nowMin - 60) else (8 * 60)
         val scrollPx = with(density) {
-            ((nowMin - START_HOUR * 60 - 60).coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()).toInt()
+            ((scrollMin - START_HOUR * 60).coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()).toInt()
         }
         scrollState.animateScrollTo(scrollPx)
         if (calendarSignals?.hasPermission() == true) {
-            calEvents = calendarSignals.todayEvents()
+            calEvents = calendarSignals.eventsForDate(date)
         }
-        while (true) {
-            delay(60_000L)
-            nowMin = minutesNow()
-            plan = registry.planToday(ws)
+        if (isToday) {
+            while (true) {
+                delay(60_000L)
+                nowMin = minutesNow()
+                plan = registry.planForDate(date, ws)
+            }
         }
     }
 
@@ -85,10 +100,10 @@ fun DayTimelineView(
     val onSecCont  = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont  = MaterialTheme.colorScheme.onTertiaryContainer
 
-    val shiftStartMin = todaySchedule.shiftStart?.let { it.hour * 60 + it.minute }
-    val shiftEndMin   = todaySchedule.shiftEnd?.let { t ->
+    val shiftStartMin = dateSchedule.shiftStart?.let { it.hour * 60 + it.minute }
+    val shiftEndMin   = dateSchedule.shiftEnd?.let { t ->
         val m = t.hour * 60 + t.minute
-        if (todaySchedule.crossesMidnight) m + 1440 else m
+        if (dateSchedule.crossesMidnight) m + 1440 else m
     }
 
     fun minToY(minutes: Int): Dp =
@@ -144,7 +159,7 @@ fun DayTimelineView(
                 }
 
                 // Shift block
-                if (todaySchedule.isWork && shiftStartMin != null && shiftEndMin != null) {
+                if (dateSchedule.isWork && shiftStartMin != null && shiftEndMin != null) {
                     val startY = minToY(shiftStartMin)
                     val shiftH = (minToY(shiftEndMin) - startY).coerceAtLeast(4.dp)
                     Box(
@@ -158,7 +173,7 @@ fun DayTimelineView(
                             .border(1.dp, primary.copy(alpha = 0.20f), RoundedCornerShape(6.dp))
                     ) {
                         Text(
-                            text = "Shift · ${todaySchedule.shiftStart!!.displayString}–${todaySchedule.shiftEnd?.displayString ?: "?"}",
+                            text = "Shift · ${dateSchedule.shiftStart!!.displayString}–${dateSchedule.shiftEnd?.displayString ?: "?"}",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = primary.copy(alpha = 0.60f)
@@ -257,19 +272,21 @@ fun DayTimelineView(
                     }
                 }
 
-                // Current-time indicator — red dot + line
-                val clampedNow = nowMin.coerceIn(START_HOUR * 60, END_HOUR * 60)
-                val nowY = minToY(clampedNow)
-                val redC = Color(0xFFE53935)
-                Canvas(
-                    Modifier
-                        .yOffset(nowY - 4.dp)
-                        .fillMaxWidth()
-                        .height(8.dp)
-                ) {
-                    val cy = size.height / 2f
-                    drawCircle(redC, 4.dp.toPx(), Offset(0f, cy))
-                    drawLine(redC, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
+                // Current-time indicator — red dot + line (today only)
+                if (isToday) {
+                    val clampedNow = nowMin.coerceIn(START_HOUR * 60, END_HOUR * 60)
+                    val nowY = minToY(clampedNow)
+                    val redC = Color(0xFFE53935)
+                    Canvas(
+                        Modifier
+                            .yOffset(nowY - 4.dp)
+                            .fillMaxWidth()
+                            .height(8.dp)
+                    ) {
+                        val cy = size.height / 2f
+                        drawCircle(redC, 4.dp.toPx(), Offset(0f, cy))
+                        drawLine(redC, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
+                    }
                 }
             }
         }
