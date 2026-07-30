@@ -80,7 +80,7 @@ fun DayTimelineView(
     val isToday = date == LocalDate.now()
 
     var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
-    // Next-day plan provides post-midnight events (e.g. sleep_morning) inside the 4AM-4AM window
+    // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window
     var nextDayScheduled by remember(date) {
         mutableStateOf(registry.planForDate(date.plusDays(1), ws).scheduled)
     }
@@ -251,18 +251,15 @@ fun DayTimelineView(
 
                 // Planner event blocks
                 // Merge today's events with post-midnight next-day events that fall inside
-                // the 4AM-4AM window, then stitch adjacent SLEEP blocks into one.
+                // the 4AM-4AM window, then stitch adjacent blocks into one continuous bar.
                 val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
                 val mergedScheduled = run {
-                    // Exclude next-day events whose ID is already covered in today's plan
-                    // (the extended planner may have placed the same event past midnight).
-                    val todayIds = plan.scheduled.map { it.event.id }.toSet()
                     val combined = (plan.scheduled +
-                        nextDayScheduled.filter { it.startMillis < viewEndMs && it.event.id !in todayIds })
+                        nextDayScheduled.filter { it.startMillis < viewEndMs })
                         .sortedBy { it.startMillis }
                     // Stitch adjacent blocks of the same logical event:
-                    // - same event ID (any category), or
-                    // - both SLEEP (sleep_evening + sleep_morning have different IDs but same category)
+                    // - same event ID (fixed cross-midnight events split at midnight), or
+                    // - both SLEEP category
                     val out = mutableListOf<ScheduledEvent>()
                     for (se in combined) {
                         val last = out.lastOrNull()

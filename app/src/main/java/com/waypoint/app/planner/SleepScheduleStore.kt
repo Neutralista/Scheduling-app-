@@ -3,6 +3,8 @@ package com.waypoint.app.planner
 import android.content.Context
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Calendar
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -50,31 +52,66 @@ class SleepScheduleStore(context: Context) {
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
     fun resetToDefaults() = save(SleepSchedule())
 
+    /** Effective wake/bed for today — used by SleepScheduleCard to display adjusted times. */
+    fun computeEffectiveTimes(ws: WorkScheduleSignals): EffectiveSleepTimes =
+        computeEffectiveTimesForDate(LocalDate.now(), ws, load())
+
     /**
-     * Computes effective wake/bed times from shift constraints:
-     * - Work day: wake ≤ shiftStart − minMorningBufferMinutes
-     *             bed  ≥ shiftEnd   + minEveningBufferMinutes
-     * - Day off: use stored preferred times.
+     * Registers fixed sleep events for a rolling window (yesterday through +7 days).
+     * Each event spans bed-time on date D to wake-time on date D+1, and is split
+     * naturally at midnight by the planner then stitched in the timeline view.
      */
-    fun computeEffectiveTimes(ws: WorkScheduleSignals): EffectiveSleepTimes {
+    fun syncToRegistry(registry: EventPlannerRegistry, ws: WorkScheduleSignals) {
+        registry.clearSleepEvents()
         val s = load()
-        val today = ws.getTodaySchedule()
+        if (!s.enabled) return
 
-        if (today.isWork && today.shiftStart != null && today.shiftEnd != null) {
-            val latestWakeMin = today.shiftStart.totalMinutes - s.minMorningBufferMinutes
-            val effectiveWake = if (latestWakeMin > 0) ShiftTime(latestWakeMin / 60, latestWakeMin % 60)
-                                else s.preferredWakeTime
+        val today = LocalDate.now()
+        for (dayOffset in -1..7) {
+            val date = today.plusDays(dayOffset.toLong())
+            val effective = computeEffectiveTimesForDate(date, ws, s)
+            registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
+        }
+    }
 
-            val session = ws.getTodaySession()
-            val shiftEndMinAbs: Int = if (session.actualEndMillis != null) {
-                val cal = Calendar.getInstance().apply { timeInMillis = session.actualEndMillis }
-                val actualEndMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-                if (actualEndMin < today.shiftStart.totalMinutes) actualEndMin + 24 * 60 else actualEndMin
-            } else if (today.crossesMidnight) {
-                today.shiftEnd.totalMinutes + 24 * 60
+    private fun computeEffectiveTimesForDate(
+        date: LocalDate,
+        ws: WorkScheduleSignals,
+        s: SleepSchedule
+    ): EffectiveSleepTimes {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, date.year)
+            set(Calendar.MONTH, date.monthValue - 1)
+            set(Calendar.DAY_OF_MONTH, date.dayOfMonth)
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val schedule = ws.getSchedule(cal)
+
+        if (schedule.isWork && schedule.shiftStart != null && schedule.shiftEnd != null) {
+            val latestWakeMin = schedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
+            val effectiveWake = if (latestWakeMin > 0)
+                ShiftTime(latestWakeMin / 60, latestWakeMin % 60)
+            else
+                s.preferredWakeTime
+
+            val shiftEndMinAbs: Int = if (date == LocalDate.now()) {
+                val session = ws.getTodaySession()
+                if (session.actualEndMillis != null) {
+                    val endCal = Calendar.getInstance().apply { timeInMillis = session.actualEndMillis }
+                    val actualEndMin = endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
+                    if (actualEndMin < schedule.shiftStart.totalMinutes) actualEndMin + 24 * 60 else actualEndMin
+                } else if (schedule.crossesMidnight) {
+                    schedule.shiftEnd.totalMinutes + 24 * 60
+                } else {
+                    schedule.shiftEnd.totalMinutes
+                }
+            } else if (schedule.crossesMidnight) {
+                schedule.shiftEnd.totalMinutes + 24 * 60
             } else {
-                today.shiftEnd.totalMinutes
+                schedule.shiftEnd.totalMinutes
             }
+
             val earliestBedMinAbs = shiftEndMinAbs + s.minEveningBufferMinutes
             val effectiveBed = if (earliestBedMinAbs < 24 * 60) {
                 ShiftTime(earliestBedMinAbs / 60, earliestBedMinAbs % 60)
@@ -89,56 +126,25 @@ class SleepScheduleStore(context: Context) {
         return EffectiveSleepTimes(s.preferredWakeTime, s.preferredBedTime, isConstrained = false)
     }
 
-    /**
-     * Registers sleep events into the EventPlannerRegistry as priority-10 time-window events,
-     * replacing any previously registered ones.
-     */
-    fun syncToRegistry(registry: EventPlannerRegistry, ws: WorkScheduleSignals) {
-        registry.clearSleepEvents()
-        val s = load()
-        if (!s.enabled) return
+    private fun registerSleepEventForDate(
+        registry: EventPlannerRegistry,
+        date: LocalDate,
+        wake: ShiftTime,
+        bed: ShiftTime
+    ) {
+        val zone = ZoneId.systemDefault()
+        val bedMs  = date.atTime(bed.hour, bed.minute).atZone(zone).toInstant().toEpochMilli()
+        val wakeMs = date.plusDays(1).atTime(wake.hour, wake.minute).atZone(zone).toInstant().toEpochMilli()
+        if (wakeMs <= bedMs) return
 
-        val effective = computeEffectiveTimes(ws)
-        registerSleepEvents(registry, effective.wakeTime, effective.bedTime)
-    }
-
-    private fun registerSleepEvents(registry: EventPlannerRegistry, wake: ShiftTime, bed: ShiftTime) {
-        if (bed.totalMinutes < wake.totalMinutes) {
-            // Bed falls after midnight (midnight-crossing shift) — single morning block
-            val sleepMins = wake.totalMinutes - bed.totalMinutes
-            if (sleepMins > 0) {
-                registry.register(PlannerEvent(
-                    id = "sleep_morning",
-                    title = "Sleep",
-                    durationMinutes = sleepMins,
-                    priority = PlannerPriority.SLEEP,
-                    conditions = listOf(EventCondition.TimeWindow(bed.hour, bed.minute, wake.hour, wake.minute)),
-                    category = EventCategory.SLEEP
-                ))
-            }
-        } else {
-            val morningMins = wake.totalMinutes
-            val eveningMins = 24 * 60 - bed.totalMinutes
-            if (morningMins > 0) {
-                registry.register(PlannerEvent(
-                    id = "sleep_morning",
-                    title = "Sleep",
-                    durationMinutes = morningMins,
-                    priority = PlannerPriority.SLEEP,
-                    conditions = listOf(EventCondition.TimeWindow(0, 0, wake.hour, wake.minute)),
-                    category = EventCategory.SLEEP
-                ))
-            }
-            if (eveningMins > 0) {
-                registry.register(PlannerEvent(
-                    id = "sleep_evening",
-                    title = "Sleep",
-                    durationMinutes = eveningMins,
-                    priority = PlannerPriority.SLEEP,
-                    conditions = listOf(EventCondition.TimeWindow(bed.hour, bed.minute, 24, 0)),
-                    category = EventCategory.SLEEP
-                ))
-            }
-        }
+        registry.register(PlannerEvent(
+            id = "sleep_$date",
+            title = "Sleep",
+            durationMinutes = ((wakeMs - bedMs) / 60_000L).toInt(),
+            priority = PlannerPriority.SLEEP,
+            category = EventCategory.SLEEP,
+            fixedStartMillis = bedMs,
+            fixedEndMillis = wakeMs
+        ))
     }
 }

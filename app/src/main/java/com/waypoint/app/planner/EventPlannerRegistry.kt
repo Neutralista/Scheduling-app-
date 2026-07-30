@@ -23,7 +23,7 @@ class EventPlannerRegistry {
     }
 
     fun clearSleepEvents() {
-        _events.removeAll { it.id == "sleep_morning" || it.id == "sleep_evening" }
+        _events.removeAll { it.category == EventCategory.SLEEP }
     }
 
     fun planToday(ws: WorkScheduleSignals): DayPlan = planForDate(LocalDate.now(), ws)
