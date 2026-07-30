@@ -207,6 +207,8 @@ fun SleepLogCard(
                                 today.atTime(bed.hour, bed.minute)
                                     .atZone(zone).toInstant().toEpochMilli()
                             }
+                            val durationMs = wakeMs - bedMs
+                            if (durationMs < 60_000L || durationMs > 16 * 3600_000L) return@Button
                             val oldEventId = todayEntry?.calendarEventId
                             logStore.logManual(bedMs, wakeMs)
                             todayEntry = logStore.loadToday()

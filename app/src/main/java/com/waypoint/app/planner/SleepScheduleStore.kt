@@ -176,6 +176,19 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
 
+        // Cap sleep at preferred duration — shift buffers can over-expand the window on work days
+        if (isConstrained) {
+            val rawSleepMin = if (effectiveBed.totalMinutes > effectiveWake.totalMinutes)
+                effectiveWake.totalMinutes + (1440 - effectiveBed.totalMinutes)
+            else
+                effectiveWake.totalMinutes - effectiveBed.totalMinutes
+            if (rawSleepMin > s.targetSleepMinutes) {
+                val excess = rawSleepMin - s.targetSleepMinutes
+                effectiveBedMin = (effectiveBed.totalMinutes + excess) % 1440
+                effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
+            }
+        }
+
         // Step 5: 15-min transition buffer around non-sleep events that crowd bedtime
         // Applies to both work days and days off — calendar events always shift the window
         val zone = ZoneId.systemDefault()
@@ -194,12 +207,12 @@ class SleepScheduleStore(private val context: Context) {
         // Bed push: event ends after bed → push bed later
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
-            if (se.endMillis + 15 * 60_000L > bedEpochMs) {
+            if (se.endMillis < wakeEpochMs && se.endMillis + 15 * 60_000L > bedEpochMs) {
                 bedEpochMs = minOf(maxOf(bedEpochMs, se.endMillis + 15 * 60_000L), wakeEpochMs)
             }
         }
         for ((_, evEnd) in calEvents) {
-            if (evEnd + 15 * 60_000L > bedEpochMs) {
+            if (evEnd < wakeEpochMs && evEnd + 15 * 60_000L > bedEpochMs) {
                 bedEpochMs = minOf(maxOf(bedEpochMs, evEnd + 15 * 60_000L), wakeEpochMs)
             }
         }
