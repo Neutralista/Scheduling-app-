@@ -1,6 +1,7 @@
 package com.waypoint.app
 
 import android.app.Application
+import com.waypoint.app.background.CalendarSyncWorker
 import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
@@ -63,5 +64,6 @@ class WaypointApplication : Application() {
         SleepNotificationHelper.createChannels(this)
         ReminderScheduler.schedule(this, hourOfDay = 9)
         ScriptTickWorker.schedule(this)
+        CalendarSyncWorker.schedule(this)
     }
 }

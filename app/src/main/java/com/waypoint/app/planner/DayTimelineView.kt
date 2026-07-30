@@ -111,7 +111,7 @@ fun DayTimelineView(
         }
         fetchCal()
         while (true) {
-            delay(15 * 60_000L)
+            delay(60_000L)
             fetchCal()
         }
     }
