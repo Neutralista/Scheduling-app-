@@ -1,5 +1,6 @@
 package com.waypoint.app.planner
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -77,11 +79,17 @@ fun SleepLogCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = {
-                        logStore.cancelSleepMode()
-                        SleepCheckReceiver.cancel(context)
-                        sleepState = SleepModeState.IDLE
-                    }) { Text("Cancel") }
+                    OutlinedButton(
+                        onClick = {
+                            logStore.cancelSleepMode()
+                            SleepCheckReceiver.cancel(context)
+                            sleepState = SleepModeState.IDLE
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) { Text("Cancel") }
                 }
 
                 sleepState == SleepModeState.SLEEPING -> {
@@ -93,11 +101,17 @@ fun SleepLogCard(
                         color = MaterialTheme.colorScheme.secondary
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = {
-                        logStore.cancelSleepMode()
-                        SleepCheckReceiver.cancel(context)
-                        sleepState = SleepModeState.IDLE
-                    }) { Text("Cancel") }
+                    OutlinedButton(
+                        onClick = {
+                            logStore.cancelSleepMode()
+                            SleepCheckReceiver.cancel(context)
+                            sleepState = SleepModeState.IDLE
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) { Text("Cancel") }
                 }
 
                 todayEntry != null && !isEditing -> {
