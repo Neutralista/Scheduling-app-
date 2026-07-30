@@ -10,6 +10,9 @@ import androidx.core.app.NotificationCompat
 import com.waypoint.app.MainActivity
 import com.waypoint.app.R
 import com.waypoint.app.planner.SleepLogStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object SleepNotificationHelper {
 
@@ -18,13 +21,15 @@ object SleepNotificationHelper {
     const val CH_WAKE_GENTLE    = "waypoint_wake_gentle"
     const val CH_WAKE_MEDIUM    = "waypoint_wake_medium"
     const val CH_WAKE_FULL      = "waypoint_wake_full"
+    const val CH_ALARM_STATUS   = "waypoint_alarm_status"
 
-    private const val NOTIF_PRE_SLEEP  = 100
-    private const val NOTIF_BEDTIME    = 101
-    private const val NOTIF_NUDGE      = 102
-    private const val NOTIF_WAKE_SOFT  = 110
-    private const val NOTIF_WAKE_MED   = 111
-    private const val NOTIF_WAKE_FULL  = 112
+    private const val NOTIF_PRE_SLEEP    = 100
+    private const val NOTIF_BEDTIME      = 101
+    private const val NOTIF_NUDGE        = 102
+    private const val NOTIF_WAKE_SOFT    = 110
+    private const val NOTIF_WAKE_MED     = 111
+    private const val NOTIF_WAKE_FULL    = 112
+    private const val NOTIF_ALARM_STATUS = 120
 
     private const val NUDGE_COOLDOWN_MS = 20 * 60_000L
 
@@ -59,6 +64,14 @@ object SleepNotificationHelper {
                 }
             nm.createNotificationChannel(fullCh)
         }
+        nm.createNotificationChannel(
+            NotificationChannel(CH_ALARM_STATUS, "Sleep alarm status", NotificationManager.IMPORTANCE_LOW)
+                .apply {
+                    description = "Persistent indicator showing scheduled bed and wake times"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+        )
     }
 
     // ─── Sleep reminders ───────────────────────────────────────────────────────
@@ -182,6 +195,30 @@ object SleepNotificationHelper {
 
     fun dismissWakeAlarm(context: Context) {
         nm(context).cancel(NOTIF_WAKE_FULL)
+    }
+
+    // ─── Alarm status (persistent, silent) ────────────────────────────────────
+
+    fun showAlarmStatus(context: Context, bedMs: Long, wakeMs: Long) {
+        val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val bedText  = fmt.format(Date(bedMs))
+        val wakeText = fmt.format(Date(wakeMs))
+        nm(context).notify(
+            NOTIF_ALARM_STATUS,
+            NotificationCompat.Builder(context, CH_ALARM_STATUS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Sleep alarms active")
+                .setContentText("Bed $bedText · Wake $wakeText")
+                .setContentIntent(openAppPi(context, 220))
+                .setOngoing(true)
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+        )
+    }
+
+    fun clearAlarmStatus(context: Context) {
+        nm(context).cancel(NOTIF_ALARM_STATUS)
     }
 
     private fun openAppPi(context: Context, reqCode: Int): PendingIntent =

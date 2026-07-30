@@ -2,6 +2,7 @@ package com.waypoint.app.planner
 
 import android.content.Context
 import com.waypoint.app.notification.SleepAlarmScheduler
+import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
@@ -68,7 +69,10 @@ class SleepScheduleStore(private val context: Context) {
     fun syncToRegistry(registry: EventPlannerRegistry, ws: WorkScheduleSignals) {
         registry.clearSleepEvents()
         val s = load()
-        if (!s.enabled) return
+        if (!s.enabled) {
+            SleepNotificationHelper.clearAlarmStatus(context)
+            return
+        }
 
         val today = LocalDate.now()
         for (dayOffset in -1..7) {
@@ -83,6 +87,7 @@ class SleepScheduleStore(private val context: Context) {
                 SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs)
                 WakeAlarmScheduler.scheduleAlarms(context, wakeMs)
                 SleepLogStore(context).updateScheduledTimes(bedMs, wakeMs)
+                SleepNotificationHelper.showAlarmStatus(context, bedMs, wakeMs)
             }
         }
     }
