@@ -52,9 +52,13 @@ import com.waypoint.app.notification.ActionConfig
 import com.waypoint.app.notification.NotificationConfig
 import com.waypoint.app.notification.ScriptNotificationScheduler
 import com.waypoint.app.notification.WeeklyTrigger
+import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.planner.EventCategory
 import com.waypoint.app.planner.EventCondition
 import com.waypoint.app.planner.PlannerEvent
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
+import java.util.UUID
 import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.signal.ShiftTime
@@ -210,6 +214,14 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
             session.actualStartMillis != null && session.actualEndMillis == null)
         ScriptableObject.putProperty(ws, "clockedInAt",
             session.actualStartMillis?.let { java.util.Date(it).toString() } ?: "")
+        ScriptableObject.putProperty(ws, "isClockedOut",
+            session.actualStartMillis != null && session.actualEndMillis != null)
+        ScriptableObject.putProperty(ws, "clockedOutAt",
+            session.actualEndMillis?.let { java.util.Date(it).toString() } ?: "")
+        ScriptableObject.putProperty(ws, "shiftDurationMinutes",
+            if (session.actualStartMillis != null && session.actualEndMillis != null)
+                (session.actualEndMillis - session.actualStartMillis) / 60_000.0
+            else 0.0)
         ScriptableObject.putProperty(ws, "setShiftStart", object : BaseFunction() {
             override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
                 val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
@@ -337,6 +349,27 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
                 return null
             }
         })
+        val sleepLog = SleepLogStore(env.context)
+        val sleepModeState = sleepLog.getSleepModeState()
+        ScriptableObject.putProperty(sleepObj, "isSleeping", sleepModeState == SleepModeState.SLEEPING)
+        ScriptableObject.putProperty(sleepObj, "isMonitoring", sleepModeState == SleepModeState.MONITORING)
+        val todaySleepEntry = sleepLog.loadToday()
+        if (todaySleepEntry != null) {
+            val entryObj = cx.newObject(scope) as NativeObject
+            val bedCal  = Calendar.getInstance().apply { timeInMillis = todaySleepEntry.bedMillis }
+            val wakeCal = Calendar.getInstance().apply { timeInMillis = todaySleepEntry.wakeMillis }
+            ScriptableObject.putProperty(entryObj, "bedTime",
+                "%02d:%02d".format(bedCal.get(Calendar.HOUR_OF_DAY),  bedCal.get(Calendar.MINUTE)))
+            ScriptableObject.putProperty(entryObj, "wakeTime",
+                "%02d:%02d".format(wakeCal.get(Calendar.HOUR_OF_DAY), wakeCal.get(Calendar.MINUTE)))
+            ScriptableObject.putProperty(entryObj, "bedMillis",  todaySleepEntry.bedMillis.toDouble())
+            ScriptableObject.putProperty(entryObj, "wakeMillis", todaySleepEntry.wakeMillis.toDouble())
+            ScriptableObject.putProperty(entryObj, "durationMinutes",
+                (todaySleepEntry.wakeMillis - todaySleepEntry.bedMillis) / 60_000.0)
+            ScriptableObject.putProperty(sleepObj, "todayEntry", entryObj)
+        } else {
+            ScriptableObject.putProperty(sleepObj, "todayEntry", null)
+        }
         ScriptableObject.putProperty(obj, "sleep", sleepObj)
     } catch (e: Throwable) {
         AppLogger.e("Bridge", "sleep section failed: ${e.javaClass.name}: ${e.message}")
@@ -390,6 +423,82 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     } catch (e: Throwable) {
         AppLogger.e("Bridge", "calendar section failed: ${e.javaClass.name}: ${e.message}")
         ScriptableObject.putProperty(obj, "calendar", cx.newObject(scope))
+    }
+
+    // ── alarms ───────────────────────────────────────────────────────────────
+    try {
+        val alarmsObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(alarmsObj, "getAll", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val entries = env.alarms.getAll().map { alarm ->
+                    val o = cx.newObject(scope) as NativeObject
+                    ScriptableObject.putProperty(o, "id",      alarm.id)
+                    ScriptableObject.putProperty(o, "label",   alarm.label)
+                    ScriptableObject.putProperty(o, "time",    alarm.displayTime)
+                    ScriptableObject.putProperty(o, "hour",    alarm.hour.toDouble())
+                    ScriptableObject.putProperty(o, "minute",  alarm.minute.toDouble())
+                    ScriptableObject.putProperty(o, "enabled", alarm.enabled)
+                    ScriptableObject.putProperty(o, "repeatDays",
+                        cx.newArray(scope, alarm.repeatDays.sorted().map { it.toDouble() as Any? }.toTypedArray()))
+                    o
+                }
+                return cx.newArray(scope, entries.toTypedArray<Any?>())
+            }
+        })
+        ScriptableObject.putProperty(alarmsObj, "add", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val opts   = args.getOrNull(0) as? NativeObject ?: return null
+                val label  = opts.jsString("label") ?: ""
+                val hour   = (opts.get("hour",   opts) as? Number)?.toInt() ?: return null
+                val minute = (opts.get("minute", opts) as? Number)?.toInt() ?: return null
+                val enabled = opts.jsBool("enabled", true)
+                val vibrate = opts.jsBool("vibrate", true)
+                val daysArr = opts.get("repeatDays", opts) as? NativeArray
+                val repeatDays = daysArr?.let { arr ->
+                    (0 until arr.length.toInt())
+                        .mapNotNull { i -> (arr.get(i, arr) as? Number)?.toInt() }
+                        .toSet()
+                } ?: emptySet()
+                val alarm = AlarmEntry(
+                    id = UUID.randomUUID().toString(),
+                    label = label, hour = hour, minute = minute,
+                    enabled = enabled, repeatDays = repeatDays, vibrate = vibrate
+                )
+                return try {
+                    kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                        env.alarms.add(alarm)
+                    }.id
+                } catch (e: Throwable) {
+                    AppLogger.e("Bridge", "alarms.add failed", e)
+                    null
+                }
+            }
+        })
+        ScriptableObject.putProperty(alarmsObj, "delete", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val id = args.getOrNull(0)?.toString() ?: return null
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.alarms.delete(id) }
+                    catch (e: Throwable) { AppLogger.e("Bridge", "alarms.delete failed", e) }
+                }
+                return null
+            }
+        })
+        ScriptableObject.putProperty(alarmsObj, "setEnabled", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val id      = args.getOrNull(0)?.toString() ?: return null
+                val enabled = args.getOrNull(1) as? Boolean ?: return null
+                GlobalScope.launch(Dispatchers.IO) {
+                    try { env.alarms.setEnabled(id, enabled) }
+                    catch (e: Throwable) { AppLogger.e("Bridge", "alarms.setEnabled failed", e) }
+                }
+                return null
+            }
+        })
+        ScriptableObject.putProperty(obj, "alarms", alarmsObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "alarms section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "alarms", cx.newObject(scope))
     }
 
     // ── health ───────────────────────────────────────────────────────────────
