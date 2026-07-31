@@ -50,6 +50,7 @@ import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -60,6 +61,7 @@ fun HomeScreen(
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals,
     alarms: AlarmSignals,
+    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -115,7 +117,7 @@ fun HomeScreen(
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
-                3 -> AlarmsTab(alarms = alarms)
+                3 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
                 4 -> SettingsTab(onPermissionGranted = onPermissionGranted)
             }
         }

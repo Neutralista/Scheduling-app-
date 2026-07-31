@@ -13,6 +13,9 @@ import com.waypoint.app.signal.WorkScheduleSignals
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -42,6 +45,11 @@ data class EffectiveSleepTimes(
 class SleepScheduleStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("waypoint_sleep", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
+
+    private val _scheduledTimes = MutableStateFlow<Pair<Long?, Long?>>(
+        SleepLogStore(context).run { getScheduledBedMs() to getScheduledWakeMs() }
+    )
+    val scheduledTimesFlow: StateFlow<Pair<Long?, Long?>> = _scheduledTimes.asStateFlow()
 
     fun load(): SleepSchedule {
         val raw = prefs.getString("config", null) ?: return SleepSchedule()
@@ -123,6 +131,7 @@ class SleepScheduleStore(private val context: Context) {
                 // CalendarSyncWorker run that lands within seconds of a pending alarm can't
                 // cancel it and fail to reschedule it (target slips into the past).
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
+                _scheduledTimes.value = bedMs to wakeMs
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
                 val logStore = SleepLogStore(context)
                 // Don't overwrite cached sleep window while sleep mode is active:

@@ -49,14 +49,23 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 @Composable
-fun AlarmsTab(alarms: AlarmSignals) {
+fun AlarmsTab(
+    alarms: AlarmSignals,
+    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
+) {
     val alarmList by alarms.alarmsFlow.collectAsState()
+    val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<AlarmEntry?>(null) }
+
+    val (bedMs, wakeMs) = sleepTimes
+    val hasSleepTimes = bedMs != null && wakeMs != null
 
     Scaffold(
         floatingActionButton = {
@@ -71,7 +80,7 @@ fun AlarmsTab(alarms: AlarmSignals) {
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
-            if (alarmList.isEmpty()) {
+            if (!hasSleepTimes && alarmList.isEmpty()) {
                 Column(
                     Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -91,24 +100,48 @@ fun AlarmsTab(alarms: AlarmSignals) {
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    items(alarmList, key = { it.id }) { alarm ->
-                        AlarmRow(
-                            alarm = alarm,
-                            onToggle = { enabled ->
-                                scope.launch {
-                                    try { alarms.setEnabled(alarm.id, enabled) }
-                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
+                    if (hasSleepTimes) {
+                        item {
+                            Text(
+                                "Sleep Schedule",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            )
+                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs!!)
+                            Spacer(Modifier.height(8.dp))
+                            SleepAlarmRow(label = "Wake up", epochMs = wakeMs!!)
+                            Spacer(Modifier.height(16.dp))
+                        }
+                    }
+                    if (alarmList.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Alarms",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(alarmList, key = { it.id }) { alarm ->
+                            AlarmRow(
+                                alarm = alarm,
+                                onToggle = { enabled ->
+                                    scope.launch {
+                                        try { alarms.setEnabled(alarm.id, enabled) }
+                                        catch (e: Throwable) { AppLogger.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
+                                    }
+                                },
+                                onEdit = { editTarget = alarm; showDialog = true },
+                                onDelete = {
+                                    scope.launch {
+                                        try { alarms.delete(alarm.id) }
+                                        catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
+                                    }
                                 }
-                            },
-                            onEdit = { editTarget = alarm; showDialog = true },
-                            onDelete = {
-                                scope.launch {
-                                    try { alarms.delete(alarm.id) }
-                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
-                                }
-                            }
-                        )
-                        Spacer(Modifier.height(8.dp))
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
             }
@@ -130,6 +163,39 @@ fun AlarmsTab(alarms: AlarmSignals) {
                 showDialog = false
             }
         )
+    }
+}
+
+@Composable
+private fun SleepAlarmRow(label: String, epochMs: Long) {
+    val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
+    val timeStr = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = timeStr,
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Auto",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
     }
 }
 
