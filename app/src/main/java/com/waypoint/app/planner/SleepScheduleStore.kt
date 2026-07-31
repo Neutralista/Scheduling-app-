@@ -127,7 +127,7 @@ class SleepScheduleStore(private val context: Context) {
                 // cancel it and fail to reschedule it (target slips into the past).
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs caller=${if (clockAlarm != null) "with clockAlarm" else "no clockAlarm"}")
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
-                clockAlarm?.queueAlarms(bedMs, wakeMs)
+                clockAlarm?.queueWakeAlarm(wakeMs)
                 val logStore = SleepLogStore(context)
                 // Don't overwrite cached sleep window while sleep mode is active:
                 // after midnight LocalDate.now() advances to the next day, so syncToRegistry
