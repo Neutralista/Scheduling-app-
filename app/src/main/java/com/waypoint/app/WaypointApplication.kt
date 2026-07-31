@@ -55,9 +55,6 @@ class WaypointApplication : Application() {
                 env
             )
 
-            // Sync sleep schedule into the event planner on launch
-            env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule)
-
             // Re-register any user scripts saved in a previous session
             scriptStore.loadAll().forEach { module ->
                 ScriptRegistry.register(module, env)

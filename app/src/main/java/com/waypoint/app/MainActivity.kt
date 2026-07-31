@@ -43,6 +43,14 @@ class MainActivity : ComponentActivity() {
 
         val app = application as WaypointApplication
 
+        // Sync sleep alarms from foreground Activity context — alarm scheduling APIs
+        // can throw on some OEM builds when called from a background Application context.
+        try {
+            app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "syncToRegistry failed", e)
+        }
+
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0
         val triggerScriptId = intent?.getStringExtra("triggerScriptAction").orEmpty()
 
