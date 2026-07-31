@@ -17,28 +17,70 @@ class RealAlarmSignals(private val context: Context, private val store: AlarmSto
     override val alarmsFlow: StateFlow<List<AlarmEntry>> get() = store.flow
 
     override suspend fun add(alarm: AlarmEntry): AlarmEntry {
-        val saved = store.add(alarm)
-        UserAlarmScheduler.schedule(context, saved)
-        return saved
+        return try {
+            val saved = store.add(alarm)
+            android.util.Log.d(TAG, "add: stored ${saved.id} ${saved.displayTime}")
+            try {
+                UserAlarmScheduler.schedule(context, saved)
+            } catch (e: Throwable) {
+                android.util.Log.e(TAG, "add: schedule threw ${e.javaClass.name}: ${e.message}", e)
+            }
+            saved
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "add: store.add threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
     }
 
     override suspend fun update(alarm: AlarmEntry) {
-        store.update(alarm)
-        UserAlarmScheduler.schedule(context, alarm)
+        try {
+            store.update(alarm)
+            android.util.Log.d(TAG, "update: stored ${alarm.id} ${alarm.displayTime}")
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "update: store.update threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
+        try {
+            UserAlarmScheduler.schedule(context, alarm)
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "update: schedule threw ${e.javaClass.name}: ${e.message}", e)
+        }
     }
 
     override suspend fun delete(id: String) {
-        val alarm = store.loadAll().firstOrNull { it.id == id }
-        if (alarm != null) UserAlarmScheduler.cancel(context, alarm)
-        store.delete(id)
+        try {
+            val alarm = store.loadAll().firstOrNull { it.id == id }
+            if (alarm != null) {
+                try {
+                    UserAlarmScheduler.cancel(context, alarm)
+                } catch (e: Throwable) {
+                    android.util.Log.e(TAG, "delete: cancel threw ${e.javaClass.name}: ${e.message}", e)
+                }
+            }
+            store.delete(id)
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "delete: threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
     }
 
     override suspend fun setEnabled(id: String, enabled: Boolean) {
-        store.setEnabled(id, enabled)
-        val alarm = store.loadAll().firstOrNull { it.id == id } ?: return
-        if (enabled) UserAlarmScheduler.schedule(context, alarm)
-        else UserAlarmScheduler.cancel(context, alarm)
+        try {
+            store.setEnabled(id, enabled)
+            val alarm = store.loadAll().firstOrNull { it.id == id } ?: return
+            try {
+                if (enabled) UserAlarmScheduler.schedule(context, alarm)
+                else UserAlarmScheduler.cancel(context, alarm)
+            } catch (e: Throwable) {
+                android.util.Log.e(TAG, "setEnabled: scheduler threw ${e.javaClass.name}: ${e.message}", e)
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "setEnabled: threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
     }
+
+    companion object { private const val TAG = "RealAlarmSignals" }
 
     override fun getAll(): List<AlarmEntry> = store.loadAll()
 }

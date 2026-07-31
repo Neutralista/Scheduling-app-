@@ -93,9 +93,19 @@ fun AlarmsTab(alarms: AlarmSignals) {
                     items(alarmList, key = { it.id }) { alarm ->
                         AlarmRow(
                             alarm = alarm,
-                            onToggle = { enabled -> scope.launch { alarms.setEnabled(alarm.id, enabled) } },
+                            onToggle = { enabled ->
+                                scope.launch {
+                                    try { alarms.setEnabled(alarm.id, enabled) }
+                                    catch (e: Throwable) { android.util.Log.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
+                                }
+                            },
                             onEdit = { editTarget = alarm; showDialog = true },
-                            onDelete = { scope.launch { alarms.delete(alarm.id) } }
+                            onDelete = {
+                                scope.launch {
+                                    try { alarms.delete(alarm.id) }
+                                    catch (e: Throwable) { android.util.Log.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
+                                }
+                            }
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -110,7 +120,11 @@ fun AlarmsTab(alarms: AlarmSignals) {
             onDismiss = { showDialog = false },
             onSave = { entry ->
                 scope.launch {
-                    if (entry.id.isBlank()) alarms.add(entry) else alarms.update(entry)
+                    try {
+                        if (entry.id.isBlank()) alarms.add(entry) else alarms.update(entry)
+                    } catch (e: Throwable) {
+                        android.util.Log.e("AlarmsTab", "save threw ${e.javaClass.name}: ${e.message}", e)
+                    }
                 }
                 showDialog = false
             }

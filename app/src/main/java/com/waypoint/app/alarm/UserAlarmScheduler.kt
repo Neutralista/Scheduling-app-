@@ -37,14 +37,30 @@ object UserAlarmScheduler {
     private fun scheduleOne(context: Context, am: AlarmManager, alarm: AlarmEntry) {
         val fireMs = nextFireTime(alarm)
         if (fireMs < 0) { AppLogger.w(TAG, "scheduleOne: no fire time for '${alarm.label}'"); return }
-        val triggerPi = buildTriggerPi(context, alarm)
-        val showPi = PendingIntent.getActivity(
-            context, requestCode(alarm.id) + RC_SHOW_OFFSET,
-            Intent(context, AlarmRingActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        am.setAlarmClock(AlarmManager.AlarmClockInfo(fireMs, showPi), triggerPi)
-        AppLogger.i(TAG, "scheduled '${alarm.label}' ${alarm.displayTime} repeat=${alarm.repeatDays} fireMs=$fireMs")
+        android.util.Log.d(TAG, "scheduleOne: id=${alarm.id} time=${alarm.displayTime} fireMs=$fireMs canScheduleExact=${am.canScheduleExactAlarms()}")
+        val triggerPi = try {
+            buildTriggerPi(context, alarm)
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "scheduleOne: buildTriggerPi threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
+        val showPi = try {
+            PendingIntent.getActivity(
+                context, requestCode(alarm.id) + RC_SHOW_OFFSET,
+                Intent(context, AlarmRingActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "scheduleOne: getActivity threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
+        try {
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(fireMs, showPi), triggerPi)
+            AppLogger.i(TAG, "scheduled '${alarm.label}' ${alarm.displayTime} repeat=${alarm.repeatDays} fireMs=$fireMs")
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "scheduleOne: setAlarmClock threw ${e.javaClass.name}: ${e.message}", e)
+            throw e
+        }
     }
 
     private fun cancelOne(context: Context, am: AlarmManager, alarm: AlarmEntry) {
