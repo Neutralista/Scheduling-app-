@@ -3,6 +3,8 @@ package com.waypoint.app.signal
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.provider.AlarmClock
 import com.waypoint.app.AppLogger
 import java.util.Calendar
@@ -64,22 +66,32 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
 
         val gentleMs = wakeMs - 15 * 60_000L
         val alarmMs  = wakeMs - 10 * 60_000L
+        val handler  = Handler(Looper.getMainLooper())
+        var delay    = 0L
 
+        // Space calls 600ms apart — the Clock app drops rapid-fire SET_ALARM intents
+        // that arrive before it finishes processing the previous one.
         if (gentleMs > now) {
-            AppLogger.i(TAG, "syncFromActivity: setting gentle alarm at $gentleMs")
-            setAlarm(activity, gentleMs, LABEL_GENTLE)
+            handler.postDelayed({
+                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_GENTLE")
+                setAlarm(activity, gentleMs, LABEL_GENTLE)
+            }, delay).also { delay += 600 }
         } else {
             AppLogger.w(TAG, "syncFromActivity: gentle time in the past, skipping")
         }
         if (alarmMs > now) {
-            AppLogger.i(TAG, "syncFromActivity: setting alarm at $alarmMs")
-            setAlarm(activity, alarmMs, LABEL_ALARM)
+            handler.postDelayed({
+                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_ALARM")
+                setAlarm(activity, alarmMs, LABEL_ALARM)
+            }, delay).also { delay += 600 }
         } else {
             AppLogger.w(TAG, "syncFromActivity: alarm time in the past, skipping")
         }
         if (wakeMs > now) {
-            AppLogger.i(TAG, "syncFromActivity: setting ring alarm at $wakeMs")
-            setAlarm(activity, wakeMs, LABEL_RING)
+            handler.postDelayed({
+                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_RING")
+                setAlarm(activity, wakeMs, LABEL_RING)
+            }, delay)
         } else {
             AppLogger.w(TAG, "syncFromActivity: wake time in the past ($wakeMs <= $now), skipping")
         }
