@@ -446,6 +446,13 @@ private fun ClockIntegration() {
         connectLabel = "Sync Now",
         onConnect = {
             (context as? Activity)?.let { activity ->
+                // Recompute and queue the latest wake time before firing so
+                // Sync Now works even on first run before any background sync.
+                app.env.sleepStore.syncToRegistry(
+                    app.env.eventPlanner,
+                    app.env.workSchedule,
+                    app.env.clockAlarm
+                )
                 app.env.clockAlarm.syncFromActivity(activity)
                 synced = true
             }
