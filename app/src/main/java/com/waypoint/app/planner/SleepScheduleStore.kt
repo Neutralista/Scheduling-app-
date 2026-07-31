@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
+import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.SleepAlarmScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
@@ -79,6 +80,7 @@ class SleepScheduleStore(private val context: Context) {
         registry.clearSleepEvents()
         val s = load()
         if (!s.enabled) {
+            AppLogger.i("SleepSync", "syncToRegistry: sleep disabled, queuing clear")
             clockAlarm?.queueClearAlarm()
             SleepNotificationHelper.clearAlarmStatus(context)
             return
@@ -123,6 +125,7 @@ class SleepScheduleStore(private val context: Context) {
                 // Schedule wake alarms without first cancelling already-armed ones so a
                 // CalendarSyncWorker run that lands within seconds of a pending alarm can't
                 // cancel it and fail to reschedule it (target slips into the past).
+                AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs caller=${if (clockAlarm != null) "with clockAlarm" else "no clockAlarm"}")
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
                 clockAlarm?.queueWakeAlarm(wakeMs)
                 val logStore = SleepLogStore(context)
