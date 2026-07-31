@@ -69,13 +69,14 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
         val handler  = Handler(Looper.getMainLooper())
         var delay    = 0L
 
-        // Space calls 600ms apart — the Clock app drops rapid-fire SET_ALARM intents
-        // that arrive before it finishes processing the previous one.
+        // Space calls 2000ms apart — the Clock app saves the first alarm then
+        // enters an idle state; intents arriving before that transition is complete
+        // are silently dropped even though startActivity returns without exception.
         if (gentleMs > now) {
             handler.postDelayed({
                 AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_GENTLE")
                 setAlarm(activity, gentleMs, LABEL_GENTLE)
-            }, delay).also { delay += 600 }
+            }, delay).also { delay += 2000 }
         } else {
             AppLogger.w(TAG, "syncFromActivity: gentle time in the past, skipping")
         }
@@ -83,7 +84,7 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
             handler.postDelayed({
                 AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_ALARM")
                 setAlarm(activity, alarmMs, LABEL_ALARM)
-            }, delay).also { delay += 600 }
+            }, delay).also { delay += 2000 }
         } else {
             AppLogger.w(TAG, "syncFromActivity: alarm time in the past, skipping")
         }
