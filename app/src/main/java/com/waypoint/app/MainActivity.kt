@@ -43,11 +43,6 @@ class MainActivity : ComponentActivity() {
 
         val app = application as WaypointApplication
 
-        // Fire any queued Clock app alarm now that we have a foreground Activity context.
-        // Background paths (Application.onCreate, WorkManager) only queue the alarm;
-        // activity starts from non-foreground contexts are blocked on Android 10+.
-        app.env.clockAlarm.syncFromActivity(this)
-
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0
         val triggerScriptId = intent?.getStringExtra("triggerScriptAction").orEmpty()
 

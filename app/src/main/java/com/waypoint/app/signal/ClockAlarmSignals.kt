@@ -49,7 +49,6 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
                     putExtra(AlarmClock.EXTRA_HOUR, cal.get(Calendar.HOUR_OF_DAY))
                     putExtra(AlarmClock.EXTRA_MINUTES, cal.get(Calendar.MINUTE))
                     putExtra(AlarmClock.EXTRA_MESSAGE, ALARM_LABEL)
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
@@ -62,7 +61,6 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
                 Intent(AlarmClock.ACTION_DISMISS_ALARM).apply {
                     putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_LABEL)
                     putExtra(AlarmClock.EXTRA_MESSAGE, ALARM_LABEL)
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
