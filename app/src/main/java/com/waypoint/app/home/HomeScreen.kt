@@ -23,8 +23,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,27 +83,31 @@ fun HomeScreen(
             widgetsDone = widgetsDone,
             widgetsTotal = widgets.size
         )
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = MaterialTheme.colorScheme.background,
-            contentColor = MaterialTheme.colorScheme.primary
+            contentColor = MaterialTheme.colorScheme.primary,
+            edgePadding = 0.dp
         ) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
                 text = { Text("Plan", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                text = { Text("Scripts", style = MaterialTheme.typography.labelMedium) })
+                text = { Text("Tasks", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
-                text = { Text("Widgets", style = MaterialTheme.typography.labelMedium) })
+                text = { Text("Scripts", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 },
-                text = { Text("Alarms", style = MaterialTheme.typography.labelMedium) })
+                text = { Text("Widgets", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 },
+                text = { Text("Alarms", style = MaterialTheme.typography.labelMedium) })
+            Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 },
                 text = { Text("Settings", style = MaterialTheme.typography.labelMedium) })
         }
 
         Box(Modifier.weight(1f)) {
             when (selectedTab) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
-                1 -> ScriptsTab(
+                1 -> TasksTab()
+                2 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
                     onStateChange = onStateChange,
@@ -112,13 +116,13 @@ fun HomeScreen(
                     onRemoveScript = onRemoveScript,
                     onResetScript = { id -> onResetScript(id) }
                 )
-                2 -> WidgetsTab(
+                3 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
-                3 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                4 -> SettingsTab(onPermissionGranted = onPermissionGranted)
+                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                5 -> SettingsTab(onPermissionGranted = onPermissionGranted)
             }
         }
     }
