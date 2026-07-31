@@ -3,8 +3,6 @@ package com.waypoint.app.signal
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
 import android.provider.AlarmClock
 import com.waypoint.app.AppLogger
 import java.util.Calendar
@@ -64,35 +62,13 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
             return
         }
 
-        val gentleMs = wakeMs - 15 * 60_000L
-        val alarmMs  = wakeMs - 10 * 60_000L
-        val handler  = Handler(Looper.getMainLooper())
-        var delay    = 0L
-
-        // Space calls 2000ms apart — the Clock app saves the first alarm then
-        // enters an idle state; intents arriving before that transition is complete
-        // are silently dropped even though startActivity returns without exception.
-        if (gentleMs > now) {
-            handler.postDelayed({
-                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_GENTLE")
-                setAlarm(activity, gentleMs, LABEL_GENTLE)
-            }, delay).also { delay += 2000 }
-        } else {
-            AppLogger.w(TAG, "syncFromActivity: gentle time in the past, skipping")
-        }
-        if (alarmMs > now) {
-            handler.postDelayed({
-                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_ALARM")
-                setAlarm(activity, alarmMs, LABEL_ALARM)
-            }, delay).also { delay += 2000 }
-        } else {
-            AppLogger.w(TAG, "syncFromActivity: alarm time in the past, skipping")
-        }
+        // Only set the main wake alarm in the Clock app. EXTRA_SKIP_UI is not honoured
+        // on all devices, which opens the Clock UI on every call — setting 3 alarms
+        // would open it 3 times. Gentle and Alarm are handled silently in-app by
+        // WakeAlarmScheduler. The in-app alarm system will replace this entirely.
         if (wakeMs > now) {
-            handler.postDelayed({
-                AppLogger.i(TAG, "setAlarm (delayed): label=$LABEL_RING")
-                setAlarm(activity, wakeMs, LABEL_RING)
-            }, delay)
+            AppLogger.i(TAG, "syncFromActivity: setting ring alarm at $wakeMs")
+            setAlarm(activity, wakeMs, LABEL_RING)
         } else {
             AppLogger.w(TAG, "syncFromActivity: wake time in the past ($wakeMs <= $now), skipping")
         }
