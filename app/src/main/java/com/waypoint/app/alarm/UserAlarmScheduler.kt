@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.AlarmRingActivity
 import java.util.Calendar
@@ -37,7 +38,9 @@ object UserAlarmScheduler {
     private fun scheduleOne(context: Context, am: AlarmManager, alarm: AlarmEntry) {
         val fireMs = nextFireTime(alarm)
         if (fireMs < 0) { AppLogger.w(TAG, "scheduleOne: no fire time for '${alarm.label}'"); return }
-        android.util.Log.d(TAG, "scheduleOne: id=${alarm.id} time=${alarm.displayTime} fireMs=$fireMs canScheduleExact=${am.canScheduleExactAlarms()}")
+        // canScheduleExactAlarms() requires API 31; setAlarmClock() does not need the permission
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        android.util.Log.d(TAG, "scheduleOne: id=${alarm.id} time=${alarm.displayTime} fireMs=$fireMs canScheduleExact=$canExact")
         val triggerPi = try {
             buildTriggerPi(context, alarm)
         } catch (e: Throwable) {

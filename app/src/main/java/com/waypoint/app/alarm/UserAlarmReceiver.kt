@@ -15,14 +15,18 @@ class UserAlarmReceiver : BroadcastReceiver() {
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "Alarm"
         AppLogger.i(TAG, "onReceive: id=$id label='$label'")
 
-        val store = AlarmStore(context)
-        val alarm = store.loadAll().firstOrNull { it.id == id }
-        if (alarm != null) {
-            if (alarm.repeatDays.isNotEmpty()) {
-                UserAlarmScheduler.schedule(context, alarm)
-            } else {
-                store.setEnabledSync(id, false)
+        try {
+            val store = AlarmStore(context)
+            val alarm = store.loadAll().firstOrNull { it.id == id }
+            if (alarm != null) {
+                if (alarm.repeatDays.isNotEmpty()) {
+                    UserAlarmScheduler.schedule(context, alarm)
+                } else {
+                    store.setEnabledSync(id, false)
+                }
             }
+        } catch (e: Throwable) {
+            android.util.Log.e(TAG, "onReceive: store/reschedule threw ${e.javaClass.name}: ${e.message}", e)
         }
 
         context.startForegroundService(
