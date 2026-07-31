@@ -30,40 +30,50 @@ class WaypointApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        AppLogger.init(filesDir)
-
-        scriptStateStore = ScriptStateStore(applicationContext)
-        scriptStore = ScriptStore(applicationContext)
-        env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
-
-        // Shared refresh signal so WorkScheduleScript can trigger SleepScheduleScript recompose
-        val sleepRefresh = MutableStateFlow(0)
-        val sleepLogStore = SleepLogStore(applicationContext)
-
-        // Register built-in scripts
-        ScriptRegistry.register(
-            WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh),
-            env
-        )
-        ScriptRegistry.register(
-            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore),
-            env
-        )
-
-        // Sync sleep schedule into the event planner on launch
-        env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule)
-
-        // Re-register any user scripts saved in a previous session
-        scriptStore.loadAll().forEach { module ->
-            ScriptRegistry.register(module, env)
+        try {
+            AppLogger.init(filesDir)
+        } catch (e: Throwable) {
+            android.util.Log.e("WaypointApp", "AppLogger.init failed", e)
         }
 
-        NotificationHelper.createChannel(this)
-        NotificationHelper.createShiftChannel(this)
-        NotificationHelper.createScriptsChannel(this)
-        SleepNotificationHelper.createChannels(this)
-        ReminderScheduler.schedule(this, hourOfDay = 9)
-        ScriptTickWorker.schedule(this)
-        CalendarSyncWorker.schedule(this)
+        try {
+            scriptStateStore = ScriptStateStore(applicationContext)
+            scriptStore = ScriptStore(applicationContext)
+            env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
+
+            // Shared refresh signal so WorkScheduleScript can trigger SleepScheduleScript recompose
+            val sleepRefresh = MutableStateFlow(0)
+            val sleepLogStore = SleepLogStore(applicationContext)
+
+            // Register built-in scripts
+            ScriptRegistry.register(
+                WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh),
+                env
+            )
+            ScriptRegistry.register(
+                SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore),
+                env
+            )
+
+            // Sync sleep schedule into the event planner on launch
+            env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule)
+
+            // Re-register any user scripts saved in a previous session
+            scriptStore.loadAll().forEach { module ->
+                ScriptRegistry.register(module, env)
+            }
+
+            NotificationHelper.createChannel(this)
+            NotificationHelper.createShiftChannel(this)
+            NotificationHelper.createScriptsChannel(this)
+            SleepNotificationHelper.createChannels(this)
+            ReminderScheduler.schedule(this, hourOfDay = 9)
+            ScriptTickWorker.schedule(this)
+            CalendarSyncWorker.schedule(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("WaypointApp", "onCreate crashed at: ${e.javaClass.name}: ${e.message}", e)
+            try { AppLogger.e("App", "onCreate crashed: ${e.javaClass.name}: ${e.message}", e) } catch (_: Throwable) {}
+            throw e
+        }
     }
 }

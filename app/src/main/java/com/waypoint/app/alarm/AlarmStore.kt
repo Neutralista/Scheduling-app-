@@ -22,7 +22,7 @@ class AlarmStore(context: Context) {
     fun loadAll(): List<AlarmEntry> {
         val raw = prefs.getString(KEY_LIST, null) ?: return emptyList()
         return try { json.decodeFromString(raw) }
-        catch (e: Exception) { AppLogger.e(TAG, "loadAll failed", e); emptyList() }
+        catch (e: Throwable) { AppLogger.e(TAG, "loadAll failed", e); emptyList() }
     }
 
     suspend fun add(alarm: AlarmEntry): AlarmEntry = withContext(Dispatchers.IO) {
