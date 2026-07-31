@@ -19,12 +19,12 @@ object ShiftCalendarSync {
         ws: WorkScheduleSignals,
         startMs: Long,
         endMs: Long
-    ) {
+    ): Boolean {
         AppLogger.i(TAG, "write: startMs=$startMs endMs=$endMs")
         val cal = RealCalendarSignals(context)
         if (!cal.hasWritePermission()) {
             AppLogger.w(TAG, "write: no WRITE_CALENDAR permission, skipping")
-            return
+            return false
         }
         val oldEventId = ws.getTodaySession().calendarEventId
         if (oldEventId != null) cal.deleteEvent(oldEventId)
@@ -36,6 +36,7 @@ object ShiftCalendarSync {
         )
         AppLogger.i(TAG, "write: createEvent returned eventId=$eventId")
         if (eventId > 0) ws.updateShiftCalendarEventId(eventId)
+        return eventId > 0
     }
 
     suspend fun delete(context: Context, eventId: Long) {

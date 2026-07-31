@@ -78,6 +78,7 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
         val scope = rememberCoroutineScope()
 
         var clockText by remember { mutableStateOf(clockNow()) }
+        var calendarError by remember { mutableStateOf(false) }
         var elapsedText by remember { mutableStateOf("") }
         var remainingText by remember { mutableStateOf("") }
         var isOvertime by remember { mutableStateOf(false) }
@@ -145,15 +146,22 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
                 }
             }
         }
-        val onResetSession: () -> Unit = {
+        val onSaveAndClear: () -> Unit = {
             scope.launch {
-                val calId = ws.getTodaySession().calendarEventId
+                val s = ws.getTodaySession()
+                val startMs = s.actualStartMillis
+                val endMs = s.actualEndMillis
+                if (startMs != null && endMs != null) {
+                    val saved = ShiftCalendarSync.write(context, ws, startMs, endMs)
+                    if (!saved) {
+                        calendarError = true
+                        return@launch
+                    }
+                }
+                calendarError = false
                 ws.resetTodaySession()
                 session = ws.getTodaySession()
                 elapsedText = ""
-                if (calId != null) {
-                    ShiftCalendarSync.delete(context, calId)
-                }
             }
         }
         val onAddEvent: (AfterWorkEvent) -> Unit = { event ->
@@ -223,9 +231,10 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
                     elapsedText = elapsedText,
                     remainingText = if (session.actualStartMillis != null && session.actualEndMillis == null && plannedEndMillis != null) remainingText else "",
                     isOvertime = isOvertime,
+                    calendarError = calendarError,
                     onStartShift = onStartShift,
                     onEndShift = onEndShift,
-                    onResetSession = onResetSession
+                    onSaveAndClear = onSaveAndClear
                 )
             }
 
@@ -294,9 +303,10 @@ private fun ShiftButtonSection(
     elapsedText: String,
     remainingText: String,
     isOvertime: Boolean,
+    calendarError: Boolean,
     onStartShift: (Long) -> Unit,
     onEndShift: (Long) -> Unit,
-    onResetSession: () -> Unit
+    onSaveAndClear: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -399,20 +409,35 @@ private fun ShiftButtonSection(
                 val start = formatEpochAsTime(session.actualStartMillis)
                 val end = formatEpochAsTime(session.actualEndMillis)
                 val dur = durationString(session.actualStartMillis, session.actualEndMillis)
-                Column {
-                    Text(
-                        text = "Ended $end",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "$start – $end · $dur",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                }
-                TextButton(onClick = onResetSession) {
-                    Text("Reset", style = MaterialTheme.typography.labelSmall)
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Ended $end",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$start – $end · $dur",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        TextButton(onClick = onSaveAndClear) {
+                            Text("Save & Clear", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (calendarError) {
+                        Text(
+                            "Calendar not connected — go to Settings to grant Calendar access",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         }
