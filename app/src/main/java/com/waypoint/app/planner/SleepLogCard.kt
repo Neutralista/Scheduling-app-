@@ -43,6 +43,7 @@ fun SleepLogCard(
     var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
     var todayEntry by remember { mutableStateOf(logStore.loadToday()) }
     var isEditing by remember { mutableStateOf(false) }
+    var calendarError by remember { mutableStateOf(false) }
 
     val scheduledBedMs = remember { logStore.getScheduledBedMs() }
     val scheduledWakeMs = remember { logStore.getScheduledWakeMs() }
@@ -154,16 +155,28 @@ fun SleepLogCard(
                             scope.launch {
                                 val entry = todayEntry
                                 if (entry != null) {
-                                    SleepCalendarSync.write(
+                                    val saved = SleepCalendarSync.write(
                                         context, logStore,
                                         entry.bedMillis, entry.wakeMillis,
                                         entry.calendarEventId
                                     )
+                                    if (!saved) {
+                                        calendarError = true
+                                        return@launch
+                                    }
                                 }
+                                calendarError = false
                                 logStore.clearToday()
                                 todayEntry = null
                             }
                         }) { Text("Save & Clear") }
+                        if (calendarError) {
+                            Text(
+                                "Calendar not connected — go to Settings to grant Calendar access",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
 

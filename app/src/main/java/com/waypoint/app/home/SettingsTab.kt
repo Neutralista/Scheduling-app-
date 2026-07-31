@@ -310,18 +310,22 @@ private fun CalendarIntegration(onPermissionGranted: () -> Unit) {
     var readGranted by remember {
         mutableStateOf(context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED)
     }
+    var writeGranted by remember {
+        mutableStateOf(context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED)
+    }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         readGranted = perms[Manifest.permission.READ_CALENDAR] == true
+        writeGranted = perms[Manifest.permission.WRITE_CALENDAR] == true
         if (readGranted) onPermissionGranted()
     }
 
     IntegrationRow(
         title = "Calendar",
-        description = "Events visible in Plan view · scripts can read events and create/delete events via signals.calendar",
-        granted = readGranted,
+        description = "Events visible in Plan view · sleep logs saved as calendar events · scripts can read/write events via signals.calendar",
+        granted = readGranted && writeGranted,
         onConnect = {
             launcher.launch(arrayOf(
                 Manifest.permission.READ_CALENDAR,
