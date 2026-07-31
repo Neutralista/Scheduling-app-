@@ -25,7 +25,13 @@ class AlarmRingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_RING    -> startRinging()
+            ACTION_RING -> {
+                val volume     = intent.getFloatExtra(EXTRA_VOLUME, 1.0f)
+                val channel    = intent.getStringExtra(EXTRA_CHANNEL) ?: SleepNotificationHelper.CH_WAKE_FULL
+                val title      = intent.getStringExtra(EXTRA_TITLE) ?: "Wake up!"
+                val fullScreen = intent.getBooleanExtra(EXTRA_FULL_SCREEN, true)
+                startRinging(volume, channel, title, fullScreen)
+            }
             ACTION_DISMISS -> dismiss()
             ACTION_SNOOZE  -> snooze()
             else           -> { startForegroundPlaceholder(); stopSelf() }
@@ -33,13 +39,13 @@ class AlarmRingService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startRinging() {
-        AppLogger.i(TAG, "startRinging")
+    private fun startRinging(volume: Float, channel: String, title: String, fullScreen: Boolean) {
+        AppLogger.i(TAG, "startRinging: volume=$volume channel=$channel fullScreen=$fullScreen")
         stopSound()
         stopVibration()
-        showNotification()
-        startSound()
-        startVibration()
+        showNotification(channel, title, fullScreen)
+        startSound(volume)
+        startVibration(volume)
     }
 
     private fun dismiss() {
@@ -58,21 +64,20 @@ class AlarmRingService : Service() {
         stopSelf()
     }
 
-    private fun showNotification() {
+    private fun showNotification(channel: String, title: String, fullScreen: Boolean) {
         val dismissPi = pendingServiceIntent(0, ACTION_DISMISS)
         val snoozePi  = pendingServiceIntent(1, ACTION_SNOOZE)
-        val fullScreenPi = PendingIntent.getActivity(
+        val ringActivityPi = PendingIntent.getActivity(
             this, 2,
             Intent(this, AlarmRingActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notif = NotificationCompat.Builder(this, SleepNotificationHelper.CH_WAKE_FULL)
+        val builder = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Wake up!")
+            .setContentTitle(title)
             .setContentText("Waypoint alarm")
-            .setContentIntent(fullScreenPi)
-            .setFullScreenIntent(fullScreenPi, true)
+            .setContentIntent(ringActivityPi)
             .addAction(0, "Dismiss", dismissPi)
             .addAction(0, "Snooze ${SNOOZE_MS / 60_000} min", snoozePi)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -80,8 +85,8 @@ class AlarmRingService : Service() {
             .setOngoing(true)
             .setAutoCancel(false)
             .setSound(null)
-            .build()
-        startForeground(NOTIF_ID, notif)
+        if (fullScreen) builder.setFullScreenIntent(ringActivityPi, true)
+        startForeground(NOTIF_ID, builder.build())
     }
 
     private fun startForegroundPlaceholder() {
@@ -93,7 +98,7 @@ class AlarmRingService : Service() {
         startForeground(NOTIF_ID, notif)
     }
 
-    private fun startSound() {
+    private fun startSound(volume: Float) {
         try {
             val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -106,10 +111,11 @@ class AlarmRingService : Service() {
                 )
                 setDataSource(this@AlarmRingService, uri)
                 isLooping = true
+                setVolume(volume, volume)
                 prepare()
                 start()
             }
-            AppLogger.i(TAG, "startSound: playing $uri")
+            AppLogger.i(TAG, "startSound: playing $uri volume=$volume")
         } catch (e: Exception) {
             AppLogger.e(TAG, "startSound threw", e)
         }
@@ -121,8 +127,12 @@ class AlarmRingService : Service() {
         mediaPlayer = null
     }
 
-    private fun startVibration() {
-        val pattern = longArrayOf(0, 600, 400, 600, 400, 1000, 800)
+    private fun startVibration(volume: Float) {
+        val pattern = when {
+            volume <= 0.4f -> longArrayOf(0, 200, 600)                        // gentle: short single pulse
+            volume <= 0.75f -> longArrayOf(0, 400, 400, 400, 800)             // medium: two pulses
+            else           -> longArrayOf(0, 600, 400, 600, 400, 1000, 800)   // full: escalating
+        }
         try {
             vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
@@ -167,8 +177,12 @@ class AlarmRingService : Service() {
         const val ACTION_RING    = "com.waypoint.app.ALARM_RING"
         const val ACTION_DISMISS = "com.waypoint.app.ALARM_DISMISS"
         const val ACTION_SNOOZE  = "com.waypoint.app.ALARM_SNOOZE"
-        private const val NOTIF_ID   = 112
-        private const val SNOOZE_MS  = 10 * 60_000L
-        private const val TAG        = "AlarmRingService"
+        const val EXTRA_VOLUME      = "volume"
+        const val EXTRA_CHANNEL     = "channel"
+        const val EXTRA_TITLE       = "title"
+        const val EXTRA_FULL_SCREEN = "full_screen"
+        private const val NOTIF_ID  = 112
+        private const val SNOOZE_MS = 10 * 60_000L
+        private const val TAG       = "AlarmRingService"
     }
 }

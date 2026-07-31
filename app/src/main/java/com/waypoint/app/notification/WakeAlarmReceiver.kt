@@ -6,13 +6,31 @@ import android.content.Intent
 
 class WakeAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        when (intent.action) {
-            ACTION_GENTLE -> SleepNotificationHelper.sendWakeGentleNotification(context)
-            ACTION_MEDIUM -> SleepNotificationHelper.sendWakeMediumNotification(context)
-            ACTION_RING   -> context.startForegroundService(
-                Intent(context, AlarmRingService::class.java).apply { action = AlarmRingService.ACTION_RING }
-            )
+        val serviceIntent = when (intent.action) {
+            ACTION_GENTLE -> Intent(context, AlarmRingService::class.java).apply {
+                action = AlarmRingService.ACTION_RING
+                putExtra(AlarmRingService.EXTRA_VOLUME, 0.35f)
+                putExtra(AlarmRingService.EXTRA_CHANNEL, SleepNotificationHelper.CH_WAKE_GENTLE)
+                putExtra(AlarmRingService.EXTRA_TITLE, "Wake up soon")
+                putExtra(AlarmRingService.EXTRA_FULL_SCREEN, false)
+            }
+            ACTION_MEDIUM -> Intent(context, AlarmRingService::class.java).apply {
+                action = AlarmRingService.ACTION_RING
+                putExtra(AlarmRingService.EXTRA_VOLUME, 0.7f)
+                putExtra(AlarmRingService.EXTRA_CHANNEL, SleepNotificationHelper.CH_WAKE_MEDIUM)
+                putExtra(AlarmRingService.EXTRA_TITLE, "Almost time to wake up")
+                putExtra(AlarmRingService.EXTRA_FULL_SCREEN, false)
+            }
+            ACTION_RING -> Intent(context, AlarmRingService::class.java).apply {
+                action = AlarmRingService.ACTION_RING
+                putExtra(AlarmRingService.EXTRA_VOLUME, 1.0f)
+                putExtra(AlarmRingService.EXTRA_CHANNEL, SleepNotificationHelper.CH_WAKE_FULL)
+                putExtra(AlarmRingService.EXTRA_TITLE, "Wake up!")
+                putExtra(AlarmRingService.EXTRA_FULL_SCREEN, true)
+            }
+            else -> return
         }
+        context.startForegroundService(serviceIntent)
     }
 
     companion object {
