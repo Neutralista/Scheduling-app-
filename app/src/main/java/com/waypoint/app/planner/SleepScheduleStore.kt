@@ -8,7 +8,6 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.SleepAlarmScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
-import com.waypoint.app.signal.ClockAlarmSignals
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
 import java.time.LocalDate
@@ -74,14 +73,12 @@ class SleepScheduleStore(private val context: Context) {
      */
     fun syncToRegistry(
         registry: EventPlannerRegistry,
-        ws: WorkScheduleSignals,
-        clockAlarm: ClockAlarmSignals? = null
+        ws: WorkScheduleSignals
     ) {
         registry.clearSleepEvents()
         val s = load()
         if (!s.enabled) {
-            AppLogger.i("SleepSync", "syncToRegistry: sleep disabled, queuing clear")
-            clockAlarm?.queueClearAlarm()
+            AppLogger.i("SleepSync", "syncToRegistry: sleep disabled")
             SleepNotificationHelper.clearAlarmStatus(context)
             return
         }
@@ -125,9 +122,8 @@ class SleepScheduleStore(private val context: Context) {
                 // Schedule wake alarms without first cancelling already-armed ones so a
                 // CalendarSyncWorker run that lands within seconds of a pending alarm can't
                 // cancel it and fail to reschedule it (target slips into the past).
-                AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs caller=${if (clockAlarm != null) "with clockAlarm" else "no clockAlarm"}")
+                AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
-                clockAlarm?.queueWakeAlarm(wakeMs)
                 val logStore = SleepLogStore(context)
                 // Don't overwrite cached sleep window while sleep mode is active:
                 // after midnight LocalDate.now() advances to the next day, so syncToRegistry

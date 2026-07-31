@@ -1,6 +1,9 @@
 package com.waypoint.app.signal
 
 import android.content.Context
+import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.alarm.AlarmStore
+import com.waypoint.app.alarm.RealAlarmSignals
 import com.waypoint.app.persistence.CountdownStore
 import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.persistence.SharedMemoryStore
@@ -28,7 +31,7 @@ class RealScriptEnvironment(
     override val appUsage: AppUsageSignals = RealAppUsageSignals(context)
     override val healthConnect: HealthConnectSignals = RealHealthConnectSignals(context)
     override val calendar: CalendarSignals = RealCalendarSignals(context)
-    override val clockAlarm: ClockAlarmSignals = RealClockAlarmSignals(context)
+    override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)

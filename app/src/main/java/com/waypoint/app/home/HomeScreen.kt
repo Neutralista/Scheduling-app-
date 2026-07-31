@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.script.AppScript
@@ -58,6 +59,7 @@ fun HomeScreen(
     workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals,
+    alarms: AlarmSignals,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -91,6 +93,8 @@ fun HomeScreen(
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
                 text = { Text("Widgets", style = MaterialTheme.typography.labelMedium) })
             Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 },
+                text = { Text("Alarms", style = MaterialTheme.typography.labelMedium) })
+            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 },
                 text = { Text("Settings", style = MaterialTheme.typography.labelMedium) })
         }
 
@@ -111,7 +115,8 @@ fun HomeScreen(
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
-                3 -> SettingsTab(onPermissionGranted = onPermissionGranted)
+                3 -> AlarmsTab(alarms = alarms)
+                4 -> SettingsTab(onPermissionGranted = onPermissionGranted)
             }
         }
     }

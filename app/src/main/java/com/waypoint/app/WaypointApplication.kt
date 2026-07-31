@@ -42,16 +42,16 @@ class WaypointApplication : Application() {
 
         // Register built-in scripts
         ScriptRegistry.register(
-            WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh, env.clockAlarm),
+            WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh),
             env
         )
         ScriptRegistry.register(
-            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore, env.clockAlarm),
+            SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore),
             env
         )
 
         // Sync sleep schedule into the event planner on launch
-        env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule, env.clockAlarm)
+        env.sleepStore.syncToRegistry(env.eventPlanner, env.workSchedule)
 
         // Re-register any user scripts saved in a previous session
         scriptStore.loadAll().forEach { module ->

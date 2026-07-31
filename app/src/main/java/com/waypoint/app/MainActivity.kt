@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
                         workSchedule = app.env.workSchedule,
                         eventPlanner = app.env.eventPlanner,
                         calendarSignals = app.env.calendar,
+                        alarms = app.env.alarms,
                         scripts = scripts,
                         statesById = statesById,
                         onStateChange = viewModel::onStateChange,

@@ -1,6 +1,7 @@
 package com.waypoint.app.script
 
 import android.content.Context
+import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.persistence.CountdownStore
 import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
@@ -8,7 +9,6 @@ import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.AppUsageSignals
 import com.waypoint.app.signal.CalendarSignals
-import com.waypoint.app.signal.ClockAlarmSignals
 import com.waypoint.app.signal.DeviceActivitySignals
 import com.waypoint.app.signal.HealthConnectSignals
 import com.waypoint.app.signal.LocationSignals
@@ -30,7 +30,7 @@ interface ScriptEnvironment {
     val appUsage: AppUsageSignals
     val healthConnect: HealthConnectSignals
     val calendar: CalendarSignals
-    val clockAlarm: ClockAlarmSignals
+    val alarms: AlarmSignals
     val workSchedule: WorkScheduleSignals
     val eventPlanner: EventPlannerRegistry
     val sleepStore: SleepScheduleStore
