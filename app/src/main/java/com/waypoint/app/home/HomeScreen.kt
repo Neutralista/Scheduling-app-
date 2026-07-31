@@ -111,7 +111,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
-                1 -> TasksTab()
+                1 -> TasksTab(workSchedule = workSchedule)
                 2 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
