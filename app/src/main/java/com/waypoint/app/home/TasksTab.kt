@@ -203,9 +203,13 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
         if (shiftStart != null && shiftEnd != null) {
             append("${shiftStart.displayString}–${shiftEnd.displayString}")
         }
-        if (isClockedOut && session.actualStartMillis != null && session.actualEndMillis != null) {
-            val durationMin = ((session.actualEndMillis - session.actualStartMillis) / 60_000).toInt()
-            if (durationMin > 0) append(" · ${durationMin / 60}h ${durationMin % 60}m")
+        if (isClockedOut) {
+            val startMs = session.actualStartMillis
+            val endMs = session.actualEndMillis
+            if (startMs != null && endMs != null) {
+                val durationMin = ((endMs - startMs) / 60_000).toInt()
+                if (durationMin > 0) append(" · ${durationMin / 60}h ${durationMin % 60}m")
+            }
         }
     }
 
