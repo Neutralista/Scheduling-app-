@@ -1,12 +1,15 @@
 package com.waypoint.app.home
 
 import android.Manifest
+import android.app.AlarmManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
@@ -80,6 +83,13 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
             color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(Modifier.height(12.dp))
+
+        ExactAlarmIntegration()
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
 
         CalendarIntegration(onPermissionGranted)
 
@@ -250,6 +260,44 @@ private fun LogEntryRow(entry: LogEntry) {
         ),
         color = color,
         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
+    )
+}
+
+// ── Exact alarms ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun ExactAlarmIntegration() {
+    val context = LocalContext.current
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        IntegrationRow(
+            title = "Exact Alarms",
+            description = "Alarms fire at the exact scheduled time",
+            granted = true,
+            onConnect = {}
+        )
+        return
+    }
+
+    val am = remember { context.getSystemService(Context.ALARM_SERVICE) as AlarmManager }
+    var granted by remember { mutableStateOf(am.canScheduleExactAlarms()) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { granted = am.canScheduleExactAlarms() }
+
+    IntegrationRow(
+        title = "Exact Alarms",
+        description = "Required for alarms and sleep notifications to fire at the exact scheduled time. Tap to open system settings.",
+        granted = granted,
+        connectLabel = "Open Settings",
+        onConnect = {
+            launcher.launch(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+            )
+        }
     )
 }
 
