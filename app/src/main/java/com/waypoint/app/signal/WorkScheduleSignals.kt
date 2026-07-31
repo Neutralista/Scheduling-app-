@@ -52,7 +52,8 @@ data class DaySchedule(
 @Serializable
 data class ShiftSession(
     val actualStartMillis: Long? = null,
-    val actualEndMillis: Long? = null
+    val actualEndMillis: Long? = null,
+    val calendarEventId: Long? = null
 )
 
 /**
@@ -105,6 +106,7 @@ interface WorkScheduleSignals {
     suspend fun startShift(startMillis: Long = System.currentTimeMillis())
     suspend fun endShift(endMillis: Long = System.currentTimeMillis())
     suspend fun resetTodaySession()
+    suspend fun updateShiftCalendarEventId(eventId: Long)
 
     /**
      * Scheduled time (epoch millis) for an after-work event.
@@ -229,6 +231,11 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
 
     override suspend fun resetTodaySession() = withContext(Dispatchers.IO) {
         prefs.edit().remove(sessionKey()).apply()
+    }
+
+    override suspend fun updateShiftCalendarEventId(eventId: Long) = withContext(Dispatchers.IO) {
+        val session = getTodaySession().copy(calendarEventId = eventId)
+        prefs.edit().putString(sessionKey(), json.encodeToString(session)).apply()
     }
 
     // ── After-work events ─────────────────────────────────────────────────

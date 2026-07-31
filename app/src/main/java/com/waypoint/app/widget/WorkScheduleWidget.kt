@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.notification.ShiftAlarmScheduler
+import com.waypoint.app.planner.ShiftCalendarSync
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.signal.AfterWorkEvent
 import com.waypoint.app.signal.DaySchedule
@@ -134,14 +135,26 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
         }
         val onEndShift: (Long) -> Unit = { endMillis ->
             scope.launch {
+                val startMs = ws.getTodaySession().actualStartMillis
                 ws.endShift(endMillis)
                 session = ws.getTodaySession()
                 onShiftEnd?.invoke()
                 ShiftAlarmScheduler.cancel(context)
+                if (startMs != null) {
+                    ShiftCalendarSync.write(context, ws, startMs, endMillis)
+                }
             }
         }
         val onResetSession: () -> Unit = {
-            scope.launch { ws.resetTodaySession(); session = ws.getTodaySession(); elapsedText = "" }
+            scope.launch {
+                val calId = ws.getTodaySession().calendarEventId
+                ws.resetTodaySession()
+                session = ws.getTodaySession()
+                elapsedText = ""
+                if (calId != null) {
+                    ShiftCalendarSync.delete(context, calId)
+                }
+            }
         }
         val onAddEvent: (AfterWorkEvent) -> Unit = { event ->
             scope.launch { ws.addAfterWorkEvent(event) }
@@ -308,7 +321,7 @@ private fun ShiftButtonSection(
                     TimeField(value = manualStartTime, onValueChange = { manualStartTime = it })
                     Button(
                         onClick = {
-                            val millis = parseTimeToMillis(manualStartTime) ?: System.currentTimeMillis()
+                            val millis = parseStartTimeToMillis(manualStartTime) ?: System.currentTimeMillis()
                             onStartShift(millis)
                         },
                         modifier = Modifier.weight(1f)
@@ -364,7 +377,8 @@ private fun ShiftButtonSection(
                             Spacer(Modifier.height(4.dp))
                             OutlinedButton(
                                 onClick = {
-                                    val millis = parseTimeToMillis(manualEndTime) ?: System.currentTimeMillis()
+                                    val startMs = session.actualStartMillis ?: System.currentTimeMillis()
+                                    val millis = parseEndTimeToMillis(manualEndTime, startMs) ?: System.currentTimeMillis()
                                     onEndShift(millis)
                                 },
                                 colors = ButtonDefaults.outlinedButtonColors(
@@ -866,14 +880,34 @@ private fun elapsedString(ms: Long): String {
 
 private fun durationString(startMs: Long, endMs: Long): String = elapsedString(endMs - startMs)
 
-private fun parseTimeToMillis(timeStr: String): Long? {
+private fun parseStartTimeToMillis(timeStr: String): Long? {
     val t = com.waypoint.app.signal.ShiftTime.parse(timeStr) ?: return null
-    return Calendar.getInstance().apply {
+    val cal = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, t.hour)
         set(Calendar.MINUTE, t.minute)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+    }
+    // If more than 1 min in the future, the user means "yesterday at this time"
+    if (cal.timeInMillis > System.currentTimeMillis() + 60_000L) {
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+    }
+    return cal.timeInMillis
+}
+
+private fun parseEndTimeToMillis(timeStr: String, startMillis: Long): Long? {
+    val t = com.waypoint.app.signal.ShiftTime.parse(timeStr) ?: return null
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, t.hour)
+        set(Calendar.MINUTE, t.minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    // If end is before start, the shift crossed midnight — move end to next day
+    if (cal.timeInMillis < startMillis) {
+        cal.add(Calendar.DAY_OF_YEAR, 1)
+    }
+    return cal.timeInMillis
 }
 
 private fun localDateKey(date: LocalDate): String =
