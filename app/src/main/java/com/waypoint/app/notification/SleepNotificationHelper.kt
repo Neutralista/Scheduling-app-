@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.waypoint.app.AppLogger
 import com.waypoint.app.MainActivity
 import com.waypoint.app.R
 import com.waypoint.app.planner.SleepLogStore
@@ -15,6 +16,8 @@ import java.util.Date
 import java.util.Locale
 
 object SleepNotificationHelper {
+
+    private const val TAG = "SleepNotificationHelper"
 
     const val CH_SLEEP_REMINDER = "waypoint_sleep_reminder"
     const val CH_SLEEP_NUDGE    = "waypoint_sleep_nudge"
@@ -112,18 +115,33 @@ object SleepNotificationHelper {
     }
 
     /**
-     * Fires a silent nudge if the phone is active during the scheduled sleep window
+     * Fires a silent nudge if the phone is active during the sleep mode window
      * and at least [NUDGE_COOLDOWN_MS] have passed since the last nudge.
+     * Sleep mode being active is the trigger; we skip only if it's already past wake time.
      */
     fun maybeNudge(context: Context, logStore: SleepLogStore) {
         val now = System.currentTimeMillis()
-        val bedMs  = logStore.getScheduledBedMs()  ?: return
-        val wakeMs = logStore.getScheduledWakeMs() ?: return
-        if (now < bedMs || now > wakeMs) return
+        val bedMs  = logStore.getScheduledBedMs()
+        val wakeMs = logStore.getScheduledWakeMs() ?: run {
+            AppLogger.w(TAG, "maybeNudge: scheduledWakeMs null, skipping")
+            return
+        }
+
+        AppLogger.i(TAG, "maybeNudge: now=$now bedMs=$bedMs wakeMs=$wakeMs")
+
+        if (now > wakeMs) {
+            AppLogger.i(TAG, "maybeNudge: past wake time, skipping")
+            return
+        }
 
         val lastNudge = logStore.getLastNudgeMillis() ?: 0L
-        if (now - lastNudge < NUDGE_COOLDOWN_MS) return
+        val sinceLastNudge = now - lastNudge
+        if (sinceLastNudge < NUDGE_COOLDOWN_MS) {
+            AppLogger.i(TAG, "maybeNudge: cooldown not expired (${sinceLastNudge / 1000}s < ${NUDGE_COOLDOWN_MS / 1000}s)")
+            return
+        }
 
+        AppLogger.i(TAG, "maybeNudge: sending nudge")
         logStore.updateLastNudge(now)
         val openPi = openAppPi(context, 203)
         nm(context).notify(

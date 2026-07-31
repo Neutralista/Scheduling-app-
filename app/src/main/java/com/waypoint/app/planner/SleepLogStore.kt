@@ -2,6 +2,7 @@ package com.waypoint.app.planner
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.waypoint.app.AppLogger
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -23,6 +24,7 @@ class SleepLogStore(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private companion object {
+        const val TAG             = "SleepLogStore"
         const val KEY_STATE       = "sleep_mode_state"
         const val KEY_MODE_START  = "sleep_mode_start"
         const val KEY_LAST_ACTIVE = "last_active"
@@ -101,25 +103,34 @@ class SleepLogStore(context: Context) {
      */
     fun onCheckAlarm(isPhoneInteractive: Boolean): Boolean {
         val state = getSleepModeState()
-        if (state == SleepModeState.IDLE) return false
+        if (state == SleepModeState.IDLE) {
+            AppLogger.i(TAG, "onCheckAlarm: IDLE, nothing to do")
+            return false
+        }
 
         val now = System.currentTimeMillis()
 
         if (isPhoneInteractive) {
+            AppLogger.i(TAG, "onCheckAlarm: phone interactive, state=$state → recordPhoneActive")
             return recordPhoneActive()
         }
 
         // Phone not interactive
         if (state == SleepModeState.MONITORING) {
             val lastActive = getLastActiveMillis() ?: now
-            if (now - lastActive >= 60 * 60_000L) {
+            val inactiveMs = now - lastActive
+            AppLogger.i(TAG, "onCheckAlarm: MONITORING, inactive for ${inactiveMs / 60_000}min (need 60min)")
+            if (inactiveMs >= 60 * 60_000L) {
                 val sleepStartMs = lastActive + 10 * 60_000L
+                AppLogger.i(TAG, "onCheckAlarm: sleep onset! sleepStart=$sleepStartMs → SLEEPING")
                 prefs.edit()
                     .putString(KEY_STATE, SleepModeState.SLEEPING.name)
                     .putLong(KEY_SLEEP_START, sleepStartMs)
                     .apply()
                 return true
             }
+        } else {
+            AppLogger.i(TAG, "onCheckAlarm: SLEEPING, phone inactive (waiting for wake)")
         }
         return false
     }
