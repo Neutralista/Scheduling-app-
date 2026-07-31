@@ -108,9 +108,15 @@ fun AlarmsTab(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                             )
-                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs!!)
+                            SleepAlarmRow(label = "Pre-sleep reminder", epochMs = bedMs!! - 30 * 60_000L)
                             Spacer(Modifier.height(8.dp))
-                            SleepAlarmRow(label = "Wake up", epochMs = wakeMs!!)
+                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs)
+                            Spacer(Modifier.height(8.dp))
+                            SleepAlarmRow(label = "Gentle wake (35% volume)", epochMs = wakeMs!! - 15 * 60_000L)
+                            Spacer(Modifier.height(8.dp))
+                            SleepAlarmRow(label = "Medium wake (70% volume)", epochMs = wakeMs - 10 * 60_000L)
+                            Spacer(Modifier.height(8.dp))
+                            SleepAlarmRow(label = "Wake up!", epochMs = wakeMs)
                             Spacer(Modifier.height(16.dp))
                         }
                     }
