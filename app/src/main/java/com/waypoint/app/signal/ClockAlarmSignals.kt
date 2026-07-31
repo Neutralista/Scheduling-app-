@@ -42,6 +42,11 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
         val now = System.currentTimeMillis()
         AppLogger.i(TAG, "syncFromActivity: clearPending=$clearPending wake_ms=$storedWakeMs now=$now")
 
+        // Always clean up labels from older versions of this integration
+        dismissAlarm(activity, LABEL_STALE_PRE_SLEEP)
+        dismissAlarm(activity, LABEL_STALE_BEDTIME)
+        dismissAlarm(activity, LABEL_STALE_WAKE)
+
         if (clearPending) {
             AppLogger.i(TAG, "syncFromActivity: dismissing all Waypoint wake alarms")
             dismissAlarm(activity, LABEL_GENTLE)
@@ -124,5 +129,9 @@ class RealClockAlarmSignals(private val context: Context) : ClockAlarmSignals {
         const val LABEL_GENTLE = "Waypoint Gentle"
         const val LABEL_ALARM  = "Waypoint Alarm"
         const val LABEL_RING   = "Waypoint Ring"
+        // Labels from earlier versions of this integration — cleaned up on every sync
+        private const val LABEL_STALE_PRE_SLEEP = "Waypoint Pre-Sleep"
+        private const val LABEL_STALE_BEDTIME   = "Waypoint Bedtime"
+        private const val LABEL_STALE_WAKE      = "Waypoint Wake"
     }
 }
