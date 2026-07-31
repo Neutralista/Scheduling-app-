@@ -25,6 +25,10 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
         <!-- Standalone Health Connect app (Android 9–13) -->
@@ -112,8 +116,21 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.WAKE_GENTLE" />
                 <action android:name="com.waypoint.app.WAKE_MEDIUM" />
+                <action android:name="com.waypoint.app.WAKE_RING" />
             </intent-filter>
         </receiver>
+
+        <activity
+            android:name=".notification.AlarmRingActivity"
+            android:exported="false"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Waypoint" />
+
+        <service
+            android:name=".notification.AlarmRingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!--
             Health Connect — rationale activity.
