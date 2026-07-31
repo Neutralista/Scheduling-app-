@@ -151,11 +151,19 @@ fun SleepLogCard(
                             isEditing = true
                         }) { Text("Edit") }
                         TextButton(onClick = {
-                            val cleared = logStore.clearToday()
-                            todayEntry = null
-                            val eventId = cleared?.calendarEventId
-                            if (eventId != null) scope.launch { SleepCalendarSync.delete(context, eventId) }
-                        }) { Text("Clear") }
+                            scope.launch {
+                                val entry = todayEntry
+                                if (entry != null) {
+                                    SleepCalendarSync.write(
+                                        context, logStore,
+                                        entry.bedMillis, entry.wakeMillis,
+                                        entry.calendarEventId
+                                    )
+                                }
+                                logStore.clearToday()
+                                todayEntry = null
+                            }
+                        }) { Text("Save & Clear") }
                     }
                 }
 
