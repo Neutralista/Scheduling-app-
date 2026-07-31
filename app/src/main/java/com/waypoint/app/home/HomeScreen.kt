@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
@@ -29,9 +31,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,7 +74,8 @@ fun HomeScreen(
     onPermissionGranted: () -> Unit,
     initialTab: Int = 0
 ) {
-    var selectedTab by remember { mutableIntStateOf(initialTab) }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
+    val scope = rememberCoroutineScope()
 
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     val widgetsDone = widgets.count { statesById[it.id]?.doneToday == true }
@@ -84,27 +87,27 @@ fun HomeScreen(
             widgetsTotal = widgets.size
         )
         ScrollableTabRow(
-            selectedTabIndex = selectedTab,
+            selectedTabIndex = pagerState.currentPage,
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                text = { Text("Plan", style = MaterialTheme.typography.labelMedium) })
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                text = { Text("Tasks", style = MaterialTheme.typography.labelMedium) })
-            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
-                text = { Text("Scripts", style = MaterialTheme.typography.labelMedium) })
-            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 },
-                text = { Text("Widgets", style = MaterialTheme.typography.labelMedium) })
-            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 },
-                text = { Text("Alarms", style = MaterialTheme.typography.labelMedium) })
-            Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 },
-                text = { Text("Settings", style = MaterialTheme.typography.labelMedium) })
+            listOf("Plan", "Tasks", "Scripts", "Widgets", "Alarms", "Settings")
+                .forEachIndexed { i, label ->
+                    Tab(
+                        selected = pagerState.currentPage == i,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
+                        text = { Text(label, style = MaterialTheme.typography.labelMedium) }
+                    )
+                }
         }
 
-        Box(Modifier.weight(1f)) {
-            when (selectedTab) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f),
+            beyondViewportPageCount = 1
+        ) { page ->
+            when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
                 1 -> TasksTab()
                 2 -> ScriptsTab(
@@ -123,6 +126,7 @@ fun HomeScreen(
                 )
                 4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
                 5 -> SettingsTab(onPermissionGranted = onPermissionGranted)
+                else -> Box(Modifier.fillMaxSize())
             }
         }
     }
