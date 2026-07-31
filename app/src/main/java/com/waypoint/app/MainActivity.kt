@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
         try {
             app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
         } catch (e: Throwable) {
-            android.util.Log.e("MainActivity", "syncToRegistry failed", e)
+            AppLogger.e("MainActivity", "syncToRegistry failed", e)
         }
 
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0

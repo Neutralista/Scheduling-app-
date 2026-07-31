@@ -40,11 +40,11 @@ object UserAlarmScheduler {
         if (fireMs < 0) { AppLogger.w(TAG, "scheduleOne: no fire time for '${alarm.label}'"); return }
         // canScheduleExactAlarms() requires API 31; setAlarmClock() does not need the permission
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
-        android.util.Log.d(TAG, "scheduleOne: id=${alarm.id} time=${alarm.displayTime} fireMs=$fireMs canScheduleExact=$canExact")
+        AppLogger.i(TAG, "scheduleOne: id=${alarm.id} time=${alarm.displayTime} fireMs=$fireMs canScheduleExact=$canExact")
         val triggerPi = try {
             buildTriggerPi(context, alarm)
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "scheduleOne: buildTriggerPi threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG, "scheduleOne: buildTriggerPi threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
         val showPi = try {
@@ -54,14 +54,14 @@ object UserAlarmScheduler {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "scheduleOne: getActivity threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG, "scheduleOne: getActivity threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
         try {
             am.setAlarmClock(AlarmManager.AlarmClockInfo(fireMs, showPi), triggerPi)
             AppLogger.i(TAG, "scheduled '${alarm.label}' ${alarm.displayTime} repeat=${alarm.repeatDays} fireMs=$fireMs")
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "scheduleOne: setAlarmClock threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG, "scheduleOne: setAlarmClock threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
     }

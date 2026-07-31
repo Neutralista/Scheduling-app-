@@ -26,7 +26,7 @@ class UserAlarmReceiver : BroadcastReceiver() {
                 }
             }
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "onReceive: store/reschedule threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG, "onReceive: store/reschedule threw ${e.javaClass.name}: ${e.message}", e)
         }
 
         context.startForegroundService(

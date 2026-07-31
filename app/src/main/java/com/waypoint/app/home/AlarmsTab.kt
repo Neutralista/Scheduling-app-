@@ -1,5 +1,6 @@
 package com.waypoint.app.home
 
+import com.waypoint.app.AppLogger
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -96,14 +97,14 @@ fun AlarmsTab(alarms: AlarmSignals) {
                             onToggle = { enabled ->
                                 scope.launch {
                                     try { alarms.setEnabled(alarm.id, enabled) }
-                                    catch (e: Throwable) { android.util.Log.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
+                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
                                 }
                             },
                             onEdit = { editTarget = alarm; showDialog = true },
                             onDelete = {
                                 scope.launch {
                                     try { alarms.delete(alarm.id) }
-                                    catch (e: Throwable) { android.util.Log.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
+                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
                                 }
                             }
                         )
@@ -123,7 +124,7 @@ fun AlarmsTab(alarms: AlarmSignals) {
                     try {
                         if (entry.id.isBlank()) alarms.add(entry) else alarms.update(entry)
                     } catch (e: Throwable) {
-                        android.util.Log.e("AlarmsTab", "save threw ${e.javaClass.name}: ${e.message}", e)
+                        AppLogger.e("AlarmsTab", "save threw ${e.javaClass.name}: ${e.message}", e)
                     }
                 }
                 showDialog = false

@@ -1,6 +1,7 @@
 package com.waypoint.app.alarm
 
 import android.content.Context
+import com.waypoint.app.AppLogger
 import kotlinx.coroutines.flow.StateFlow
 
 interface AlarmSignals {
@@ -19,15 +20,15 @@ class RealAlarmSignals(private val context: Context, private val store: AlarmSto
     override suspend fun add(alarm: AlarmEntry): AlarmEntry {
         return try {
             val saved = store.add(alarm)
-            android.util.Log.d(TAG, "add: stored ${saved.id} ${saved.displayTime}")
+            AppLogger.i(TAG,"add: stored ${saved.id} ${saved.displayTime}")
             try {
                 UserAlarmScheduler.schedule(context, saved)
             } catch (e: Throwable) {
-                android.util.Log.e(TAG, "add: schedule threw ${e.javaClass.name}: ${e.message}", e)
+                AppLogger.e(TAG,"add: schedule threw ${e.javaClass.name}: ${e.message}", e)
             }
             saved
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "add: store.add threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG,"add: store.add threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
     }
@@ -35,15 +36,15 @@ class RealAlarmSignals(private val context: Context, private val store: AlarmSto
     override suspend fun update(alarm: AlarmEntry) {
         try {
             store.update(alarm)
-            android.util.Log.d(TAG, "update: stored ${alarm.id} ${alarm.displayTime}")
+            AppLogger.i(TAG,"update: stored ${alarm.id} ${alarm.displayTime}")
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "update: store.update threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG,"update: store.update threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
         try {
             UserAlarmScheduler.schedule(context, alarm)
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "update: schedule threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG,"update: schedule threw ${e.javaClass.name}: ${e.message}", e)
         }
     }
 
@@ -54,12 +55,12 @@ class RealAlarmSignals(private val context: Context, private val store: AlarmSto
                 try {
                     UserAlarmScheduler.cancel(context, alarm)
                 } catch (e: Throwable) {
-                    android.util.Log.e(TAG, "delete: cancel threw ${e.javaClass.name}: ${e.message}", e)
+                    AppLogger.e(TAG,"delete: cancel threw ${e.javaClass.name}: ${e.message}", e)
                 }
             }
             store.delete(id)
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "delete: threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG,"delete: threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
     }
@@ -72,10 +73,10 @@ class RealAlarmSignals(private val context: Context, private val store: AlarmSto
                 if (enabled) UserAlarmScheduler.schedule(context, alarm)
                 else UserAlarmScheduler.cancel(context, alarm)
             } catch (e: Throwable) {
-                android.util.Log.e(TAG, "setEnabled: scheduler threw ${e.javaClass.name}: ${e.message}", e)
+                AppLogger.e(TAG,"setEnabled: scheduler threw ${e.javaClass.name}: ${e.message}", e)
             }
         } catch (e: Throwable) {
-            android.util.Log.e(TAG, "setEnabled: threw ${e.javaClass.name}: ${e.message}", e)
+            AppLogger.e(TAG,"setEnabled: threw ${e.javaClass.name}: ${e.message}", e)
             throw e
         }
     }
