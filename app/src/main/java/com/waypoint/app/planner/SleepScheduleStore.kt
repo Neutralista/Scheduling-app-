@@ -66,6 +66,57 @@ class SleepScheduleStore(private val context: Context) {
     fun setTargetSleepMinutes(minutes: Int) = save(load().copy(targetSleepMinutes = minutes.coerceIn(240, 720)))
     fun resetToDefaults() = save(SleepSchedule())
 
+    /**
+     * Pushes tonight's sleep window forward so bed = now + 30 min, maintaining the target
+     * sleep duration (capped by the shift's morning-buffer ceiling on work days).
+     * Cancels any pending late nudges, reschedules alarms, and updates the planner registry
+     * for today. Returns the new (bedMs, wakeMs).
+     */
+    fun rescheduleBedToNow(
+        logStore: SleepLogStore,
+        ws: WorkScheduleSignals,
+        registry: EventPlannerRegistry
+    ): Pair<Long, Long> {
+        val s = load()
+        val now = System.currentTimeMillis()
+        val newBedMs = now + 30 * 60_000L
+
+        val today = LocalDate.now()
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, today.year)
+            set(Calendar.MONTH, today.monthValue - 1)
+            set(Calendar.DAY_OF_MONTH, today.dayOfMonth)
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val schedule = ws.getSchedule(cal)
+        val targetWakeMs = newBedMs + s.targetSleepMinutes * 60_000L
+        val newWakeMs = if (schedule.isWork && schedule.shiftStart != null) {
+            val latestWakeMin = schedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
+            if (latestWakeMin > 0) {
+                val zone = ZoneId.systemDefault()
+                val ceilMs = today.plusDays(1).atTime(latestWakeMin / 60, latestWakeMin % 60)
+                    .atZone(zone).toInstant().toEpochMilli()
+                minOf(targetWakeMs, ceilMs)
+            } else targetWakeMs
+        } else targetWakeMs
+
+        SleepAlarmScheduler.cancelLateNudge(context)
+        SleepAlarmScheduler.scheduleAlarms(context, newBedMs, newWakeMs)
+        WakeAlarmScheduler.scheduleAlarms(context, newWakeMs)
+        logStore.updateScheduledTimes(newBedMs, newWakeMs)
+        SleepNotificationHelper.showAlarmStatus(context, newBedMs, newWakeMs)
+        _scheduledTimes.value = newBedMs to newWakeMs
+
+        val bedShift = Calendar.getInstance().apply { timeInMillis = newBedMs }
+            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+        val wakeShift = Calendar.getInstance().apply { timeInMillis = newWakeMs }
+            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+        registerSleepEventForDate(registry, today, wakeShift, bedShift)
+
+        return newBedMs to newWakeMs
+    }
+
     /** Effective wake/bed for today — used by SleepScheduleCard to display adjusted times. */
     fun computeEffectiveTimes(ws: WorkScheduleSignals, registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
