@@ -1,6 +1,7 @@
 package com.waypoint.app.home
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,30 +15,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,20 +48,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.waypoint.app.persistence.TaskEntry
 import com.waypoint.app.persistence.TaskStore
 import com.waypoint.app.planner.ShiftCalendarSync
+import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
+import com.waypoint.app.ui.components.TimePickerChip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
-
-// ── Dialog state machine ──────────────────────────────────────────────────────
-
-private enum class StartDialog { NONE, ON_TIME, HOW_TO_LOG, TIME_PICKER }
 
 // ── Tab root ──────────────────────────────────────────────────────────────────
 
@@ -187,9 +188,8 @@ private fun RoundCheckbox(
     }
 }
 
-// ── Shift task row ────────────────────────────────────────────────────────────
+// ── Shift task card ───────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: () -> Unit) {
     val schedule = ws.getTodaySchedule()
@@ -198,274 +198,265 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
     val scope = rememberCoroutineScope()
     var session by remember { mutableStateOf(ws.getTodaySession()) }
 
-    var nowMinutes by remember {
-        mutableIntStateOf(Calendar.getInstance().let {
-            it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
-        })
-    }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000L)
-            nowMinutes = Calendar.getInstance().let {
-                it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
-            }
-        }
-    }
-
-    val shiftStart = schedule.shiftStart
-    val shiftEnd = schedule.shiftEnd
-
     val isClockedIn = session.actualStartMillis != null && session.actualEndMillis == null
     val isClockedOut = session.actualStartMillis != null && session.actualEndMillis != null
 
-    // 30-min window: button enabled from 30 min before shift, or always if no defined start time
-    val minutesUntilShift = shiftStart?.let { it.totalMinutes - nowMinutes } ?: -1
-    val startEnabled = minutesUntilShift <= 30
-    val isAfterScheduledStart = minutesUntilShift <= 0
+    // Declared unconditionally to satisfy Compose slot table rules
+    var manualStartTime by remember { mutableStateOf(clockNow()) }
+    var manualEndTime by remember { mutableStateOf(clockNow()) }
 
-    // Dialog flow state
-    var dialog by remember { mutableStateOf(StartDialog.NONE) }
-    var buttonPressMs by remember { mutableLongStateOf(0L) }
+    // Live clock + elapsed / remaining
+    var clockText by remember { mutableStateOf(clockNow()) }
+    var elapsedText by remember { mutableStateOf("") }
+    var remainingText by remember { mutableStateOf("") }
+    var isOvertime by remember { mutableStateOf(false) }
 
-    // TimePicker state — defined unconditionally to satisfy Compose slot table rules
-    val timePickerState = rememberTimePickerState(
-        initialHour = shiftStart?.hour ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
-        initialMinute = shiftStart?.minute ?: Calendar.getInstance().get(Calendar.MINUTE),
-        is24Hour = true
-    )
-
-    fun doStartShift(startMs: Long) {
-        scope.launch {
-            ws.startShift(startMs)
-            session = ws.getTodaySession()
-            onRefresh()
-        }
+    val plannedEndMillis: Long? = remember(schedule) {
+        val end = schedule.shiftEnd ?: return@remember null
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, end.hour)
+            set(Calendar.MINUTE, end.minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (schedule.crossesMidnight) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
     }
 
-    // Title label
-    val title = when {
-        isClockedOut -> "Shift complete"
-        isClockedIn -> {
-            val endLabel = shiftEnd?.let { e ->
-                val diff = e.totalMinutes - nowMinutes
-                val adj = if (diff < 0) diff + 1440 else diff
-                when {
-                    adj <= 0 -> "ending soon"
-                    adj < 60 -> "ends in ${adj}m"
-                    else -> "ends in ${adj / 60}h ${adj % 60}m"
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            clockText = clockNow()
+            val startMs = session.actualStartMillis
+            if (startMs != null && session.actualEndMillis == null) {
+                elapsedText = elapsedString(System.currentTimeMillis() - startMs)
+                if (plannedEndMillis != null) {
+                    val remaining = plannedEndMillis - System.currentTimeMillis()
+                    isOvertime = remaining < 0
+                    remainingText = if (remaining > 0)
+                        "${elapsedString(remaining)} left"
+                    else
+                        "${elapsedString(-remaining)} overtime"
                 }
             }
-            if (endLabel != null) "Shift in progress · $endLabel" else "Shift in progress"
-        }
-        shiftStart != null -> when {
-            minutesUntilShift <= 0 -> "Work · start shift"
-            minutesUntilShift < 60 -> "Work in ${minutesUntilShift}m"
-            else -> "Work in ${minutesUntilShift / 60}h ${minutesUntilShift % 60}m"
-        }
-        else -> "Work today"
-    }
-
-    val subtitle = buildString {
-        if (shiftStart != null && shiftEnd != null) {
-            append("${shiftStart.displayString}–${shiftEnd.displayString}")
-        }
-        if (isClockedOut) {
-            val startMs = session.actualStartMillis
-            val endMs = session.actualEndMillis
-            if (startMs != null && endMs != null) {
-                val durationMin = ((endMs - startMs) / 60_000).toInt()
-                if (durationMin > 0) append(" · ${durationMin / 60}h ${durationMin % 60}m")
-            }
         }
     }
 
-    // ── Row ───────────────────────────────────────────────────────────────────
-    Column {
+    // Snap the "Ended at" chip to current time when a shift becomes active
+    LaunchedEffect(isClockedIn) {
+        if (isClockedIn) manualEndTime = clockNow()
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        // ── Clock + status badge ──────────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            RoundCheckbox(checked = isClockedOut, onClick = null)
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        textDecoration = if (isClockedOut) TextDecoration.LineThrough else TextDecoration.None
-                    ),
-                    color = if (isClockedOut)
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    else
-                        MaterialTheme.colorScheme.onSurface
-                )
-                if (subtitle.isNotEmpty()) {
+            Text(
+                text = clockText,
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = (-1).sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Column(horizontalAlignment = Alignment.End) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (isClockedOut) MaterialTheme.colorScheme.surface
+                            else MaterialTheme.colorScheme.primaryContainer
+                ) {
                     Text(
-                        text = subtitle,
+                        text = when {
+                            isClockedOut -> "Done"
+                            isClockedIn  -> "On shift"
+                            else         -> "Work day"
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        color = if (isClockedOut) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
-            }
-
-            when {
-                isClockedOut -> {
-                    TextButton(onClick = {
-                        scope.launch {
-                            ws.resetTodaySession()
-                            session = ws.getTodaySession()
-                            onRefresh()
-                        }
-                    }) {
-                        Text(
-                            "Reset",
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                }
-                isClockedIn -> {
-                    // Reset (accidental start)
-                    TextButton(onClick = {
-                        scope.launch {
-                            ws.resetTodaySession()
-                            session = ws.getTodaySession()
-                            onRefresh()
-                        }
-                    }) {
-                        Text(
-                            "Reset",
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                    TextButton(onClick = {
-                        scope.launch {
-                            val endMs = System.currentTimeMillis()
-                            val startMs = session.actualStartMillis!!
-                            ws.endShift(endMs)
-                            ShiftCalendarSync.write(context, ws, startMs, endMs)
-                            session = ws.getTodaySession()
-                            onRefresh()
-                        }
-                    }) {
-                        Text("End")
-                    }
-                }
-                else -> {
-                    TextButton(
-                        onClick = {
-                            val pressMs = System.currentTimeMillis()
-                            if (isAfterScheduledStart && shiftStart != null) {
-                                buttonPressMs = pressMs
-                                dialog = StartDialog.ON_TIME
-                            } else {
-                                doStartShift(pressMs)
-                            }
-                        },
-                        enabled = startEnabled
-                    ) {
-                        Text("Start")
-                    }
+                if (schedule.shiftStart != null) {
+                    Spacer(Modifier.height(3.dp))
+                    val endStr = schedule.shiftEnd?.displayString ?: "?"
+                    val suffix = if (schedule.crossesMidnight) " +1" else ""
+                    Text(
+                        text = "${schedule.shiftStart.displayString} – $endStr$suffix",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                    )
                 }
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-        if (!isClockedOut) Spacer(Modifier.height(2.dp))
-    }
-
-    // ── Dialogs ───────────────────────────────────────────────────────────────
-
-    // 1. Were you on time?
-    if (dialog == StartDialog.ON_TIME) {
-        AlertDialog(
-            onDismissRequest = { dialog = StartDialog.NONE },
-            title = { Text("Were you on time?") },
-            text = {
-                Text("Your shift was scheduled to start at ${shiftStart?.displayString}.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    shiftStart?.let {
-                        val cal = Calendar.getInstance().apply {
-                            set(Calendar.HOUR_OF_DAY, it.hour)
-                            set(Calendar.MINUTE, it.minute)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
+        // ── Action section ────────────────────────────────────────────────
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 14.dp)
+        ) {
+            when {
+                !isClockedIn && !isClockedOut -> {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Started at",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        TimePickerChip(
+                            value = manualStartTime,
+                            onValueChange = { manualStartTime = it },
+                            modifier = Modifier.width(52.dp)
+                        )
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val millis = parseShiftStartMillis(manualStartTime)
+                                        ?: System.currentTimeMillis()
+                                    ws.startShift(millis)
+                                    session = ws.getTodaySession()
+                                    onRefresh()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("▶  Start shift", style = MaterialTheme.typography.labelMedium)
                         }
-                        doStartShift(cal.timeInMillis)
-                    }
-                    dialog = StartDialog.NONE
-                }) { Text("Yes") }
-            },
-            dismissButton = {
-                TextButton(onClick = { dialog = StartDialog.HOW_TO_LOG }) { Text("No") }
-            }
-        )
-    }
-
-    // 2. How to log?
-    if (dialog == StartDialog.HOW_TO_LOG) {
-        val pressTimeLabel = Calendar.getInstance().apply {
-            timeInMillis = buttonPressMs
-        }.let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-
-        AlertDialog(
-            onDismissRequest = { dialog = StartDialog.NONE },
-            title = { Text("When did your shift start?") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            doStartShift(buttonPressMs)
-                            dialog = StartDialog.NONE
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Use $pressTimeLabel (when I tapped)")
-                    }
-                    TextButton(
-                        onClick = { dialog = StartDialog.TIME_PICKER },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Set time manually")
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { dialog = StartDialog.NONE }) { Text("Cancel") }
-            }
-        )
-    }
-
-    // 3. Time picker
-    if (dialog == StartDialog.TIME_PICKER) {
-        AlertDialog(
-            onDismissRequest = { dialog = StartDialog.NONE },
-            title = { Text("When did your shift start?") },
-            text = {
-                TimePicker(state = timePickerState)
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val cal = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                        set(Calendar.MINUTE, timePickerState.minute)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
+                isClockedIn -> {
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Started ${formatShiftTime(session.actualStartMillis!!)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (elapsedText.isNotEmpty()) {
+                                    Text(
+                                        text = elapsedText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                if (remainingText.isNotEmpty()) {
+                                    Text(
+                                        text = remainingText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isOvertime) MaterialTheme.colorScheme.error
+                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        "Ended at",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    TimePickerChip(
+                                        value = manualEndTime,
+                                        onValueChange = { manualEndTime = it },
+                                        modifier = Modifier.width(52.dp)
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val startMs = session.actualStartMillis
+                                                ?: System.currentTimeMillis()
+                                            val endMs = parseShiftEndMillis(manualEndTime, startMs)
+                                                ?: System.currentTimeMillis()
+                                            ws.endShift(endMs)
+                                            ShiftCalendarSync.write(context, ws, startMs, endMs)
+                                            session = ws.getTodaySession()
+                                            elapsedText = ""
+                                            onRefresh()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Text("■  End shift", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
                     }
-                    doStartShift(cal.timeInMillis)
-                    dialog = StartDialog.NONE
-                }) { Text("Set") }
-            },
-            dismissButton = {
-                TextButton(onClick = { dialog = StartDialog.NONE }) { Text("Cancel") }
+                }
+                else -> {
+                    // Completed
+                    val startMs = session.actualStartMillis ?: 0L
+                    val endMs = session.actualEndMillis ?: 0L
+                    val startStr = formatShiftTime(startMs)
+                    val endStr = formatShiftTime(endMs)
+                    val dur = elapsedString(endMs - startMs)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Ended $endStr",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$startStr – $endStr · $dur",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        TextButton(onClick = {
+                            scope.launch {
+                                ws.resetTodaySession()
+                                session = ws.getTodaySession()
+                                elapsedText = ""
+                                onRefresh()
+                            }
+                        }) {
+                            Text(
+                                "Reset",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
             }
-        )
+        }
     }
 }
 
@@ -504,4 +495,51 @@ private fun TaskRow(
             )
         }
     }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+private fun clockNow(): String {
+    val c = Calendar.getInstance()
+    return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+}
+
+private fun formatShiftTime(millis: Long): String {
+    val c = Calendar.getInstance().apply { timeInMillis = millis }
+    return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+}
+
+private fun elapsedString(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+private fun parseShiftStartMillis(timeStr: String): Long? {
+    val t = ShiftTime.parse(timeStr) ?: return null
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, t.hour)
+        set(Calendar.MINUTE, t.minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (cal.timeInMillis > System.currentTimeMillis() + 60_000L) {
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+    }
+    return cal.timeInMillis
+}
+
+private fun parseShiftEndMillis(timeStr: String, startMillis: Long): Long? {
+    val t = ShiftTime.parse(timeStr) ?: return null
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, t.hour)
+        set(Calendar.MINUTE, t.minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (cal.timeInMillis < startMillis) {
+        cal.add(Calendar.DAY_OF_YEAR, 1)
+    }
+    return cal.timeInMillis
 }
