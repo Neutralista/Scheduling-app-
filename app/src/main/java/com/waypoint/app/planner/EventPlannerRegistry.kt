@@ -85,17 +85,68 @@ class EventPlannerRegistry {
 
         eligible.sortByDescending { it.priority }
 
-        val (duringShiftEligible, regularEligible) = eligible.partition { e ->
+        // Three placement pools: during-shift, after-shift (dedicated sleep-push pass),
+        // and regular (greedy free-block fill).
+        val (duringShiftEligible, nonDuringEligible) = eligible.partition { e ->
             e.conditions.any { it is EventCondition.DuringShift }
         }
+        val (afterShiftEligible, regularEligible) = nonDuringEligible.partition { e ->
+            e.conditions.any { it is EventCondition.AfterShift }
+        }
 
-        val remaining = freeBlocks.map { it.startMillis to it.endMillis }.toMutableList()
+        // Build the available pool, subtracting fixed events (e.g. sleep) so regular tasks
+        // are never placed overlapping them.
+        val fixedIntervals = scheduled.map { it.startMillis to it.endMillis }
+        val remaining = freeBlocks.flatMap { block ->
+            subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
+        }.toMutableList()
 
+        // ── AfterShift placement ─────────────────────────────────────────────────
+        // Place AfterShift events right at shift end in priority order.
+        // Any sleep event that sits in the way is pushed later to make room.
+        if (shiftEndMs != null) {
+            var cursor = shiftEndMs
+            for (event in afterShiftEligible.sortedByDescending { it.priority }) {
+                val durationMs = event.durationMinutes * 60_000L
+                val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
+                val fitStart = if (tw != null) maxOf(cursor, toMs(tw.startHour, tw.startMin)) else cursor
+                val fitEnd   = if (tw != null) toMs(tw.endHour, tw.endMin) else effectiveEndMs
+                if (fitEnd - fitStart < durationMs) {
+                    blocked += BlockedEvent(event, "No available time after shift")
+                    continue
+                }
+                val taskStart = fitStart
+                val taskEnd   = taskStart + durationMs
+                // Trim any sleep events that overlap [taskStart, taskEnd].
+                scheduled
+                    .filter { it.event.category == EventCategory.SLEEP &&
+                              it.endMillis > taskStart && it.startMillis < taskEnd }
+                    .toList()
+                    .forEach { sleepSlot ->
+                        scheduled.removeIf { it.event.id == sleepSlot.event.id }
+                        if (sleepSlot.startMillis < taskStart &&
+                            taskStart - sleepSlot.startMillis >= 30 * 60_000L)
+                            scheduled += ScheduledEvent(sleepSlot.event, sleepSlot.startMillis, taskStart)
+                        if (sleepSlot.endMillis > taskEnd &&
+                            sleepSlot.endMillis - taskEnd >= 30 * 60_000L)
+                            scheduled += ScheduledEvent(sleepSlot.event, taskEnd, sleepSlot.endMillis)
+                    }
+                scheduled += ScheduledEvent(event, taskStart, taskEnd)
+                // Carve the placed slot from remaining so regular events don't reuse it.
+                val placed = listOf(taskStart to taskEnd)
+                val updated = remaining.flatMap { (s, e) -> subtractIntervals(s, e, placed) }
+                remaining.clear(); remaining.addAll(updated)
+                cursor = taskEnd
+            }
+        } else {
+            afterShiftEligible.forEach { blocked += BlockedEvent(it, "No shift end time") }
+        }
+
+        // ── Regular event placement ──────────────────────────────────────────────
         for (event in regularEligible) {
             val durationMs     = event.durationMinutes * 60_000L
             val notDuringShift = event.conditions.any { it is EventCondition.NotDuringShift }
             val beforeShift    = event.conditions.any { it is EventCondition.BeforeShift }
-            val afterShift     = event.conditions.any { it is EventCondition.AfterShift }
             val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
             var placed = false
 
@@ -103,7 +154,6 @@ class EventPlannerRegistry {
                 val (blockStart, blockEnd) = remaining[i]
 
                 if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
-                if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
 
                 val fitStart: Long
                 val fitEnd: Long
@@ -189,6 +239,26 @@ class EventPlannerRegistry {
         }
 
         return DayPlan(date, scheduled.sortedBy { it.startMillis }, blocked)
+    }
+
+    /** Returns segments of [start, end) with all intervals in [subtract] removed. */
+    private fun subtractIntervals(
+        start: Long, end: Long,
+        subtract: List<Pair<Long, Long>>
+    ): List<Pair<Long, Long>> {
+        var segs = listOf(start to end)
+        for ((iS, iE) in subtract) {
+            segs = segs.flatMap { (s, e) ->
+                when {
+                    iE <= s || iS >= e -> listOf(s to e)
+                    iS <= s && iE >= e -> emptyList()
+                    iS <= s            -> listOf(iE to e)
+                    iE >= e            -> listOf(s to iS)
+                    else               -> listOf(s to iS, iE to e)
+                }
+            }
+        }
+        return segs.filter { (s, e) -> e > s }
     }
 
     private fun checkDayConditions(event: PlannerEvent, date: LocalDate, isWorkDay: Boolean): String? {
