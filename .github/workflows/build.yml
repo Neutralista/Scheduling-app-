@@ -42,12 +42,13 @@ jobs:
           fi
 
       - name: Bump version
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           CODE=$(grep 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
           IFS='.' read -r major minor patch <<< "$VERSION"
-          MSG="${{ github.event.head_commit.message }}"
-          if echo "$MSG" | grep -qiE '^feat(\(.+\))?[!:]'; then
+          if echo "$COMMIT_MSG" | grep -qiE '^feat(\(.+\))?[!:]'; then
             NEW_VERSION="$major.$((minor + 1)).0"
           else
             NEW_VERSION="$major.$minor.$((patch + 1))"
