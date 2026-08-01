@@ -153,10 +153,13 @@ class SleepScheduleStore(private val context: Context) {
         SleepNotificationHelper.showAlarmStatus(context, adjustedBedMs, adjustedWakeMs)
         _scheduledTimes.value = adjustedBedMs to adjustedWakeMs
 
-        // Register directly with epoch ms — converting through ShiftTime→sleepMillis
-        // would misplace a same-day morning window (e.g. 05:14-13:14) onto date+1
+        // A bed time before noon means we're still in last night's midnight-crossing window
+        // (user was awake past midnight). Use yesterday's event ID so the correct night's
+        // block moves — not tonight's future window.
+        val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        val sleepNightDate = if (adjustedBedMs < noonMs) today.minusDays(1) else today
         registry.register(PlannerEvent(
-            id = "sleep_$today",
+            id = "sleep_$sleepNightDate",
             title = "Sleep",
             durationMinutes = ((adjustedWakeMs - adjustedBedMs) / 60_000L).toInt(),
             priority = PlannerPriority.SLEEP,
@@ -210,23 +213,33 @@ class SleepScheduleStore(private val context: Context) {
                 if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE) {
                     val storedBedMs = logStore.getScheduledBedMs()
                     val storedWakeMs = logStore.getScheduledWakeMs()
-                    if (storedBedMs != null && storedWakeMs != null && storedWakeMs > now) {
-                        // Register directly with epoch ms — converting through ShiftTime→sleepMillis
-                        // would misplace a same-day morning window (e.g. 05:14-13:14) onto date+1
-                        if (storedWakeMs > storedBedMs) {
-                            registry.register(PlannerEvent(
-                                id = "sleep_$date",
-                                title = "Sleep",
-                                durationMinutes = ((storedWakeMs - storedBedMs) / 60_000L).toInt(),
-                                priority = PlannerPriority.SLEEP,
-                                category = EventCategory.SLEEP,
-                                fixedStartMillis = storedBedMs,
-                                fixedEndMillis = storedWakeMs
-                            ))
+                    if (storedBedMs != null && storedWakeMs != null && storedWakeMs > now && storedWakeMs > storedBedMs) {
+                        val zone = ZoneId.systemDefault()
+                        val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+                        // A bed before noon is a midnight-crossing window pushed into this morning:
+                        // it belongs to yesterday's night event, not tonight's.
+                        val eventDate = if (storedBedMs < noonMs) today.minusDays(1) else date
+                        registry.register(PlannerEvent(
+                            id = "sleep_$eventDate",
+                            title = "Sleep",
+                            durationMinutes = ((storedWakeMs - storedBedMs) / 60_000L).toInt(),
+                            priority = PlannerPriority.SLEEP,
+                            category = EventCategory.SLEEP,
+                            fixedStartMillis = storedBedMs,
+                            fixedEndMillis = storedWakeMs
+                        ))
+                        if (eventDate == today.minusDays(1)) {
+                            // Last-night window: also register tonight's sleep normally
+                            registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
                         }
                         _scheduledTimes.value = storedBedMs to storedWakeMs
+                        SleepAlarmScheduler.scheduleAlarms(context, storedBedMs, storedWakeMs)
+                        WakeAlarmScheduler.scheduleAlarms(context, storedWakeMs)
+                        if (logStore.getSleepModeState() == SleepModeState.IDLE) {
+                            logStore.updateScheduledTimes(storedBedMs, storedWakeMs)
+                        }
                         SleepNotificationHelper.showAlarmStatus(context, storedBedMs, storedWakeMs)
-                        AppLogger.i("SleepSync", "syncToRegistry: preserving manual reschedule bedMs=$storedBedMs wakeMs=$storedWakeMs")
+                        AppLogger.i("SleepSync", "syncToRegistry: preserving manual reschedule bedMs=$storedBedMs wakeMs=$storedWakeMs (eventDate=$eventDate)")
                         continue
                     }
                 }
