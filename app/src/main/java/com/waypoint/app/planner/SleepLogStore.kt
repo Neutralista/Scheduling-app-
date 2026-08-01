@@ -195,6 +195,18 @@ class SleepLogStore(context: Context) {
         prefs.edit().putString(key, json.encodeToString(entry.copy(calendarEventId = eventId))).apply()
     }
 
+    fun saveEntry(entry: SleepLogEntry) {
+        prefs.edit().putString("log_${entry.dateIso}", json.encodeToString(entry)).apply()
+    }
+
+    fun deleteEntry(dateIso: String): SleepLogEntry? {
+        val key = "log_$dateIso"
+        val raw = prefs.getString(key, null)
+        val entry = raw?.let { try { json.decodeFromString<SleepLogEntry>(it) } catch (_: Exception) { null } }
+        if (raw != null) prefs.edit().remove(key).apply()
+        return entry
+    }
+
     private fun pruneOldEntries() {
         val cutoff = LocalDate.now().minusDays(30)
         val toRemove = prefs.all.keys.filter { key ->

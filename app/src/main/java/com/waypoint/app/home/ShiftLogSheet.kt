@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.ShiftCalendarSync
+import com.waypoint.app.planner.SleepLogEntry
+import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.ShiftSession
@@ -64,26 +66,38 @@ fun ShiftLogSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var sessions by remember { mutableStateOf(ws.getRecentSessions(30)) }
-    var calEvents by remember { mutableStateOf<List<Pair<Long, CalendarEvent>>>(emptyList()) }
-    var editTarget by remember { mutableStateOf<Pair<String, ShiftSession>?>(null) }
-    var showAdd by remember { mutableStateOf(false) }
+    val sleepStore = remember { SleepLogStore(context) }
 
-    // Orphan calendar events: created by the app but no longer linked to any session
-    val linkedIds by remember(sessions) {
+    var sessions by remember { mutableStateOf(ws.getRecentSessions(30)) }
+    var sleepEntries by remember { mutableStateOf(sleepStore.loadRecent(30)) }
+    var calEvents by remember { mutableStateOf<List<Pair<Long, CalendarEvent>>>(emptyList()) }
+
+    var editTarget by remember { mutableStateOf<Pair<String, ShiftSession>?>(null) }
+    var sleepEditTarget by remember { mutableStateOf<SleepLogEntry?>(null) }
+    var showAdd by remember { mutableStateOf(false) }
+    var showSleepAdd by remember { mutableStateOf(false) }
+
+    val shiftLinkedIds by remember(sessions) {
         derivedStateOf { sessions.mapNotNull { it.second.calendarEventId }.toSet() }
     }
-    val orphanEvents by remember(calEvents, linkedIds) {
-        derivedStateOf { calEvents.filter { (id, _) -> id !in linkedIds } }
+    val sleepLinkedIds by remember(sleepEntries) {
+        derivedStateOf { sleepEntries.mapNotNull { it.calendarEventId }.toSet() }
+    }
+    val shiftOrphans by remember(calEvents, shiftLinkedIds) {
+        derivedStateOf { calEvents.filter { (id, ev) -> id !in shiftLinkedIds && ev.title.contains("shift", ignoreCase = true) } }
+    }
+    val sleepOrphans by remember(calEvents, sleepLinkedIds) {
+        derivedStateOf { calEvents.filter { (id, ev) -> id !in sleepLinkedIds && ev.title == "Sleep" } }
     }
 
     fun reloadSessions() { sessions = ws.getRecentSessions(30) }
+    fun reloadSleep() { sleepEntries = sleepStore.loadRecent(30) }
     fun reloadCalendar() { scope.launch { calEvents = calendarSignals.queryWaypointEvents(30) } }
-    fun reload() { reloadSessions(); reloadCalendar() }
+    fun reload() { reloadSessions(); reloadSleep(); reloadCalendar() }
 
     LaunchedEffect(Unit) { calEvents = calendarSignals.queryWaypointEvents(30) }
 
-    val isEmpty = sessions.isEmpty() && orphanEvents.isEmpty()
+    val isEmpty = sessions.isEmpty() && sleepEntries.isEmpty() && calEvents.isEmpty()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -97,24 +111,35 @@ fun ShiftLogSheet(
                 ) {
                     TextButton(onClick = onDismiss) { Text("Close") }
                     Text(
-                        "Shift Log",
+                        "Log",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                     )
-                    TextButton(onClick = { showAdd = true }) { Text("Add") }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 if (isEmpty) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "No logged shifts in the last 30 days",
+                            "Nothing logged in the last 30 days",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
+                        // ── Shifts ──────────────────────────────────────────────────────
+                        item { LogSectionHeader("SHIFTS", onAdd = { showAdd = true }) }
+                        if (sessions.isEmpty() && shiftOrphans.isEmpty()) {
+                            item {
+                                Text(
+                                    "No shifts logged",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                                )
+                            }
+                        }
                         items(sessions, key = { "s_${it.first}" }) { (dateKey, session) ->
                             ShiftLogRow(
                                 dateKey = dateKey,
@@ -130,23 +155,58 @@ fun ShiftLogSheet(
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         }
-
-                        if (orphanEvents.isNotEmpty()) {
-                            item {
-                                LogSectionLabel("Orphan calendar events")
-                            }
-                            items(orphanEvents, key = { "c_${it.first}" }) { (id, event) ->
-                                CalendarEventRow(
-                                    event = event,
-                                    onDelete = {
-                                        scope.launch {
-                                            calendarSignals.deleteEvent(id)
-                                            reloadCalendar()
-                                        }
+                        items(shiftOrphans, key = { "sc_${it.first}" }) { (id, event) ->
+                            CalendarEventRow(
+                                event = event,
+                                label = "orphan",
+                                onDelete = {
+                                    scope.launch {
+                                        calendarSignals.deleteEvent(id)
+                                        reloadCalendar()
                                     }
+                                }
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        }
+
+                        // ── Sleep ───────────────────────────────────────────────────────
+                        item { LogSectionHeader("SLEEP", onAdd = { showSleepAdd = true }) }
+                        if (sleepEntries.isEmpty() && sleepOrphans.isEmpty()) {
+                            item {
+                                Text(
+                                    "No sleep logged",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                                 )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                             }
+                        }
+                        items(sleepEntries, key = { "sl_${it.dateIso}" }) { entry ->
+                            SleepLogRow(
+                                entry = entry,
+                                onEdit = { sleepEditTarget = entry },
+                                onDelete = {
+                                    scope.launch {
+                                        entry.calendarEventId?.let { calendarSignals.deleteEvent(it) }
+                                        sleepStore.deleteEntry(entry.dateIso)
+                                        reload()
+                                    }
+                                }
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        }
+                        items(sleepOrphans, key = { "slc_${it.first}" }) { (id, event) ->
+                            CalendarEventRow(
+                                event = event,
+                                label = "orphan",
+                                onDelete = {
+                                    scope.launch {
+                                        calendarSignals.deleteEvent(id)
+                                        reloadCalendar()
+                                    }
+                                }
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         }
                     }
                 }
@@ -190,25 +250,64 @@ fun ShiftLogSheet(
             onDismiss = { showAdd = false }
         )
     }
-}
 
-@Composable
-private fun LogSectionLabel(text: String) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            letterSpacing = 0.4.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    sleepEditTarget?.let { entry ->
+        SleepEditDialog(
+            entry = entry,
+            onSave = { updated ->
+                scope.launch {
+                    sleepStore.saveEntry(updated)
+                    reloadSleep()
+                    sleepEditTarget = null
+                }
+            },
+            onDelete = {
+                scope.launch {
+                    entry.calendarEventId?.let { calendarSignals.deleteEvent(it) }
+                    sleepStore.deleteEntry(entry.dateIso)
+                    reload()
+                    sleepEditTarget = null
+                }
+            },
+            onDismiss = { sleepEditTarget = null }
         )
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    }
+
+    if (showSleepAdd) {
+        SleepAddDialog(
+            onSave = { entry ->
+                scope.launch {
+                    sleepStore.saveEntry(entry)
+                    reloadSleep()
+                    showSleepAdd = false
+                }
+            },
+            onDismiss = { showSleepAdd = false }
+        )
     }
 }
+
+// ── Section header ────────────────────────────────────────────────────────────
+
+@Composable
+private fun LogSectionHeader(title: String, onAdd: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 14.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onAdd) {
+            Text("Add", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+// ── Shift rows ────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ShiftLogRow(
@@ -246,9 +345,47 @@ private fun ShiftLogRow(
     }
 }
 
+// ── Sleep rows ────────────────────────────────────────────────────────────────
+
 @Composable
-private fun CalendarEventRow(event: CalendarEvent, onDelete: () -> Unit) {
-    val label = remember(event.startMillis) { shiftDateLabel(dateKeyFromMs(event.startMillis)) }
+private fun SleepLogRow(
+    entry: SleepLogEntry,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val label = remember(entry.dateIso) { shiftDateLabel(entry.dateIso) }
+    val bedStr = shiftFormatMs(entry.bedMillis)
+    val wakeStr = shiftFormatMs(entry.wakeMillis)
+    val durStr = shiftElapsed(entry.wakeMillis - entry.bedMillis)
+
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onEdit).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                "$bedStr – $wakeStr  ·  $durStr",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete sleep entry", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+        }
+    }
+}
+
+// ── Calendar event row (orphans) ──────────────────────────────────────────────
+
+@Composable
+private fun CalendarEventRow(event: CalendarEvent, label: String = "orphan", onDelete: () -> Unit) {
+    val dateLabel = remember(event.startMillis) { shiftDateLabel(dateKeyFromMs(event.startMillis)) }
     val startStr = shiftFormatMs(event.startMillis)
     val endStr = shiftFormatMs(event.endMillis)
     val durStr = shiftElapsed(event.endMillis - event.startMillis)
@@ -259,11 +396,18 @@ private fun CalendarEventRow(event: CalendarEvent, onDelete: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    dateLabel,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
             Text(
                 "$startStr – $endStr  ·  $durStr",
                 style = MaterialTheme.typography.bodySmall,
@@ -275,6 +419,8 @@ private fun CalendarEventRow(event: CalendarEvent, onDelete: () -> Unit) {
         }
     }
 }
+
+// ── Shift dialogs ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun ShiftEditDialog(
@@ -361,6 +507,98 @@ private fun ShiftAddDialog(
                 val startMs = shiftParseTime(dateKey, startTime) ?: return@TextButton
                 val endMs = shiftParseTime(dateKey, endTime, afterMs = startMs) ?: return@TextButton
                 onSave(dateKey, ShiftSession(actualStartMillis = startMs, actualEndMillis = endMs))
+            }) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+// ── Sleep dialogs ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun SleepEditDialog(
+    entry: SleepLogEntry,
+    onSave: (SleepLogEntry) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val label = remember(entry.dateIso) { shiftDateLabel(entry.dateIso) }
+    var bedTime by remember { mutableStateOf(shiftFormatMs(entry.bedMillis)) }
+    var wakeTime by remember { mutableStateOf(shiftFormatMs(entry.wakeMillis)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit sleep · $label") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Bed", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
+                    TimePickerChip(value = bedTime, onValueChange = { bedTime = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Wake", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
+                    TimePickerChip(value = wakeTime, onValueChange = { wakeTime = it })
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete this entry") }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                // Use the original bed date as the parse base; afterMs pushes wake to next day if needed
+                val bedDateKey = dateKeyFromMs(entry.bedMillis)
+                val bedMs = shiftParseTime(bedDateKey, bedTime) ?: return@TextButton
+                val wakeMs = shiftParseTime(bedDateKey, wakeTime, afterMs = bedMs) ?: return@TextButton
+                onSave(entry.copy(bedMillis = bedMs, wakeMillis = wakeMs))
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun SleepAddDialog(
+    onSave: (SleepLogEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var dateKey by remember { mutableStateOf(LocalDate.now().toString()) }
+    var bedTime by remember { mutableStateOf("23:00") }
+    var wakeTime by remember { mutableStateOf("07:00") }
+    var dateError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add sleep") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedTextField(
+                    value = dateKey,
+                    onValueChange = { dateKey = it; dateError = false },
+                    label = { Text("Bed night (yyyy-MM-dd)") },
+                    isError = dateError,
+                    supportingText = if (dateError) ({ Text("Invalid date format") }) else null,
+                    singleLine = true
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Bed", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
+                    TimePickerChip(value = bedTime, onValueChange = { bedTime = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Wake", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
+                    TimePickerChip(value = wakeTime, onValueChange = { wakeTime = it })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                try { LocalDate.parse(dateKey) } catch (_: Exception) { dateError = true; return@TextButton }
+                val bedMs = shiftParseTime(dateKey, bedTime) ?: return@TextButton
+                val wakeMs = shiftParseTime(dateKey, wakeTime, afterMs = bedMs) ?: return@TextButton
+                // dateIso = the wake date (the morning you woke up)
+                onSave(SleepLogEntry(dateIso = dateKeyFromMs(wakeMs), bedMillis = bedMs, wakeMillis = wakeMs))
             }) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
