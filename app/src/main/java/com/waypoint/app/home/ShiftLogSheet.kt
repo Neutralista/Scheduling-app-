@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.ShiftCalendarSync
+import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.signal.CalendarEvent
@@ -267,7 +268,8 @@ fun ShiftLogSheet(
             entry = entry,
             onSave = { updated ->
                 scope.launch {
-                    sleepStore.saveEntry(updated)
+                    val eventId = SleepCalendarSync.writeForEntry(context, updated.bedMillis, updated.wakeMillis, updated.calendarEventId)
+                    sleepStore.saveEntry(if (eventId > 0) updated.copy(calendarEventId = eventId) else updated)
                     reloadSleep()
                     sleepEditTarget = null
                 }
@@ -288,7 +290,8 @@ fun ShiftLogSheet(
         SleepAddDialog(
             onSave = { entry ->
                 scope.launch {
-                    sleepStore.saveEntry(entry)
+                    val eventId = SleepCalendarSync.writeForEntry(context, entry.bedMillis, entry.wakeMillis, null)
+                    sleepStore.saveEntry(if (eventId > 0) entry.copy(calendarEventId = eventId) else entry)
                     reloadSleep()
                     showSleepAdd = false
                 }
