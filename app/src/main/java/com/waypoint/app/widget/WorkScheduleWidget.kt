@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -285,6 +286,7 @@ fun WorkScheduleCard(
                         config = config,
                         ws = ws,
                         registry = registry,
+                        isNextWeek = (weekOffset == 1),
                         onDateOverride = onDateOverride,
                         onRemoveOverride = onRemoveOverride
                     )
@@ -604,6 +606,10 @@ private fun AfterWorkEventRow(
 
 // ── Week view ────────────────────────────────────────────────────────────────
 
+private val DAY_NAMES_FULL = listOf(
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+)
+
 @Composable
 private fun WeekContent(
     weekStart: LocalDate,
@@ -611,15 +617,58 @@ private fun WeekContent(
     config: WorkScheduleConfig,
     ws: WorkScheduleSignals,
     registry: EventPlannerRegistry?,
+    isNextWeek: Boolean = false,
     onDateOverride: (String, DaySchedule) -> Unit,
     onRemoveOverride: (String) -> Unit
 ) {
+    // Wizard state — step 0 = closed, 1-7 = active day
+    var wizardStep    by remember { mutableIntStateOf(0) }
+    var wizardSubstep by remember { mutableIntStateOf(0) }
+    var wizardStart   by remember { mutableStateOf("09:00") }
+    var wizardEnd     by remember { mutableStateOf("17:00") }
+
+    fun prefillFor(step: Int) {
+        val d = weekStart.plusDays((step - 1).toLong())
+        val s = config.dateOverrides[localDateKey(d)] ?: config.weekdayDefaults[d.dayOfWeek.value]
+        wizardStart = s?.shiftStart?.displayString ?: "09:00"
+        wizardEnd   = s?.shiftEnd?.displayString   ?: "17:00"
+    }
+
+    fun advance() {
+        if (wizardStep < 7) {
+            wizardStep++
+            wizardSubstep = 0
+            prefillFor(wizardStep)
+        } else {
+            wizardStep = 0
+        }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        if (isNextWeek) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        wizardStep = 1
+                        wizardSubstep = 0
+                        prefillFor(1)
+                    }
+                ) {
+                    Text("Set next week →", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+
         DayOfWeek.values().forEachIndexed { i, dow ->
             val date = weekStart.plusDays(i.toLong())
             val key = localDateKey(date)
@@ -645,6 +694,88 @@ private fun WeekContent(
                 }
             }
         }
+    }
+
+    // Wizard dialog
+    if (isNextWeek && wizardStep in 1..7) {
+        val dayIdx  = wizardStep - 1
+        val date    = weekStart.plusDays(dayIdx.toLong())
+        val dateKey = localDateKey(date)
+        val dayName = DAY_NAMES_FULL[dayIdx]
+        val dateFmt = "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
+
+        AlertDialog(
+            onDismissRequest = { wizardStep = 0 },
+            title = {
+                Column {
+                    Text(
+                        "Next week  ·  Day $wizardStep of 7",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text("$dayName  ·  $dateFmt", style = MaterialTheme.typography.titleMedium)
+                }
+            },
+            text = {
+                if (wizardSubstep == 0) {
+                    Text("Is $dayName a work day?", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            "Shift hours for $dayName ($dateFmt)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TimeField(value = wizardStart, onValueChange = { wizardStart = it })
+                            Text(
+                                "–",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                            TimeField(value = wizardEnd, onValueChange = { wizardEnd = it })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (wizardSubstep == 0) {
+                    Button(onClick = { wizardSubstep = 1 }) { Text("Work day") }
+                } else {
+                    Button(onClick = {
+                        val start = ShiftTime.parse(wizardStart) ?: ShiftTime(9, 0)
+                        val end   = ShiftTime.parse(wizardEnd)   ?: ShiftTime(17, 0)
+                        onDateOverride(dateKey, DaySchedule(isWork = true, shiftStart = start, shiftEnd = end))
+                        advance()
+                    }) { Text("OK") }
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        when {
+                            wizardSubstep == 1 -> wizardSubstep = 0
+                            wizardStep > 1 -> {
+                                wizardStep--
+                                wizardSubstep = 0
+                                prefillFor(wizardStep)
+                            }
+                            else -> wizardStep = 0
+                        }
+                    }) { Text("← Back") }
+                    if (wizardSubstep == 0) {
+                        TextButton(onClick = {
+                            onDateOverride(dateKey, DaySchedule(isWork = false))
+                            advance()
+                        }) { Text("Day off") }
+                    }
+                    TextButton(onClick = { wizardStep = 0 }) { Text("Cancel") }
+                }
+            }
+        )
     }
 }
 
