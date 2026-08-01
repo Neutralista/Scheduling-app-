@@ -53,7 +53,8 @@ private val PRIORITY_OPTIONS = listOf(
     PriorityOption("Low", 3),
     PriorityOption("Medium", 5),
     PriorityOption("High", 7),
-    PriorityOption("Critical", 9)
+    PriorityOption("Critical", 9),
+    PriorityOption("Urgent", 11)   // above sleep — displaces sleep window when needed
 )
 
 private val DAY_NAMES = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")

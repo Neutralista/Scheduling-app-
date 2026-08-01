@@ -54,10 +54,15 @@ class EventPlannerRegistry {
             if (schedule.crossesMidnight) ms + 24 * 3600_000L else ms
         } else null
 
+        // For night shifts that end at or past midnight, extend the planning window so
+        // AfterShift tasks have somewhere to land (up to 6 h past the shift end).
+        val effectiveEndMs = if (shiftEndMs != null && shiftEndMs >= dayEndMs)
+            shiftEndMs + 6 * 3600_000L else dayEndMs
+
         val freeBlocks = mutableListOf<TimeBlock>()
         if (isWorkDay && shiftStartMs != null && shiftEndMs != null) {
             if (shiftStartMs > dayStartMs) freeBlocks += TimeBlock(dayStartMs, shiftStartMs)
-            if (shiftEndMs < dayEndMs)     freeBlocks += TimeBlock(shiftEndMs, dayEndMs)
+            if (shiftEndMs < effectiveEndMs) freeBlocks += TimeBlock(shiftEndMs, effectiveEndMs)
         } else {
             freeBlocks += TimeBlock(dayStartMs, dayEndMs)
         }
@@ -144,6 +149,43 @@ class EventPlannerRegistry {
             }
 
             if (!placed) blocked += BlockedEvent(event, "No available time in shift")
+        }
+
+        // Urgent tasks (priority > SLEEP) that still couldn't be placed may displace sleep.
+        // DuringShift urgents are excluded — sleeping during a shift makes no sense.
+        val urgentUnplaced = blocked.filter { b ->
+            b.event.priority > PlannerPriority.SLEEP &&
+            !b.event.conditions.any { it is EventCondition.DuringShift }
+        }
+        if (urgentUnplaced.isNotEmpty()) {
+            blocked.removeAll { b ->
+                b.event.priority > PlannerPriority.SLEEP &&
+                !b.event.conditions.any { it is EventCondition.DuringShift }
+            }
+            for (entry in urgentUnplaced.sortedByDescending { it.event.priority }) {
+                val event = entry.event
+                val durationMs = event.durationMinutes * 60_000L
+                val sleepSlots = scheduled
+                    .filter { it.event.category == EventCategory.SLEEP }
+                    .sortedBy { it.startMillis }
+                var placed = false
+                for (sleepSlot in sleepSlots) {
+                    val available = sleepSlot.endMillis - sleepSlot.startMillis
+                    if (available < durationMs) continue
+                    val taskStart = sleepSlot.startMillis
+                    val taskEnd   = taskStart + durationMs
+                    // Remove the original sleep entry; re-add trimmed remainder if ≥ 30 min.
+                    scheduled.removeIf { it.event.id == sleepSlot.event.id }
+                    scheduled += ScheduledEvent(event, taskStart, taskEnd)
+                    val remainingSleep = sleepSlot.endMillis - taskEnd
+                    if (remainingSleep >= 30 * 60_000L) {
+                        scheduled += ScheduledEvent(sleepSlot.event, taskEnd, sleepSlot.endMillis)
+                    }
+                    placed = true
+                    break
+                }
+                if (!placed) blocked += BlockedEvent(event, "No available time slot")
+            }
         }
 
         return DayPlan(date, scheduled.sortedBy { it.startMillis }, blocked)

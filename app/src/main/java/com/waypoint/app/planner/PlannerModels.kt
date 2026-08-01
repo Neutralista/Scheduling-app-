@@ -4,8 +4,9 @@ import java.time.LocalDate
 
 /** Canonical priority levels for planner events. */
 object PlannerPriority {
-    const val SHIFT = 99  // work shifts — immovable backbone; conceptual only
-    const val SLEEP = 10  // sleep windows — high priority but user-adjustable
+    const val SHIFT   = 99  // work shifts — immovable backbone; conceptual only
+    const val URGENT  = 11  // above sleep; displaces sleep windows when no free time remains
+    const val SLEEP   = 10  // sleep windows — high priority but displaceable by urgent tasks
 }
 
 /** Visual category — drives colour/rendering in the timeline, not scheduling. */
