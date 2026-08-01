@@ -306,19 +306,16 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
     // cross-midnight shift that was never ended (session still open).
     val yesterday = remember { Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) } }
     val yesterdayKey = remember { ws.dateKey(yesterday) }
-    val yesterdaySchedule = remember { ws.getSchedule(yesterday) }
     val initialYesterdaySession = remember { ws.getSession(yesterdayKey) }
     val isCarryover = remember {
         !todaySchedule.isWork
-            && yesterdaySchedule.isWork
-            && yesterdaySchedule.crossesMidnight
             && initialYesterdaySession.actualStartMillis != null
             && initialYesterdaySession.actualEndMillis == null
     }
 
     if (!todaySchedule.isWork && !isCarryover) return
 
-    val schedule = if (isCarryover) yesterdaySchedule else todaySchedule
+    val schedule = if (isCarryover) ws.getSchedule(yesterday) else todaySchedule
     val effectiveDateKey = if (isCarryover) yesterdayKey else ws.dateKey(Calendar.getInstance())
 
     val scope = rememberCoroutineScope()
