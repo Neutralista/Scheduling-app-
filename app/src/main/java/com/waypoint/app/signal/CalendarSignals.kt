@@ -32,6 +32,8 @@ interface CalendarSignals {
     suspend fun createEvent(title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Long
     /** Deletes an event by ID. Returns true if deleted. */
     suspend fun deleteEvent(eventId: Long): Boolean
+    /** Returns all events written by Waypoint (description = "Logged by Waypoint") within the last [lookbackDays] days, as (eventId, event) pairs. */
+    suspend fun queryWaypointEvents(lookbackDays: Int = 30): List<Pair<Long, CalendarEvent>>
 }
 
 class RealCalendarSignals(private val context: Context) : CalendarSignals {
@@ -132,6 +134,41 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         if (!hasWritePermission()) return@withContext false
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         context.contentResolver.delete(uri, null, null) > 0
+    }
+
+    override suspend fun queryWaypointEvents(lookbackDays: Int): List<Pair<Long, CalendarEvent>> = withContext(Dispatchers.IO) {
+        if (!hasPermission()) return@withContext emptyList()
+        val cutoffMs = System.currentTimeMillis() - lookbackDays * 86_400_000L
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND
+        )
+        val selection = "${CalendarContract.Events.DESCRIPTION} = ? AND ${CalendarContract.Events.DTSTART} > ? AND ${CalendarContract.Events.DELETED} = 0"
+        val result = mutableListOf<Pair<Long, CalendarEvent>>()
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            projection,
+            selection,
+            arrayOf("Logged by Waypoint", cutoffMs.toString()),
+            "${CalendarContract.Events.DTSTART} DESC"
+        )?.use { cursor ->
+            val idIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)
+            val titleIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
+            val startIdx = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTSTART)
+            val endIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+            while (cursor.moveToNext()) {
+                result.add(cursor.getLong(idIdx) to CalendarEvent(
+                    title = cursor.getString(titleIdx) ?: "Work shift",
+                    startMillis = cursor.getLong(startIdx),
+                    endMillis = cursor.getLong(endIdx),
+                    allDay = false,
+                    calendarColor = 0
+                ))
+            }
+        }
+        result
     }
 
     /**

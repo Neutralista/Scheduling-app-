@@ -487,7 +487,9 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = {
                                     scope.launch {
+                                        val eventId = session.calendarEventId
                                         ws.resetTodaySession()
+                                        eventId?.let { ShiftCalendarSync.delete(context, it) }
                                         session = ws.getTodaySession()
                                         onRefresh()
                                     }
@@ -552,7 +554,9 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                         }
                         TextButton(onClick = {
                             scope.launch {
+                                val eventId = session.calendarEventId
                                 ws.resetTodaySession()
+                                eventId?.let { ShiftCalendarSync.delete(context, it) }
                                 session = ws.getTodaySession()
                                 onRefresh()
                             }

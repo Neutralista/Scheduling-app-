@@ -28,6 +28,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,9 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.ShiftCalendarSync
+import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.ShiftSession
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
@@ -52,14 +57,33 @@ import java.util.Calendar
 import java.util.Locale
 
 @Composable
-fun ShiftLogSheet(ws: WorkScheduleSignals, onDismiss: () -> Unit) {
+fun ShiftLogSheet(
+    ws: WorkScheduleSignals,
+    calendarSignals: CalendarSignals,
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sessions by remember { mutableStateOf(ws.getRecentSessions(30)) }
+    var calEvents by remember { mutableStateOf<List<Pair<Long, CalendarEvent>>>(emptyList()) }
     var editTarget by remember { mutableStateOf<Pair<String, ShiftSession>?>(null) }
     var showAdd by remember { mutableStateOf(false) }
 
-    fun reload() { sessions = ws.getRecentSessions(30) }
+    // Orphan calendar events: created by the app but no longer linked to any session
+    val linkedIds by remember(sessions) {
+        derivedStateOf { sessions.mapNotNull { it.second.calendarEventId }.toSet() }
+    }
+    val orphanEvents by remember(calEvents, linkedIds) {
+        derivedStateOf { calEvents.filter { (id, _) -> id !in linkedIds } }
+    }
+
+    fun reloadSessions() { sessions = ws.getRecentSessions(30) }
+    fun reloadCalendar() { scope.launch { calEvents = calendarSignals.queryWaypointEvents(30) } }
+    fun reload() { reloadSessions(); reloadCalendar() }
+
+    LaunchedEffect(Unit) { calEvents = calendarSignals.queryWaypointEvents(30) }
+
+    val isEmpty = sessions.isEmpty() && orphanEvents.isEmpty()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -81,7 +105,7 @@ fun ShiftLogSheet(ws: WorkScheduleSignals, onDismiss: () -> Unit) {
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                if (sessions.isEmpty()) {
+                if (isEmpty) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             "No logged shifts in the last 30 days",
@@ -91,7 +115,7 @@ fun ShiftLogSheet(ws: WorkScheduleSignals, onDismiss: () -> Unit) {
                     }
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
-                        items(sessions, key = { it.first }) { (dateKey, session) ->
+                        items(sessions, key = { "s_${it.first}" }) { (dateKey, session) ->
                             ShiftLogRow(
                                 dateKey = dateKey,
                                 session = session,
@@ -105,6 +129,24 @@ fun ShiftLogSheet(ws: WorkScheduleSignals, onDismiss: () -> Unit) {
                                 }
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        }
+
+                        if (orphanEvents.isNotEmpty()) {
+                            item {
+                                LogSectionLabel("Orphan calendar events")
+                            }
+                            items(orphanEvents, key = { "c_${it.first}" }) { (id, event) ->
+                                CalendarEventRow(
+                                    event = event,
+                                    onDelete = {
+                                        scope.launch {
+                                            calendarSignals.deleteEvent(id)
+                                            reloadCalendar()
+                                        }
+                                    }
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            }
                         }
                     }
                 }
@@ -141,12 +183,30 @@ fun ShiftLogSheet(ws: WorkScheduleSignals, onDismiss: () -> Unit) {
             onSave = { dateKey, session ->
                 scope.launch {
                     ws.saveSession(dateKey, session)
-                    reload()
+                    reloadSessions()
                     showAdd = false
                 }
             },
             onDismiss = { showAdd = false }
         )
+    }
+}
+
+@Composable
+private fun LogSectionLabel(text: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            letterSpacing = 0.4.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
 
@@ -181,11 +241,37 @@ private fun ShiftLogRow(
             )
         }
         IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Filled.Delete,
-                contentDescription = "Delete session",
-                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+            Icon(Icons.Filled.Delete, contentDescription = "Delete session", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+        }
+    }
+}
+
+@Composable
+private fun CalendarEventRow(event: CalendarEvent, onDelete: () -> Unit) {
+    val label = remember(event.startMillis) { shiftDateLabel(dateKeyFromMs(event.startMillis)) }
+    val startStr = shiftFormatMs(event.startMillis)
+    val endStr = shiftFormatMs(event.endMillis)
+    val durStr = shiftElapsed(event.endMillis - event.startMillis)
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface
             )
+            Text(
+                "$startStr – $endStr  ·  $durStr",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete calendar event", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
         }
     }
 }
@@ -209,17 +295,11 @@ private fun ShiftEditDialog(
         title = { Text("Edit shift · $label") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Start", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
                     TimePickerChip(value = startTime, onValueChange = { startTime = it })
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("End", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
                     TimePickerChip(value = endTime, onValueChange = { endTime = it })
                 }
@@ -227,9 +307,7 @@ private fun ShiftEditDialog(
                 TextButton(
                     onClick = onDelete,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete this session")
-                }
+                ) { Text("Delete this session") }
             }
         },
         confirmButton = {
@@ -267,17 +345,11 @@ private fun ShiftAddDialog(
                     supportingText = if (dateError) ({ Text("Invalid date format") }) else null,
                     singleLine = true
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Start", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
                     TimePickerChip(value = startTime, onValueChange = { startTime = it })
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("End", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(40.dp))
                     TimePickerChip(value = endTime, onValueChange = { endTime = it })
                 }
@@ -312,6 +384,11 @@ private fun shiftElapsed(ms: Long): String {
 private fun shiftDateLabel(dateKey: String): String = try {
     LocalDate.parse(dateKey).format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()))
 } catch (_: Exception) { dateKey }
+
+private fun dateKeyFromMs(millis: Long): String {
+    val c = Calendar.getInstance().apply { timeInMillis = millis }
+    return "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+}
 
 private fun shiftParseTime(dateKey: String, timeStr: String, afterMs: Long? = null): Long? {
     val time = ShiftTime.parse(timeStr) ?: return null

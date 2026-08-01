@@ -335,6 +335,6 @@ private fun PlanTab(
     }
 
     if (showShiftLog) {
-        ShiftLogSheet(ws = workSchedule, onDismiss = { showShiftLog = false })
+        ShiftLogSheet(ws = workSchedule, calendarSignals = calendarSignals, onDismiss = { showShiftLog = false })
     }
 }
