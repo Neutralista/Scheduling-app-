@@ -108,6 +108,12 @@ interface WorkScheduleSignals {
     suspend fun resetTodaySession()
     suspend fun updateShiftCalendarEventId(eventId: Long)
 
+    // Shift log — read/write/delete sessions for any date
+    fun getSession(dateKey: String): ShiftSession
+    suspend fun saveSession(dateKey: String, session: ShiftSession)
+    suspend fun deleteSession(dateKey: String)
+    fun getRecentSessions(days: Int = 30): List<Pair<String, ShiftSession>>
+
     /**
      * Scheduled time (epoch millis) for an after-work event.
      * Uses actualEndMillis when available; falls back to planned shiftEnd.
@@ -236,6 +242,31 @@ class RealWorkScheduleSignals(context: Context) : WorkScheduleSignals {
     override suspend fun updateShiftCalendarEventId(eventId: Long) = withContext(Dispatchers.IO) {
         val session = getTodaySession().copy(calendarEventId = eventId)
         prefs.edit().putString(sessionKey(), json.encodeToString(session)).apply()
+    }
+
+    override fun getSession(dateKey: String): ShiftSession {
+        val raw = prefs.getString("session_$dateKey", null) ?: return ShiftSession()
+        return try { json.decodeFromString(raw) } catch (_: Exception) { ShiftSession() }
+    }
+
+    override suspend fun saveSession(dateKey: String, session: ShiftSession) = withContext(Dispatchers.IO) {
+        prefs.edit().putString("session_$dateKey", json.encodeToString(session)).apply()
+    }
+
+    override suspend fun deleteSession(dateKey: String) = withContext(Dispatchers.IO) {
+        prefs.edit().remove("session_$dateKey").apply()
+    }
+
+    override fun getRecentSessions(days: Int): List<Pair<String, ShiftSession>> {
+        val result = mutableListOf<Pair<String, ShiftSession>>()
+        for (i in 0 until days) {
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -i) }
+            val key = dateKey(cal)
+            val raw = prefs.getString("session_$key", null) ?: continue
+            val session = try { json.decodeFromString<ShiftSession>(raw) } catch (_: Exception) { continue }
+            if (session.actualStartMillis != null) result.add(key to session)
+        }
+        return result
     }
 
     // ── After-work events ─────────────────────────────────────────────────

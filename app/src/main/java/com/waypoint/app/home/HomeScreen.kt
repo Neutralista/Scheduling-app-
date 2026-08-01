@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -242,6 +244,7 @@ private fun PlanTab(
     val selectedDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
     var calRefreshKey by remember { mutableIntStateOf(0) }
+    var showShiftLog by remember { mutableStateOf(false) }
 
     // Refresh calendar whenever the Plan tab enters composition (app open or tab switch)
     LaunchedEffect(Unit) { calRefreshKey++ }
@@ -309,6 +312,16 @@ private fun PlanTab(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            TextButton(
+                onClick = { showShiftLog = true },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "Log",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         DayTimelineView(
@@ -319,5 +332,9 @@ private fun PlanTab(
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f)
         )
+    }
+
+    if (showShiftLog) {
+        ShiftLogSheet(ws = workSchedule, onDismiss = { showShiftLog = false })
     }
 }
