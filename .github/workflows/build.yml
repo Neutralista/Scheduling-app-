@@ -41,12 +41,17 @@ jobs:
             echo "SIGNING_STORE_PATH=/tmp/waypoint.jks" >> $GITHUB_ENV
           fi
 
-      - name: Bump patch version
+      - name: Bump version
         run: |
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           CODE=$(grep 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
           IFS='.' read -r major minor patch <<< "$VERSION"
-          NEW_VERSION="$major.$minor.$((patch + 1))"
+          MSG="${{ github.event.head_commit.message }}"
+          if echo "$MSG" | grep -qiE '^feat(\(.+\))?[!:]'; then
+            NEW_VERSION="$major.$((minor + 1)).0"
+          else
+            NEW_VERSION="$major.$minor.$((patch + 1))"
+          fi
           NEW_CODE=$((CODE + 1))
           sed -i "s/versionCode = $CODE/versionCode = $NEW_CODE/" app/build.gradle.kts
           sed -i "s/versionName = \"$VERSION\"/versionName = \"$NEW_VERSION\"/" app/build.gradle.kts
