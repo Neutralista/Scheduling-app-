@@ -72,18 +72,22 @@ class SleepCheckReceiver : BroadcastReceiver() {
         val sleepStore = SleepScheduleStore(context)
         val s = sleepStore.load()
         val idealWakeMs = sleepStartMs + s.targetSleepMinutes * 60_000L
+        val now = System.currentTimeMillis()
 
         AppLogger.i(TAG, "adjustWake: sleepStart=$sleepStartMs targetMin=${s.targetSleepMinutes} " +
                 "idealWake=$idealWakeMs currentWake=$currentWakeMs")
 
-        if (idealWakeMs <= currentWakeMs) {
-            AppLogger.i(TAG, "adjustWake: ideal wake is not later than current, no adjustment")
+        // Skip if ideal wake is already past or less than 30 min away — alarm would be useless
+        if (idealWakeMs <= now + 30 * 60_000L) {
+            AppLogger.i(TAG, "adjustWake: ideal wake too close or in the past, skipping")
             return
         }
 
-        // Ceiling = shiftStart − morningBuffer on the calendar day the wake alarm is set for
+        // Ceiling = shiftStart − morningBuffer on the day the ideal wake falls on.
+        // Using idealWakeMs (not currentWakeMs) so the ceiling reflects the shift the user
+        // would work after waking at the rescheduled time, not the originally-planned wake day.
         val ws = RealWorkScheduleSignals(context)
-        val wakeDayCal = Calendar.getInstance().apply { timeInMillis = currentWakeMs }
+        val wakeDayCal = Calendar.getInstance().apply { timeInMillis = idealWakeMs }
         val wakeSchedule = ws.getSchedule(wakeDayCal)
 
         val ceilingMs: Long = if (wakeSchedule.isWork && wakeSchedule.shiftStart != null) {
@@ -93,7 +97,7 @@ class SleepCheckReceiver : BroadcastReceiver() {
                 return
             }
             Calendar.getInstance().apply {
-                timeInMillis = currentWakeMs
+                timeInMillis = idealWakeMs
                 set(Calendar.HOUR_OF_DAY, latestWakeMin / 60)
                 set(Calendar.MINUTE, latestWakeMin % 60)
                 set(Calendar.SECOND, 0)
@@ -104,12 +108,20 @@ class SleepCheckReceiver : BroadcastReceiver() {
         }
 
         val newWakeMs = minOf(idealWakeMs, ceilingMs)
-        if (newWakeMs <= currentWakeMs) {
-            AppLogger.i(TAG, "adjustWake: ceiling=$ceilingMs caps new wake at $newWakeMs, no gain")
+
+        // If we'd be moving wake later but the shift ceiling blocks it below current, no benefit
+        if (idealWakeMs > currentWakeMs && newWakeMs <= currentWakeMs) {
+            AppLogger.i(TAG, "adjustWake: ceiling=$ceilingMs caps later adjustment below current, skipping")
             return
         }
 
-        AppLogger.i(TAG, "adjustWake: rescheduling wake $currentWakeMs → $newWakeMs (ceiling=$ceilingMs)")
+        if (newWakeMs == currentWakeMs) {
+            AppLogger.i(TAG, "adjustWake: no change needed")
+            return
+        }
+
+        val direction = if (newWakeMs > currentWakeMs) "later" else "earlier"
+        AppLogger.i(TAG, "adjustWake: rescheduling wake $direction: $currentWakeMs → $newWakeMs (ceiling=$ceilingMs)")
         WakeAlarmScheduler.scheduleAlarms(context, newWakeMs)
         val bedMs = logStore.getScheduledBedMs() ?: (sleepStartMs - s.targetSleepMinutes * 60_000L)
         logStore.updateScheduledTimes(bedMs, newWakeMs)
