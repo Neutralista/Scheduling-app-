@@ -225,7 +225,94 @@ fun DayTimelineView(
                     }
                 }
 
-                // Calendar event blocks — rendered first so planner events appear on top.
+                // Merge today's events with next-day events that fall inside the 4AM-4AM window,
+                // stitching adjacent blocks of the same logical event into one continuous bar.
+                val mergedScheduled = run {
+                    val combined = (plan.scheduled +
+                        nextDayScheduled.filter { it.startMillis < viewEndMs })
+                        .sortedBy { it.startMillis }
+                    val out = mutableListOf<ScheduledEvent>()
+                    for (se in combined) {
+                        val last = out.lastOrNull()
+                        if (last != null && last.endMillis == se.startMillis &&
+                            (last.event.id == se.event.id ||
+                             (last.event.category == EventCategory.SLEEP &&
+                              se.event.category == EventCategory.SLEEP))
+                        ) {
+                            out[out.size - 1] = last.copy(endMillis = se.endMillis)
+                        } else {
+                            out += se
+                        }
+                    }
+                    out
+                }
+
+                // ── Free time windows ────────────────────────────────────────────────
+                // Compute gaps ≥ 15 min between the shift block and all scheduled events.
+                val viewTotalMin = TOTAL_HOURS * 60
+                val occupiedRanges = run {
+                    val raw = mutableListOf<Pair<Int, Int>>()
+                    if (dateSchedule.isWork && shiftStartMin != null && shiftEndMin != null)
+                        raw += shiftStartMin to shiftEndMin
+                    mergedScheduled.forEach { se ->
+                        val s = msToMin(se.startMillis, viewStartMs)
+                        val e = msToMin(se.endMillis,   viewStartMs)
+                        if (e > s) raw += s to e
+                    }
+                    // Merge overlapping / adjacent intervals
+                    val sorted = raw.sortedBy { it.first }
+                    val merged = mutableListOf<Pair<Int, Int>>()
+                    for ((s, e) in sorted) {
+                        val last = merged.lastOrNull()
+                        if (last != null && s <= last.second)
+                            merged[merged.size - 1] = last.first to maxOf(last.second, e)
+                        else merged += s to e
+                    }
+                    merged
+                }
+                val freeWindows = mutableListOf<Pair<Int, Int>>()
+                var fwCursor = 0
+                for ((occStart, occEnd) in occupiedRanges) {
+                    val gapStart = fwCursor.coerceAtLeast(0)
+                    val gapEnd   = occStart.coerceAtMost(viewTotalMin)
+                    if (gapEnd > gapStart && gapEnd - gapStart >= 15) freeWindows += gapStart to gapEnd
+                    if (occEnd > fwCursor) fwCursor = occEnd
+                }
+                run {
+                    val gapStart = fwCursor.coerceAtLeast(0)
+                    if (viewTotalMin > gapStart && viewTotalMin - gapStart >= 15)
+                        freeWindows += gapStart to viewTotalMin
+                }
+                freeWindows.forEach { (startMin, endMin) ->
+                    val startY = minToY(startMin)
+                    val blockH = (minToY(endMin) - startY).coerceAtLeast(4.dp)
+                    val durMin = endMin - startMin
+                    val durLabel = if (durMin >= 60) {
+                        val h = durMin / 60; val m = durMin % 60
+                        if (m > 0) "${h}h ${m}m" else "${h}h"
+                    } else "${durMin}m"
+                    Box(
+                        Modifier
+                            .yOffset(startY)
+                            .fillMaxWidth()
+                            .height(blockH)
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(onSV.copy(alpha = 0.03f))
+                            .border(1.dp, onSV.copy(alpha = 0.10f), RoundedCornerShape(4.dp))
+                    ) {
+                        if (blockH >= 20.dp) {
+                            Text(
+                                text = "free · $durLabel",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = onSV.copy(alpha = 0.30f)
+                            )
+                        }
+                    }
+                }
+
+                // Calendar event blocks — rendered after free windows so they appear on top.
                 // Skip "Sleep" events: the planner registry already renders them, and orphan
                 // sleep calendar events should not appear as a duplicate block.
                 calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
@@ -270,31 +357,6 @@ fun DayTimelineView(
                 }
 
                 // Planner event blocks
-                // Merge today's events with post-midnight next-day events that fall inside
-                // the 4AM-4AM window, then stitch adjacent blocks into one continuous bar.
-                val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
-                val mergedScheduled = run {
-                    val combined = (plan.scheduled +
-                        nextDayScheduled.filter { it.startMillis < viewEndMs })
-                        .sortedBy { it.startMillis }
-                    // Stitch adjacent blocks of the same logical event:
-                    // - same event ID (fixed cross-midnight events split at midnight), or
-                    // - both SLEEP category
-                    val out = mutableListOf<ScheduledEvent>()
-                    for (se in combined) {
-                        val last = out.lastOrNull()
-                        if (last != null && last.endMillis == se.startMillis &&
-                            (last.event.id == se.event.id ||
-                             (last.event.category == EventCategory.SLEEP &&
-                              se.event.category == EventCategory.SLEEP))
-                        ) {
-                            out[out.size - 1] = last.copy(endMillis = se.endMillis)
-                        } else {
-                            out += se
-                        }
-                    }
-                    out
-                }
                 val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
                 val sleepAccent = Color(0xFF6B8ABD)
                 var habitIdx = 0
