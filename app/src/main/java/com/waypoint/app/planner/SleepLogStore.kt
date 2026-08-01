@@ -164,6 +164,11 @@ class SleepLogStore(context: Context) {
         return try { json.decodeFromString(raw) } catch (_: Exception) { null }
     }
 
+    fun loadForDate(dateIso: String): SleepLogEntry? {
+        val raw = prefs.getString("log_$dateIso", null) ?: return null
+        return try { json.decodeFromString(raw) } catch (_: Exception) { null }
+    }
+
     fun loadRecent(days: Int = 7): List<SleepLogEntry> {
         val today = LocalDate.now()
         return (0 until days).mapNotNull { offset ->

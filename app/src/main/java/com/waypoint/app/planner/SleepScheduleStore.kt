@@ -197,18 +197,37 @@ class SleepScheduleStore(private val context: Context) {
         }
 
         val today = LocalDate.now()
+        val logStore = SleepLogStore(context)
         var prevNightDate: LocalDate? = null
         var prevNightEffective: EffectiveSleepTimes? = null
 
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
+
+            // For past nights: if sleep was already logged, register actual times and skip planning
+            if (dayOffset < 0) {
+                val logged = logStore.loadForDate(date.plusDays(1).toString())
+                if (logged != null && logged.wakeMillis > logged.bedMillis) {
+                    registry.register(PlannerEvent(
+                        id = "sleep_$date",
+                        title = "Sleep",
+                        durationMinutes = ((logged.wakeMillis - logged.bedMillis) / 60_000L).toInt(),
+                        priority = PlannerPriority.SLEEP,
+                        category = EventCategory.SLEEP,
+                        fixedStartMillis = logged.bedMillis,
+                        fixedEndMillis = logged.wakeMillis
+                    ))
+                    AppLogger.i("SleepSync", "syncToRegistry: logged sleep for $date, skipping plan")
+                    continue
+                }
+            }
+
             val plan = registry.planForDate(date, ws)
             val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
             val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
 
             // If the user manually delayed today's sleep window, preserve it on refresh
             if (dayOffset == 0) {
-                val logStore = SleepLogStore(context)
                 val now = System.currentTimeMillis()
                 if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE) {
                     val storedBedMs = logStore.getScheduledBedMs()
@@ -278,7 +297,6 @@ class SleepScheduleStore(private val context: Context) {
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
                 _scheduledTimes.value = bedMs to wakeMs
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
-                val logStore = SleepLogStore(context)
                 // Don't overwrite cached sleep window while sleep mode is active:
                 // after midnight LocalDate.now() advances to the next day, so syncToRegistry
                 // would cache tomorrow night's times, breaking maybeNudge for the remainder

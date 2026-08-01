@@ -196,9 +196,20 @@ fun ShiftLogSheet(
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         }
                         items(sleepOrphans, key = { "slc_${it.first}" }) { (id, event) ->
-                            CalendarEventRow(
+                            SleepOrphanRow(
                                 event = event,
-                                label = "orphan",
+                                onAdopt = {
+                                    scope.launch {
+                                        sleepStore.saveEntry(SleepLogEntry(
+                                            dateIso = dateKeyFromMs(event.endMillis),
+                                            bedMillis = event.startMillis,
+                                            wakeMillis = event.endMillis,
+                                            calendarEventId = id
+                                        ))
+                                        reloadSleep()
+                                        reloadCalendar()
+                                    }
+                                },
                                 onDelete = {
                                     scope.launch {
                                         calendarSignals.deleteEvent(id)
@@ -414,6 +425,44 @@ private fun CalendarEventRow(event: CalendarEvent, label: String = "orphan", onD
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete calendar event", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+        }
+    }
+}
+
+@Composable
+private fun SleepOrphanRow(event: CalendarEvent, onAdopt: () -> Unit, onDelete: () -> Unit) {
+    val dateLabel = remember(event.startMillis) { shiftDateLabel(dateKeyFromMs(event.startMillis)) }
+    val startStr = shiftFormatMs(event.startMillis)
+    val endStr = shiftFormatMs(event.endMillis)
+    val durStr = shiftElapsed(event.endMillis - event.startMillis)
+
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    dateLabel,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    "orphan",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+            Text(
+                "$startStr – $endStr  ·  $durStr",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(onClick = onAdopt) { Text("Adopt", style = MaterialTheme.typography.labelMedium) }
         IconButton(onClick = onDelete) {
             Icon(Icons.Filled.Delete, contentDescription = "Delete calendar event", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
         }
