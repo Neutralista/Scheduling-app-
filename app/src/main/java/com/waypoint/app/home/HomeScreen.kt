@@ -126,7 +126,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
-                1 -> TasksTab(workSchedule = workSchedule, onRefresh = { headerRefreshKey++ })
+                1 -> TasksTab(workSchedule = workSchedule, registry = eventPlanner, onRefresh = { headerRefreshKey++ })
                 2 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,

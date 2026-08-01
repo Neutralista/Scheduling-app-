@@ -61,12 +61,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.persistence.TaskEntry
 import com.waypoint.app.persistence.TaskStore
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.ShiftCalendarSync
+import com.waypoint.app.planner.SleepCalendarSync
+import com.waypoint.app.planner.SleepCheckReceiver
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
+import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.ui.components.TimePickerChip
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -79,7 +87,11 @@ private enum class StartDialog { NONE, ON_TIME, HOW_TO_LOG, TIME_PICKER }
 // ── Tab root ──────────────────────────────────────────────────────────────────
 
 @Composable
-fun TasksTab(workSchedule: WorkScheduleSignals, onRefresh: () -> Unit = {}) {
+fun TasksTab(
+    workSchedule: WorkScheduleSignals,
+    registry: EventPlannerRegistry,
+    onRefresh: () -> Unit = {}
+) {
     val context = LocalContext.current
     val store = remember { TaskStore(context) }
 
@@ -157,6 +169,7 @@ fun TasksTab(workSchedule: WorkScheduleSignals, onRefresh: () -> Unit = {}) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         ShiftTaskRow(ws = workSchedule, context = context, onRefresh = onRefresh)
+        SleepTaskRow(ws = workSchedule, registry = registry, context = context, onRefresh = onRefresh)
 
         if (tasks.isEmpty()) {
             Column(
@@ -657,6 +670,233 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                 TextButton(onClick = { dialog = StartDialog.NONE }) { Text("Cancel") }
             }
         )
+    }
+}
+
+// ── Sleep task card ───────────────────────────────────────────────────────────
+
+@Composable
+private fun SleepTaskRow(
+    ws: WorkScheduleSignals,
+    registry: EventPlannerRegistry,
+    context: Context,
+    onRefresh: () -> Unit
+) {
+    val schedule = SleepScheduleStore(context).load()
+    if (!schedule.enabled) return
+
+    val logStore = remember { SleepLogStore(context) }
+    val schedStore = remember { SleepScheduleStore(context) }
+    val scope = rememberCoroutineScope()
+    var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
+    var todayEntry by remember { mutableStateOf(logStore.loadToday()) }
+
+    LaunchedEffect(Unit) {
+        val logged = logStore.recordPhoneActive()
+        sleepState = logStore.getSleepModeState()
+        if (logged) {
+            todayEntry = logStore.loadToday()
+            val entry = todayEntry
+            if (entry != null) {
+                SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, null)
+                todayEntry = logStore.loadToday()
+            }
+            withContext(Dispatchers.IO) { schedStore.syncToRegistry(registry, ws) }
+            onRefresh()
+        }
+    }
+
+    val bedStr = schedule.preferredBedTime.displayString
+    val wakeStr = schedule.preferredWakeTime.displayString
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$bedStr – $wakeStr",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            val badgeLogged = todayEntry != null
+            val badgeText = when {
+                badgeLogged -> "Logged"
+                sleepState == SleepModeState.SLEEPING -> "Sleeping"
+                sleepState == SleepModeState.MONITORING -> "Monitoring"
+                else -> "Sleep"
+            }
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (badgeLogged) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = badgeText,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (badgeLogged) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 14.dp)
+        ) {
+            when {
+                todayEntry != null -> {
+                    val entry = todayEntry!!
+                    val durMins = ((entry.wakeMillis - entry.bedMillis) / 60_000L).toInt()
+                    val h = durMins / 60; val m = durMins % 60
+                    val durText = if (m == 0) "${h}h" else "${h}h ${m}m"
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Woke at ${formatShiftTime(entry.wakeMillis)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${formatShiftTime(entry.bedMillis)} – ${formatShiftTime(entry.wakeMillis)} · $durText",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        TextButton(onClick = {
+                            scope.launch {
+                                val eventId = todayEntry?.calendarEventId
+                                logStore.clearToday()
+                                if (eventId != null) {
+                                    SleepCalendarSync.delete(context, eventId)
+                                }
+                                todayEntry = null
+                                withContext(Dispatchers.IO) { schedStore.syncToRegistry(registry, ws) }
+                                onRefresh()
+                            }
+                        }) {
+                            Text(
+                                "Reset",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                sleepState == SleepModeState.SLEEPING -> {
+                    val startText = logStore.getSleepStartMillis()
+                        ?.let { formatShiftTime(it) } ?: "--:--"
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Sleep detected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = "Onset · $startText",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        OutlinedButton(onClick = {
+                            val sleepStart = logStore.getSleepStartMillis()
+                            val now = System.currentTimeMillis()
+                            val oldEventId = todayEntry?.calendarEventId
+                            if (sleepStart != null && now > sleepStart) {
+                                logStore.logManual(sleepStart, now)
+                                scope.launch {
+                                    val entry = logStore.loadToday()
+                                    if (entry != null) {
+                                        SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, oldEventId)
+                                    }
+                                    todayEntry = logStore.loadToday()
+                                    withContext(Dispatchers.IO) { schedStore.syncToRegistry(registry, ws) }
+                                    onRefresh()
+                                }
+                            }
+                            logStore.cancelSleepMode()
+                            SleepCheckReceiver.cancel(context)
+                            sleepState = SleepModeState.IDLE
+                        }) {
+                            Text("Done", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+
+                sleepState == SleepModeState.MONITORING -> {
+                    val sinceText = logStore.getSleepModeStartMillis()
+                        ?.let { formatShiftTime(it) } ?: "--:--"
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Sleep mode active",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Monitoring since $sinceText",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        OutlinedButton(onClick = {
+                            logStore.cancelSleepMode()
+                            SleepCheckReceiver.cancel(context)
+                            sleepState = SleepModeState.IDLE
+                        }) {
+                            Text("Cancel", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+
+                else -> {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Bed at $bedStr",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(onClick = {
+                            logStore.enterSleepMode()
+                            SleepCheckReceiver.scheduleNextCheck(context)
+                            sleepState = SleepModeState.MONITORING
+                        }) {
+                            Text("Sleep mode", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
