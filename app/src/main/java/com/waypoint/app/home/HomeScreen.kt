@@ -52,13 +52,16 @@ import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.persistence.TaskStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -240,6 +243,9 @@ private fun PlanTab(
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val sleepStore = remember { SleepScheduleStore(context) }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
@@ -304,7 +310,14 @@ private fun PlanTab(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = { calRefreshKey++ }) {
+            IconButton(onClick = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        sleepStore.syncToRegistry(eventPlanner, workSchedule)
+                    }
+                    calRefreshKey++
+                }
+            }) {
                 Icon(
                     Icons.Filled.Refresh,
                     contentDescription = "Refresh calendar",

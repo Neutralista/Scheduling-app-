@@ -83,9 +83,9 @@ fun DayTimelineView(
     val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
     val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
-    var plan by remember(date) { mutableStateOf(registry.planForDate(date, ws)) }
+    var plan by remember(date, refreshKey) { mutableStateOf(registry.planForDate(date, ws)) }
     // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window
-    var nextDayScheduled by remember(date) {
+    var nextDayScheduled by remember(date, refreshKey) {
         mutableStateOf(registry.planForDate(date.plusDays(1), ws).scheduled)
     }
     val dateSchedule = remember(date) { ws.getSchedule(dateCal) }
