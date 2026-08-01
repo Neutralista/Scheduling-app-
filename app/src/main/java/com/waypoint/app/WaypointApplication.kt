@@ -60,11 +60,10 @@ class WaypointApplication : Application() {
                 ScriptRegistry.register(module, env)
             }
 
-            NotificationHelper.createChannel(this)
             NotificationHelper.createShiftChannel(this)
             NotificationHelper.createScriptsChannel(this)
             SleepNotificationHelper.createChannels(this)
-            ReminderScheduler.schedule(this, hourOfDay = 9)
+            ReminderScheduler.cancel(this) // daily habit reminder disabled until habits feature is built
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
         } catch (e: Throwable) {
