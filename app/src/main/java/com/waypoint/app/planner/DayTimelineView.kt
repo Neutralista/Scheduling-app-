@@ -259,6 +259,11 @@ fun DayTimelineView(
                         val e = msToMin(se.endMillis,   viewStartMs)
                         if (e > s) raw += s to e
                     }
+                    calEvents.filter { !it.allDay }.forEach { evt ->
+                        val s = msToMin(evt.startMillis, viewStartMs)
+                        val e = msToMin(evt.endMillis,   viewStartMs)
+                        if (e > s) raw += s to e
+                    }
                     // Merge overlapping / adjacent intervals
                     val sorted = raw.sortedBy { it.first }
                     val merged = mutableListOf<Pair<Int, Int>>()
