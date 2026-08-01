@@ -61,14 +61,26 @@ import androidx.health.connect.client.PermissionController
 import com.waypoint.app.AppLogger
 import com.waypoint.app.LogEntry
 import com.waypoint.app.LogLevel
+import com.waypoint.app.script.AppScript
+import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.HealthConnectAvailability
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SettingsTab(onPermissionGranted: () -> Unit) {
+fun SettingsTab(
+    onPermissionGranted: () -> Unit,
+    scripts: List<AppScript> = emptyList(),
+    statesById: Map<String, ScriptState> = emptyMap(),
+    onStateChange: (String, ScriptState) -> Unit = { _, _ -> },
+    onAddScript: (String) -> String? = { null },
+    onUpdateScript: (id: String, newSource: String) -> String? = { _, _ -> null },
+    onRemoveScript: (String) -> Unit = {},
+    onResetScript: (String) -> Unit = {}
+) {
     var showLogs by remember { mutableStateOf(false) }
+    var showScripts by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -121,6 +133,25 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
         )
 
         Text(
+            text = "Scripts",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Add and manage custom JS scripts",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = { showScripts = true }) { Text("Manage Scripts") }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Text(
             text = "Developer",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onBackground
@@ -154,6 +185,49 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
 
     if (showLogs) {
         LogViewerDialog(onDismiss = { showLogs = false })
+    }
+
+    if (showScripts) {
+        Dialog(
+            onDismissRequest = { showScripts = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showScripts = false }) { Text("Close") }
+                        Text(
+                            text = "Scripts",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f).padding(start = 4.dp)
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    ScriptsTab(
+                        scripts = scripts,
+                        statesById = statesById,
+                        onStateChange = onStateChange,
+                        onAddScript = onAddScript,
+                        onUpdateScript = onUpdateScript,
+                        onRemoveScript = onRemoveScript,
+                        onResetScript = onResetScript
+                    )
+                }
+            }
+        }
     }
 }
 

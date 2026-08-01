@@ -84,7 +84,7 @@ fun HomeScreen(
     onPermissionGranted: () -> Unit,
     initialTab: Int = 0
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 5 }
     val scope = rememberCoroutineScope()
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     val context = LocalContext.current
@@ -109,7 +109,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "Tasks", "Scripts", "Widgets", "Alarms", "Settings")
+            listOf("Plan", "Tasks", "Widgets", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -127,22 +127,22 @@ fun HomeScreen(
             when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
                 1 -> TasksTab(workSchedule = workSchedule, onRefresh = { headerRefreshKey++ })
-                2 -> ScriptsTab(
+                2 -> WidgetsTab(
+                    widgets = widgets,
+                    statesById = statesById,
+                    onStateChange = onStateChange
+                )
+                3 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                4 -> SettingsTab(
+                    onPermissionGranted = onPermissionGranted,
                     scripts = scripts,
                     statesById = statesById,
                     onStateChange = onStateChange,
                     onAddScript = onAddScript,
                     onUpdateScript = onUpdateScript,
                     onRemoveScript = onRemoveScript,
-                    onResetScript = { id -> onResetScript(id) }
+                    onResetScript = onResetScript
                 )
-                3 -> WidgetsTab(
-                    widgets = widgets,
-                    statesById = statesById,
-                    onStateChange = onStateChange
-                )
-                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                5 -> SettingsTab(onPermissionGranted = onPermissionGranted)
                 else -> Box(Modifier.fillMaxSize())
             }
         }
