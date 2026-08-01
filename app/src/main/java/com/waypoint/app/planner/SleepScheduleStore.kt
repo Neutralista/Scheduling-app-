@@ -105,6 +105,7 @@ class SleepScheduleStore(private val context: Context) {
         SleepAlarmScheduler.scheduleAlarms(context, newBedMs, newWakeMs)
         WakeAlarmScheduler.scheduleAlarms(context, newWakeMs)
         logStore.updateScheduledTimes(newBedMs, newWakeMs)
+        logStore.setRescheduledToday()
         SleepNotificationHelper.showAlarmStatus(context, newBedMs, newWakeMs)
         _scheduledTimes.value = newBedMs to newWakeMs
 
@@ -151,6 +152,28 @@ class SleepScheduleStore(private val context: Context) {
             val plan = registry.planForDate(date, ws)
             val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
             val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
+
+            // If the user manually delayed today's sleep window, preserve it on refresh
+            if (dayOffset == 0) {
+                val logStore = SleepLogStore(context)
+                val now = System.currentTimeMillis()
+                if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE) {
+                    val storedBedMs = logStore.getScheduledBedMs()
+                    val storedWakeMs = logStore.getScheduledWakeMs()
+                    if (storedBedMs != null && storedWakeMs != null && storedWakeMs > now) {
+                        val bedShift = Calendar.getInstance().apply { timeInMillis = storedBedMs }
+                            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+                        val wakeShift = Calendar.getInstance().apply { timeInMillis = storedWakeMs }
+                            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+                        registerSleepEventForDate(registry, date, wakeShift, bedShift)
+                        _scheduledTimes.value = storedBedMs to storedWakeMs
+                        SleepNotificationHelper.showAlarmStatus(context, storedBedMs, storedWakeMs)
+                        AppLogger.i("SleepSync", "syncToRegistry: preserving manual reschedule bedMs=$storedBedMs wakeMs=$storedWakeMs")
+                        continue
+                    }
+                }
+            }
+
             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
 
             if (dayOffset == -1) {

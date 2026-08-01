@@ -53,8 +53,14 @@ fun SleepScheduleCard(
     var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
     var scheduledBedMs by remember { mutableStateOf(logStore.getScheduledBedMs()) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var rescheduledBedMs by remember { mutableStateOf<Long?>(null) }
-    var rescheduledWakeMs by remember { mutableStateOf<Long?>(null) }
+    // Restore rescheduled display state from the persisted flag so it survives tab navigation
+    val initialRescheduled = remember {
+        if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE)
+            logStore.getScheduledBedMs() to logStore.getScheduledWakeMs()
+        else null to null
+    }
+    var rescheduledBedMs by remember { mutableStateOf(initialRescheduled.first) }
+    var rescheduledWakeMs by remember { mutableStateOf(initialRescheduled.second) }
 
     LaunchedEffect(Unit) {
         while (true) {
