@@ -41,10 +41,21 @@ jobs:
             echo "SIGNING_STORE_PATH=/tmp/waypoint.jks" >> $GITHUB_ENV
           fi
 
-      - name: Read version name
+      - name: Bump patch version
         run: |
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          CODE=$(grep 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          NEW_VERSION="$major.$minor.$((patch + 1))"
+          NEW_CODE=$((CODE + 1))
+          sed -i "s/versionCode = $CODE/versionCode = $NEW_CODE/" app/build.gradle.kts
+          sed -i "s/versionName = \"$VERSION\"/versionName = \"$NEW_VERSION\"/" app/build.gradle.kts
+          echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Build debug APK
         run: bash gradlew assembleDebug --stacktrace
