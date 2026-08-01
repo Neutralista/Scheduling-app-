@@ -33,6 +33,7 @@ interface ScriptEnvironment {
     val alarms: AlarmSignals
     val workSchedule: WorkScheduleSignals
     val eventPlanner: EventPlannerRegistry
+    val taskManager: TaskManagerScript
     val sleepStore: SleepScheduleStore
     val memory: SharedMemoryStore
     val streak: StreakStore

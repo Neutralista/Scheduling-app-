@@ -11,6 +11,7 @@ import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.script.ScriptRegistry
 import com.waypoint.app.script.ScriptStore
 import com.waypoint.app.script.SleepScheduleScript
+import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.script.WorkScheduleScript
 import com.waypoint.app.signal.RealScriptEnvironment
 import kotlinx.coroutines.MainScope
@@ -45,9 +46,10 @@ class WaypointApplication : Application() {
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
 
-            // Register built-in scripts
+            // Register built-in scripts — task manager first so it's ready for others
+            ScriptRegistry.register(env.taskManager, env)
             ScriptRegistry.register(
-                WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh),
+                WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh, env.taskManager),
                 env
             )
             ScriptRegistry.register(

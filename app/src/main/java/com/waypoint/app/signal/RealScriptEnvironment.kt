@@ -10,8 +10,10 @@ import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.script.ScriptEnvironment
 import com.waypoint.app.script.ScriptState
+import com.waypoint.app.script.TaskManagerScript
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,6 +36,7 @@ class RealScriptEnvironment(
     override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
+    override val taskManager: TaskManagerScript = TaskManagerScript(TaskQueueStore(context), eventPlanner)
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
     override val memory: SharedMemoryStore = SharedMemoryStore(context)
     override val streak: StreakStore = StreakStore(context)

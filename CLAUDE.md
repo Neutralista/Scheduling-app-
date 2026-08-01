@@ -143,11 +143,20 @@ signals.log.warn("message")
 signals.log.error("message")
 ```
 
+### `signals.tasks` — Task Manager (central scheduling gateway)
+| Method | Description |
+|---|---|
+| `.submit(spec)` | Queue a floating task for the day planner |
+| `.retract(id)` | Remove a task from the queue |
+| `.getAll()` | `Array<{id, title, durationMinutes, priority}>` — all queued tasks |
+
+`spec` shape: `{id, title, durationMinutes, priority?, conditions?}` — same condition types as `signals.planner`. Tasks are attributed to the calling script's id automatically. Built-in ID: `BUILTIN.TASK_MANAGER`.
+
 ### `scripts` object — inter-script state
 ```js
 scripts.get(scriptId)          // returns {doneToday, values, settings} or null
 scripts.set(scriptId, state)   // overwrites another script's state
-// Built-in IDs: BUILTIN.WORK_SCHEDULE, BUILTIN.SLEEP_SCHEDULE
+// Built-in IDs: BUILTIN.WORK_SCHEDULE, BUILTIN.SLEEP_SCHEDULE, BUILTIN.TASK_MANAGER
 ```
 
 ## Branch

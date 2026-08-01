@@ -35,6 +35,8 @@ class ScriptTickWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                     val newState = runCatching { script.tick(state) }.getOrDefault(state)
                     if (newState != state) app.env.setScriptState(script.id, newState)
                 }
+            // Re-sync task manager so any task submissions from JS onTick hooks are applied
+            runCatching { app.env.taskManager.syncToRegistry() }
         }
 
         return Result.success()

@@ -57,6 +57,8 @@ import com.waypoint.app.planner.EventCategory
 import com.waypoint.app.planner.EventCondition
 import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.TaskConditionSpec
+import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.SleepModeState
 import java.util.UUID
 import com.waypoint.app.signal.DaySchedule
@@ -111,7 +113,8 @@ var Script = (function() {
 // entirely by creating a script with the same id.
 var BUILTIN = {
   WORK_SCHEDULE:  'built_in.work_schedule',
-  SLEEP_SCHEDULE: 'built_in.sleep_schedule'
+  SLEEP_SCHEDULE: 'built_in.sleep_schedule',
+  TASK_MANAGER:   'built_in.task_manager'
 };
 
 // Kept for backward-compat: scripts written against the old HabitWidget API still work.
@@ -199,7 +202,7 @@ private fun NativeObject.toNotificationConfig(): NotificationConfig? {
 // ── Signals bridge: built-in state exposed to JS ─────────────────────────────
 
 @OptIn(DelicateCoroutinesApi::class)
-private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scriptable): NativeObject {
+private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scriptable, scriptId: String = ""): NativeObject {
     val obj = cx.newObject(scope) as NativeObject
 
     // ── workSchedule ─────────────────────────────────────────────────────────
@@ -676,6 +679,70 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
         ScriptableObject.putProperty(obj, "planner", cx.newObject(scope))
     }
 
+    // ── tasks ─────────────────────────────────────────────────────────────────
+    try {
+        val tasksObj = cx.newObject(scope) as NativeObject
+        ScriptableObject.putProperty(tasksObj, "submit", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val opts         = args.getOrNull(0) as? NativeObject ?: return null
+                val id           = opts.jsString("id") ?: return null
+                val title        = opts.jsString("title") ?: return null
+                val duration     = (opts.get("durationMinutes", opts) as? Number)?.toInt() ?: return null
+                val priority     = (opts.get("priority", opts) as? Number)?.toInt() ?: 5
+                val condArr      = opts.get("conditions", opts) as? NativeArray
+                val conditions   = condArr?.let { arr ->
+                    (0 until arr.length.toInt()).mapNotNull { i ->
+                        val co = arr.get(i, arr) as? NativeObject ?: return@mapNotNull null
+                        val type  = co.jsString("type") ?: return@mapNotNull null
+                        val start = co.jsString("start")
+                        val end   = co.jsString("end")
+                        val days  = (co.get("days", co) as? NativeArray)?.let { dArr ->
+                            (0 until dArr.length.toInt()).mapNotNull { j ->
+                                (dArr.get(j, dArr) as? Number)?.toInt()
+                            }
+                        }
+                        TaskConditionSpec(type = type, start = start, end = end, days = days)
+                    }
+                } ?: emptyList()
+                env.taskManager.submitTask(
+                    TaskRequest(
+                        id = id,
+                        title = title,
+                        durationMinutes = duration,
+                        priority = priority,
+                        sourceScriptId = scriptId,
+                        conditions = conditions
+                    )
+                )
+                return null
+            }
+        })
+        ScriptableObject.putProperty(tasksObj, "retract", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val id = args.getOrNull(0)?.toString() ?: return null
+                env.taskManager.retractTask(id)
+                return null
+            }
+        })
+        ScriptableObject.putProperty(tasksObj, "getAll", object : BaseFunction() {
+            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
+                val arr = env.taskManager.getAllTasks().map { req ->
+                    val o = cx.newObject(scope) as NativeObject
+                    ScriptableObject.putProperty(o, "id",              req.id)
+                    ScriptableObject.putProperty(o, "title",           req.title)
+                    ScriptableObject.putProperty(o, "durationMinutes", req.durationMinutes.toDouble())
+                    ScriptableObject.putProperty(o, "priority",        req.priority.toDouble())
+                    o
+                }
+                return cx.newArray(scope, arr.toTypedArray<Any?>())
+            }
+        })
+        ScriptableObject.putProperty(obj, "tasks", tasksObj)
+    } catch (e: Throwable) {
+        AppLogger.e("Bridge", "tasks section failed: ${e.javaClass.name}: ${e.message}")
+        ScriptableObject.putProperty(obj, "tasks", cx.newObject(scope))
+    }
+
     // ── memory ───────────────────────────────────────────────────────────────
     try {
         val memObj = cx.newObject(scope) as NativeObject
@@ -943,7 +1010,7 @@ class ScriptedModule private constructor(
                 val (scope, obj) = buildScope(cx)
                 val fn = ScriptableObject.getProperty(obj, "onRegister") as? org.mozilla.javascript.Function
                 if (fn != null) {
-                    val signalsJs = runCatching { buildSignalsBridge(env, cx, scope) }
+                    val signalsJs = runCatching { buildSignalsBridge(env, cx, scope, id) }
                         .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onRegister) threw ${it.javaClass.name}", it) }
                         .getOrNull() ?: cx.newObject(scope) as NativeObject
                     val scriptsJs = runCatching { buildScriptsBridge(env, cx, scope) }.getOrNull()
@@ -1017,7 +1084,7 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "widget") as? org.mozilla.javascript.Function
                     ?: return ScriptedView(title = displayName)
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope, id) } }
                     .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (widget) threw ${it.javaClass.name}", it) }
                     .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
@@ -1062,7 +1129,7 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onAction") as? org.mozilla.javascript.Function
                     ?: return state.copy(doneToday = !state.doneToday)
                 val stateJs  = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope, id) } }
                     .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onAction) threw ${it.javaClass.name}", it) }
                     .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
@@ -1087,7 +1154,7 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onSecondaryAction") as? org.mozilla.javascript.Function
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope, id) } }
                     .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onSecondaryAction) threw ${it.javaClass.name}", it) }
                     .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
@@ -1117,7 +1184,7 @@ class ScriptedModule private constructor(
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
                 AppLogger.i("JS[$id]", "onAnswer: buildSignals")
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope, id) } }
                     .onFailure { AppLogger.e("JS[$id]", "buildSignalsBridge (onAnswer) threw ${it.javaClass.name}", it) }
                     .getOrNull() ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
@@ -1146,7 +1213,7 @@ class ScriptedModule private constructor(
                 val fn = ScriptableObject.getProperty(obj, "onTick") as? org.mozilla.javascript.Function
                     ?: return state
                 val stateJs   = state.toJS(cx, scope)
-                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope) } }.getOrNull()
+                val signalsJs = runCatching { env?.let { buildSignalsBridge(it, cx, scope, id) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
                 val scriptsJs = runCatching { env?.let { buildScriptsBridge(it, cx, scope) } }.getOrNull()
                     ?: cx.newObject(scope) as NativeObject
