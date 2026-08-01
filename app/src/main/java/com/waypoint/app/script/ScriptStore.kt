@@ -33,4 +33,22 @@ class ScriptStore(private val context: Context) {
                     .getOrNull()
             }
             ?: emptyList()
+
+    /**
+     * Copies bundled scripts from assets/scripts/ into internal storage on first install.
+     * Existing files are never overwritten so user edits survive app updates.
+     */
+    fun seedBundled() {
+        val assetFiles = runCatching { context.assets.list("scripts") }.getOrNull() ?: return
+        for (name in assetFiles) {
+            if (!name.endsWith(".js")) continue
+            val dest = File(dir, name)
+            if (dest.exists()) continue
+            runCatching {
+                context.assets.open("scripts/$name").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
+    }
 }

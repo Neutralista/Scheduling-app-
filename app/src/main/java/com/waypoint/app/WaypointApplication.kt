@@ -55,6 +55,9 @@ class WaypointApplication : Application() {
                 env
             )
 
+            // Seed bundled scripts (assets/scripts/*.js) on first install
+            scriptStore.seedBundled()
+
             // Re-register any user scripts saved in a previous session
             scriptStore.loadAll().forEach { module ->
                 ScriptRegistry.register(module, env)
