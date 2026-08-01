@@ -59,10 +59,11 @@ class WorkScheduleScript(
             )
         )
 
-        // Wind-down: 30-min slot in the 60-min window after shift end
+        // Wind-down: 30-min slot placed directly after shift end via AfterShift pass.
+        // Using afterShift (not a timeWindow) so night shifts ending at/past midnight
+        // are handled correctly — timeWindow resolves against the current day's clock,
+        // which is before the post-midnight shift end.
         val shiftEnd = schedule.shiftEnd ?: return
-        val endTotalMin  = shiftEnd.hour * 60 + shiftEnd.minute
-        val windEndMin   = (endTotalMin + 60).coerceAtMost(23 * 60 + 59)
         tm.submitTask(
             TaskRequest(
                 id = "work_wind_down",
@@ -72,11 +73,7 @@ class WorkScheduleScript(
                 sourceScriptId = id,
                 conditions = listOf(
                     TaskConditionSpec("workDayOnly"),
-                    TaskConditionSpec(
-                        type  = "timeWindow",
-                        start = shiftEnd.displayString,
-                        end   = "%02d:%02d".format(windEndMin / 60, windEndMin % 60)
-                    )
+                    TaskConditionSpec("afterShift")
                 )
             )
         )
