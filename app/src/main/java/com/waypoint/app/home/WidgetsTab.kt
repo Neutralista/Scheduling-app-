@@ -34,7 +34,7 @@ fun WidgetsTab(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "No widgets",
+                text = "No modules",
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center
             )

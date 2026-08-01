@@ -109,7 +109,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "Tasks", "Widgets", "Alarms", "Settings")
+            listOf("Plan", "Tasks", "Modules", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
