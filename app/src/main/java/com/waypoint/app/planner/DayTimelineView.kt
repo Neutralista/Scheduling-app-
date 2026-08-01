@@ -52,7 +52,7 @@ private const val VIEW_START_HOUR = 4
 private const val START_HOUR = 0          // relative minute 0 = VIEW_START_HOUR
 private const val END_HOUR   = 24         // relative minute 1440 = next-day VIEW_START_HOUR
 private const val TOTAL_HOURS = END_HOUR - START_HOUR
-private val HOUR_HEIGHT = 58.dp
+private val HOUR_HEIGHT = 67.dp
 private val LABEL_WIDTH = 44.dp
 
 @Composable
@@ -166,7 +166,7 @@ fun DayTimelineView(
                     Text(
                         text = "%02d:00".format((VIEW_START_HOUR + h) % 24),
                         modifier = Modifier.yOffset(yOff),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = onSV.copy(alpha = 0.38f)
                     )
                 }
@@ -219,7 +219,7 @@ fun DayTimelineView(
                         Text(
                             text = "Shift · ${dateSchedule.shiftStart!!.displayString}–${dateSchedule.shiftEnd?.displayString ?: "?"}",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
                             color = primary.copy(alpha = 0.60f)
                         )
                     }
@@ -251,7 +251,7 @@ fun DayTimelineView(
                         ) {
                             Text(
                                 evt.title,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
                                 fontWeight = FontWeight.SemiBold,
                                 color = calColor.copy(alpha = 0.85f),
                                 maxLines = 1
@@ -259,7 +259,7 @@ fun DayTimelineView(
                             if (eventH >= 36.dp) {
                                 Text(
                                     "${fmtMs(evt.startMillis)} – ${fmtMs(evt.endMillis)}",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                     color = calColor.copy(alpha = 0.55f)
                                 )
                             }
@@ -328,7 +328,7 @@ fun DayTimelineView(
                         ) {
                             Text(
                                 se.event.title,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
                                 fontWeight = FontWeight.SemiBold,
                                 color = fg,
                                 maxLines = 1
@@ -336,7 +336,7 @@ fun DayTimelineView(
                             if (eventH >= 36.dp) {
                                 Text(
                                     "${fmtMs(se.startMillis)} – ${fmtMs(se.endMillis)}",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                     color = fg.copy(alpha = 0.65f)
                                 )
                             }
@@ -390,7 +390,7 @@ fun DayTimelineView(
                                     Text(
                                         "$label · ${fmtMs(alarmMs)}",
                                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                         color = alarmAccent.copy(alpha = 0.9f)
                                     )
                                 }
