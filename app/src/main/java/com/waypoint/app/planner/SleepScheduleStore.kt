@@ -153,11 +153,17 @@ class SleepScheduleStore(private val context: Context) {
         SleepNotificationHelper.showAlarmStatus(context, adjustedBedMs, adjustedWakeMs)
         _scheduledTimes.value = adjustedBedMs to adjustedWakeMs
 
-        val bedShift = Calendar.getInstance().apply { timeInMillis = adjustedBedMs }
-            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-        val wakeShift = Calendar.getInstance().apply { timeInMillis = adjustedWakeMs }
-            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-        registerSleepEventForDate(registry, today, wakeShift, bedShift)
+        // Register directly with epoch ms — converting through ShiftTime→sleepMillis
+        // would misplace a same-day morning window (e.g. 05:14-13:14) onto date+1
+        registry.register(PlannerEvent(
+            id = "sleep_$today",
+            title = "Sleep",
+            durationMinutes = ((adjustedWakeMs - adjustedBedMs) / 60_000L).toInt(),
+            priority = PlannerPriority.SLEEP,
+            category = EventCategory.SLEEP,
+            fixedStartMillis = adjustedBedMs,
+            fixedEndMillis = adjustedWakeMs
+        ))
 
         return adjustedBedMs to adjustedWakeMs
     }
@@ -205,11 +211,19 @@ class SleepScheduleStore(private val context: Context) {
                     val storedBedMs = logStore.getScheduledBedMs()
                     val storedWakeMs = logStore.getScheduledWakeMs()
                     if (storedBedMs != null && storedWakeMs != null && storedWakeMs > now) {
-                        val bedShift = Calendar.getInstance().apply { timeInMillis = storedBedMs }
-                            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-                        val wakeShift = Calendar.getInstance().apply { timeInMillis = storedWakeMs }
-                            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-                        registerSleepEventForDate(registry, date, wakeShift, bedShift)
+                        // Register directly with epoch ms — converting through ShiftTime→sleepMillis
+                        // would misplace a same-day morning window (e.g. 05:14-13:14) onto date+1
+                        if (storedWakeMs > storedBedMs) {
+                            registry.register(PlannerEvent(
+                                id = "sleep_$date",
+                                title = "Sleep",
+                                durationMinutes = ((storedWakeMs - storedBedMs) / 60_000L).toInt(),
+                                priority = PlannerPriority.SLEEP,
+                                category = EventCategory.SLEEP,
+                                fixedStartMillis = storedBedMs,
+                                fixedEndMillis = storedWakeMs
+                            ))
+                        }
                         _scheduledTimes.value = storedBedMs to storedWakeMs
                         SleepNotificationHelper.showAlarmStatus(context, storedBedMs, storedWakeMs)
                         AppLogger.i("SleepSync", "syncToRegistry: preserving manual reschedule bedMs=$storedBedMs wakeMs=$storedWakeMs")
