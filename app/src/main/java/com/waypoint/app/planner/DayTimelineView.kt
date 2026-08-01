@@ -225,8 +225,10 @@ fun DayTimelineView(
                     }
                 }
 
-                // Calendar event blocks — rendered first so planner events appear on top
-                calEvents.filter { !it.allDay }.forEach { evt ->
+                // Calendar event blocks — rendered first so planner events appear on top.
+                // Skip "Sleep" events: the planner registry already renders them, and orphan
+                // sleep calendar events should not appear as a duplicate block.
+                calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
                     val ceStartMin = msToMin(evt.startMillis, viewStartMs)
                     val ceEndMin   = msToMin(evt.endMillis,   viewStartMs)
                     if (ceStartMin >= END_HOUR * 60 || ceEndMin <= START_HOUR * 60) return@forEach
