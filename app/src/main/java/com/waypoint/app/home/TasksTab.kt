@@ -1,7 +1,11 @@
 package com.waypoint.app.home
 
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,13 +13,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +39,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
@@ -144,11 +152,42 @@ fun TasksTab(workSchedule: WorkScheduleSignals) {
     }
 }
 
+// ── Round checkbox ────────────────────────────────────────────────────────────
+
+@Composable
+private fun RoundCheckbox(
+    checked: Boolean,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val outline = MaterialTheme.colorScheme.outline
+
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .background(if (checked) primary else Color.Transparent)
+            .border(1.5.dp, if (checked) primary else outline.copy(alpha = 0.45f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (checked) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(13.dp)
+            )
+        }
+    }
+}
+
 // ── Shift task row ────────────────────────────────────────────────────────────
 
 @Composable
 private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
-    val schedule = remember { ws.getTodaySchedule() }
+    val schedule = ws.getTodaySchedule()
     if (!schedule.isWork) return
 
     val scope = rememberCoroutineScope()
@@ -217,14 +256,11 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Checkbox(
-                checked = isClockedOut,
-                onCheckedChange = null,
-                enabled = false
-            )
+            RoundCheckbox(checked = isClockedOut, onClick = null)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
@@ -278,13 +314,11 @@ private fun TaskRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Checkbox(
-            checked = task.done,
-            onCheckedChange = { onToggle() }
-        )
+        RoundCheckbox(checked = task.done, onClick = onToggle)
         Text(
             text = task.title,
             style = MaterialTheme.typography.bodyMedium.copy(
@@ -300,7 +334,7 @@ private fun TaskRow(
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Delete task",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
             )
         }
     }
