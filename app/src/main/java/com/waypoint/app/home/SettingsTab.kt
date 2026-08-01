@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -85,6 +86,13 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
         Spacer(Modifier.height(12.dp))
 
         ExactAlarmIntegration()
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        BatteryOptimizationIntegration()
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
@@ -294,6 +302,33 @@ private fun ExactAlarmIntegration() {
         onConnect = {
             launcher.launch(
                 Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+            )
+        }
+    )
+}
+
+// ── Battery optimization ──────────────────────────────────────────────────────
+
+@Composable
+private fun BatteryOptimizationIntegration() {
+    val context = LocalContext.current
+    val pm = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
+    var exempted by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { exempted = pm.isIgnoringBatteryOptimizations(context.packageName) }
+
+    IntegrationRow(
+        title = "Background alarms",
+        description = "Exempts the app from battery optimization so sleep and wake alarms fire reliably when the screen is off.",
+        granted = exempted,
+        connectLabel = "Disable restriction",
+        onConnect = {
+            launcher.launch(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = Uri.parse("package:${context.packageName}")
                 }
             )
