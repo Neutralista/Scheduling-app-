@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -124,7 +125,7 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
+                0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
                 1 -> TasksTab(workSchedule = workSchedule, onRefresh = { headerRefreshKey++ })
                 2 -> ScriptsTab(
                     scripts = scripts,
@@ -241,7 +242,8 @@ private fun AppHeader(
 private fun PlanTab(
     workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
-    calendarSignals: CalendarSignals
+    calendarSignals: CalendarSignals,
+    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -252,8 +254,9 @@ private fun PlanTab(
     var calRefreshKey by remember { mutableIntStateOf(0) }
     var showShiftLog by remember { mutableStateOf(false) }
 
-    // Refresh calendar whenever the Plan tab enters composition (app open or tab switch)
-    LaunchedEffect(Unit) { calRefreshKey++ }
+    // Refresh timeline whenever sleep times change (covers reschedule, sync, wake adjustment)
+    val sleepTimes by sleepTimesFlow.collectAsState()
+    LaunchedEffect(sleepTimes) { calRefreshKey++ }
 
     Column(Modifier.fillMaxSize()) {
         Row(
