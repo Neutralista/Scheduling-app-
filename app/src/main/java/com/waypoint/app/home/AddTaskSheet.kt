@@ -1,0 +1,401 @@
+package com.waypoint.app.home
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.TaskConditionSpec
+import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.ui.components.TimePickerChip
+import java.util.UUID
+
+private enum class DayType { ANY, WORK_DAY, DAY_OFF }
+private enum class ShiftRelation { ANY, BEFORE, DURING, AFTER }
+
+private val DURATION_PRESETS = listOf(15, 30, 45, 60, 90, 120)
+private val DURATION_LABELS  = listOf("15m", "30m", "45m", "60m", "90m", "2h")
+
+private data class PriorityOption(val label: String, val value: Int)
+private val PRIORITY_OPTIONS = listOf(
+    PriorityOption("Low", 3),
+    PriorityOption("Medium", 5),
+    PriorityOption("High", 7),
+    PriorityOption("Critical", 9)
+)
+
+private val DAY_NAMES = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AddTaskSheet(
+    initial: TaskRequest? = null,
+    onDismiss: () -> Unit,
+    onSave: (TaskRequest) -> Unit
+) {
+    // ── Parse initial conditions ─────────────────────────────────────────────
+    val initConditions = initial?.conditions ?: emptyList()
+    val initTw = initConditions.firstOrNull { it.type == "timeWindow" }
+
+    // ── Form state ───────────────────────────────────────────────────────────
+    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var titleError by remember { mutableStateOf(false) }
+
+    val initDuration = initial?.durationMinutes ?: 30
+    var durationMinutes by remember { mutableIntStateOf(if (initDuration in DURATION_PRESETS) initDuration else 30) }
+    var customDuration  by remember { mutableStateOf(initial != null && initDuration !in DURATION_PRESETS) }
+    var customDurText   by remember { mutableStateOf(if (initial != null && initDuration !in DURATION_PRESETS) initDuration.toString() else "") }
+    var customDurError  by remember { mutableStateOf(false) }
+
+    val initPriority = initial?.priority ?: 5
+    val closestPriority = PRIORITY_OPTIONS.minByOrNull { kotlin.math.abs(it.value - initPriority) }?.value ?: 5
+    var priority by remember { mutableIntStateOf(closestPriority) }
+
+    var dayType by remember { mutableStateOf(
+        when {
+            initConditions.any { it.type == "workDayOnly" } -> DayType.WORK_DAY
+            initConditions.any { it.type == "dayOffOnly"  } -> DayType.DAY_OFF
+            else -> DayType.ANY
+        }
+    ) }
+
+    var shiftRelation by remember { mutableStateOf(
+        when {
+            initConditions.any { it.type == "beforeShift" } -> ShiftRelation.BEFORE
+            initConditions.any { it.type == "duringShift" } -> ShiftRelation.DURING
+            initConditions.any { it.type == "afterShift"  } -> ShiftRelation.AFTER
+            else -> ShiftRelation.ANY
+        }
+    ) }
+
+    var afterTimeEnabled  by remember { mutableStateOf(initTw?.start != null) }
+    var afterTime         by remember { mutableStateOf(initTw?.start ?: "09:00") }
+    var beforeTimeEnabled by remember { mutableStateOf(initTw?.end != null) }
+    var beforeTime        by remember { mutableStateOf(initTw?.end ?: "17:00") }
+
+    val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
+    var selectedDays by remember { mutableStateOf(initDays) }
+
+    // ── Save logic ───────────────────────────────────────────────────────────
+    fun save() {
+        titleError    = title.trim().isEmpty()
+        val resolvedDuration = if (customDuration) customDurText.toIntOrNull() ?: 0 else durationMinutes
+        customDurError = customDuration && resolvedDuration <= 0
+        if (titleError || customDurError) return
+
+        val conditions = buildList {
+            when (dayType) {
+                DayType.WORK_DAY -> add(TaskConditionSpec("workDayOnly"))
+                DayType.DAY_OFF  -> add(TaskConditionSpec("dayOffOnly"))
+                DayType.ANY      -> Unit
+            }
+            when (shiftRelation) {
+                ShiftRelation.BEFORE -> add(TaskConditionSpec("beforeShift"))
+                ShiftRelation.DURING -> add(TaskConditionSpec("duringShift"))
+                ShiftRelation.AFTER  -> add(TaskConditionSpec("afterShift"))
+                ShiftRelation.ANY    -> Unit
+            }
+            val hasAfter  = afterTimeEnabled  && afterTime.isNotEmpty()
+            val hasBefore = beforeTimeEnabled && beforeTime.isNotEmpty()
+            if (hasAfter || hasBefore) {
+                add(TaskConditionSpec(
+                    type  = "timeWindow",
+                    start = if (hasAfter)  afterTime  else "00:00",
+                    end   = if (hasBefore) beforeTime else "23:59"
+                ))
+            }
+            if (selectedDays.isNotEmpty()) {
+                add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
+            }
+        }
+
+        onSave(
+            TaskRequest(
+                id              = initial?.id ?: UUID.randomUUID().toString(),
+                title           = title.trim(),
+                durationMinutes = resolvedDuration,
+                priority        = priority,
+                sourceScriptId  = initial?.sourceScriptId ?: "user",
+                conditions      = conditions
+            )
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                // ── Top bar ──────────────────────────────────────────────────
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Text(
+                        text = if (initial == null) "Add Task" else "Edit Task",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    TextButton(onClick = ::save) {
+                        Text("Save", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                HorizontalDivider()
+
+                // ── Form ─────────────────────────────────────────────────────
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    // Name
+                    FormSection(title = "Name") {
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it; titleError = false },
+                            label = { Text("Task name") },
+                            isError = titleError,
+                            supportingText = if (titleError) ({ Text("Name is required") }) else null,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+
+                    // Duration
+                    FormSection(title = "Duration") {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            DURATION_PRESETS.forEachIndexed { i, mins ->
+                                FilterChip(
+                                    selected = !customDuration && durationMinutes == mins,
+                                    onClick  = { durationMinutes = mins; customDuration = false },
+                                    label    = { Text(DURATION_LABELS[i]) }
+                                )
+                            }
+                            FilterChip(
+                                selected = customDuration,
+                                onClick  = { customDuration = true },
+                                label    = { Text("Other") }
+                            )
+                        }
+                        if (customDuration) {
+                            Spacer(Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = customDurText,
+                                onValueChange = { customDurText = it; customDurError = false },
+                                label = { Text("Minutes") },
+                                isError = customDurError,
+                                supportingText = if (customDurError) ({ Text("Enter a positive number") }) else null,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(160.dp),
+                                singleLine = true
+                            )
+                        }
+                    }
+
+                    // Priority
+                    FormSection(title = "Priority") {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            PRIORITY_OPTIONS.forEach { opt ->
+                                FilterChip(
+                                    selected = priority == opt.value,
+                                    onClick  = { priority = opt.value },
+                                    label    = { Text(opt.label) }
+                                )
+                            }
+                        }
+                    }
+
+                    // Constraints
+                    FormSection(title = "Constraints") {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+
+                            // Day type
+                            ConstraintSubsection("Day") {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    DayType.entries.forEach { dt ->
+                                        val label = when (dt) {
+                                            DayType.ANY      -> "Any day"
+                                            DayType.WORK_DAY -> "Work days"
+                                            DayType.DAY_OFF  -> "Days off"
+                                        }
+                                        FilterChip(
+                                            selected = dayType == dt,
+                                            onClick  = { dayType = dt },
+                                            label    = { Text(label) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Shift placement
+                            ConstraintSubsection("When") {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    ShiftRelation.entries.forEach { sr ->
+                                        val label = when (sr) {
+                                            ShiftRelation.ANY    -> "Any time"
+                                            ShiftRelation.BEFORE -> "Before shift"
+                                            ShiftRelation.DURING -> "During shift"
+                                            ShiftRelation.AFTER  -> "After shift"
+                                        }
+                                        FilterChip(
+                                            selected = shiftRelation == sr,
+                                            onClick  = { shiftRelation = sr },
+                                            label    = { Text(label) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Time window
+                            ConstraintSubsection("Time window") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Switch(
+                                            checked = afterTimeEnabled,
+                                            onCheckedChange = { afterTimeEnabled = it }
+                                        )
+                                        Text(
+                                            "After",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (afterTimeEnabled) MaterialTheme.colorScheme.onSurface
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (afterTimeEnabled) {
+                                            TimePickerChip(
+                                                value = afterTime,
+                                                onValueChange = { afterTime = it }
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Switch(
+                                            checked = beforeTimeEnabled,
+                                            onCheckedChange = { beforeTimeEnabled = it }
+                                        )
+                                        Text(
+                                            "Before",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (beforeTimeEnabled) MaterialTheme.colorScheme.onSurface
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (beforeTimeEnabled) {
+                                            TimePickerChip(
+                                                value = beforeTime,
+                                                onValueChange = { beforeTime = it }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Days of week
+                            ConstraintSubsection("Days of week") {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    DAY_NAMES.forEachIndexed { i, name ->
+                                        val isoDay = i + 1
+                                        FilterChip(
+                                            selected = isoDay in selectedDays,
+                                            onClick  = {
+                                                selectedDays = if (isoDay in selectedDays)
+                                                    selectedDays - isoDay else selectedDays + isoDay
+                                            },
+                                            label = { Text(name) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        content()
+    }
+}
+
+@Composable
+private fun ConstraintSubsection(label: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        content()
+    }
+}

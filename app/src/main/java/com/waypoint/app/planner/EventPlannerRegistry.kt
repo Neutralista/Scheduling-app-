@@ -80,16 +80,25 @@ class EventPlannerRegistry {
 
         eligible.sortByDescending { it.priority }
 
+        val (duringShiftEligible, regularEligible) = eligible.partition { e ->
+            e.conditions.any { it is EventCondition.DuringShift }
+        }
+
         val remaining = freeBlocks.map { it.startMillis to it.endMillis }.toMutableList()
 
-        for (event in eligible) {
-            val durationMs = event.durationMinutes * 60_000L
+        for (event in regularEligible) {
+            val durationMs     = event.durationMinutes * 60_000L
             val notDuringShift = event.conditions.any { it is EventCondition.NotDuringShift }
+            val beforeShift    = event.conditions.any { it is EventCondition.BeforeShift }
+            val afterShift     = event.conditions.any { it is EventCondition.AfterShift }
             val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
             var placed = false
 
             for (i in remaining.indices) {
                 val (blockStart, blockEnd) = remaining[i]
+
+                if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
 
                 val fitStart: Long
                 val fitEnd: Long
@@ -114,6 +123,29 @@ class EventPlannerRegistry {
             if (!placed) blocked += BlockedEvent(event, "No available time slot")
         }
 
+        // Place DuringShift events inside the shift block
+        val shiftRemaining = if (shiftStartMs != null && shiftEndMs != null)
+            mutableListOf(shiftStartMs to shiftEndMs) else mutableListOf()
+
+        for (event in duringShiftEligible.sortedByDescending { it.priority }) {
+            val durationMs = event.durationMinutes * 60_000L
+            val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
+            var placed = false
+
+            for (i in shiftRemaining.indices) {
+                val (bStart, bEnd) = shiftRemaining[i]
+                val fitStart = if (tw != null) maxOf(bStart, toMs(tw.startHour, tw.startMin)) else bStart
+                val fitEnd   = if (tw != null) minOf(bEnd,   toMs(tw.endHour,   tw.endMin))   else bEnd
+                if (fitEnd - fitStart < durationMs) continue
+                scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                shiftRemaining[i] = (fitStart + durationMs) to bEnd
+                placed = true
+                break
+            }
+
+            if (!placed) blocked += BlockedEvent(event, "No available time in shift")
+        }
+
         return DayPlan(date, scheduled.sortedBy { it.startMillis }, blocked)
     }
 
@@ -122,6 +154,9 @@ class EventPlannerRegistry {
             is EventCondition.WorkDayOnly -> if (!isWorkDay) return "Work days only"
             is EventCondition.DayOffOnly  -> if (isWorkDay)  return "Days off only"
             is EventCondition.DaysOfWeek  -> if (date.dayOfWeek.value !in cond.days) return "Not scheduled for today"
+            is EventCondition.DuringShift,
+            is EventCondition.BeforeShift,
+            is EventCondition.AfterShift  -> if (!isWorkDay) return "No shift today"
             else -> Unit
         }
         return null

@@ -11,13 +11,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -27,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
+import com.waypoint.app.home.AddTaskSheet
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.TaskQueueStore
@@ -89,7 +97,10 @@ class TaskManagerScript(
 
     @Composable
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
-        var tasks by remember { mutableStateOf(store.loadAll()) }
+        var refreshKey by remember { mutableIntStateOf(0) }
+        var tasks by remember(refreshKey) { mutableStateOf(store.loadAll()) }
+        var showAdd by remember { mutableStateOf(false) }
+        var editTarget by remember { mutableStateOf<TaskRequest?>(null) }
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -97,16 +108,26 @@ class TaskManagerScript(
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                Text(
-                    text = "Task Manager",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "${tasks.size} task${if (tasks.size == 1) "" else "s"} queued",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Task Manager",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${tasks.size} task${if (tasks.size == 1) "" else "s"} queued",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { showAdd = true }) {
+                        Text("+ Add")
+                    }
+                }
 
                 if (tasks.isEmpty()) {
                     Box(
@@ -114,7 +135,7 @@ class TaskManagerScript(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No tasks submitted.",
+                            text = "No tasks. Tap + Add to create one.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -125,16 +146,38 @@ class TaskManagerScript(
                         modifier = Modifier.padding(top = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        tasks.forEach { req -> TaskRow(req) }
+                        tasks.forEach { req ->
+                            TaskRow(
+                                req = req,
+                                onEdit = { editTarget = req },
+                                onDelete = {
+                                    retractTask(req.id)
+                                    refreshKey++
+                                }
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        if (showAdd || editTarget != null) {
+            AddTaskSheet(
+                initial = editTarget,
+                onDismiss = { showAdd = false; editTarget = null },
+                onSave = { req ->
+                    submitTask(req)
+                    refreshKey++
+                    showAdd = false
+                    editTarget = null
+                }
+            )
         }
     }
 }
 
 @Composable
-private fun TaskRow(req: TaskRequest) {
+private fun TaskRow(req: TaskRequest, onEdit: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -168,12 +211,28 @@ private fun TaskRow(req: TaskRequest) {
                 )
             }
         }
-        Spacer(Modifier.width(4.dp))
         Text(
             text = "${req.durationMinutes}m",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.width(2.dp))
+        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Edit task",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete task",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 

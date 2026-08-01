@@ -17,6 +17,9 @@ data class TaskConditionSpec(
         "workDayOnly"    -> EventCondition.WorkDayOnly
         "dayOffOnly"     -> EventCondition.DayOffOnly
         "notDuringShift" -> EventCondition.NotDuringShift
+        "duringShift"    -> EventCondition.DuringShift
+        "beforeShift"    -> EventCondition.BeforeShift
+        "afterShift"     -> EventCondition.AfterShift
         "timeWindow"     -> {
             val s = start?.split(":") ?: return null
             val e = end?.split(":") ?: return null
