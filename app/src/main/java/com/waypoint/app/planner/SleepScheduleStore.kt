@@ -105,8 +105,7 @@ class SleepScheduleStore(private val context: Context) {
 
         // Apply 15-min transition buffer around calendar and planner events (mirrors step 5 of computeEffectiveTimesForDate)
         val plan = registry.planForDate(today, ws)
-        val sleepCalIds = SleepLogStore(context).loadRecent(30).mapNotNull { it.calendarEventId }.toSet()
-        val calEvents = calendarEventsForDate(today, sleepCalIds) + calendarEventsForDate(today.plusDays(1), sleepCalIds)
+        val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
         val minSleepMs = 60 * 60_000L
 
         // Bed push: event straddles bedtime
@@ -176,8 +175,7 @@ class SleepScheduleStore(private val context: Context) {
     fun computeEffectiveTimes(ws: WorkScheduleSignals, registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
         val plan = registry.planForDate(today, ws)
-        val sleepCalIds = SleepLogStore(context).loadRecent(30).mapNotNull { it.calendarEventId }.toSet()
-        val calEvents = calendarEventsForDate(today, sleepCalIds) + calendarEventsForDate(today.plusDays(1), sleepCalIds)
+        val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
         return computeEffectiveTimesForDate(today, plan, ws, load(), calEvents)
     }
 
@@ -199,14 +197,13 @@ class SleepScheduleStore(private val context: Context) {
         }
 
         val today = LocalDate.now()
-        val sleepCalIds = SleepLogStore(context).loadRecent(30).mapNotNull { it.calendarEventId }.toSet()
         var prevNightDate: LocalDate? = null
         var prevNightEffective: EffectiveSleepTimes? = null
 
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
             val plan = registry.planForDate(date, ws)
-            val calEvents = calendarEventsForDate(date, sleepCalIds) + calendarEventsForDate(date.plusDays(1), sleepCalIds)
+            val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
             val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
 
             // If the user manually delayed today's sleep window, preserve it on refresh
@@ -524,12 +521,9 @@ class SleepScheduleStore(private val context: Context) {
     }
 
     /** Synchronous ContentResolver query for non-all-day calendar events on [date].
-     *  Events whose [CalendarContract.Instances.EVENT_ID] is in [excludeEventIds] are skipped
-     *  so that app-created sleep log events don't feed back as constraints. */
-    private fun calendarEventsForDate(
-        date: LocalDate,
-        excludeEventIds: Set<Long> = emptySet()
-    ): List<Pair<Long, Long>> {
+     *  Events titled "Sleep" are always excluded — they are Waypoint-created sleep windows
+     *  and must not feed back as scheduling constraints (covers orphans too). */
+    private fun calendarEventsForDate(date: LocalDate): List<Pair<Long, Long>> {
         if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) !=
             PackageManager.PERMISSION_GRANTED) return emptyList()
         val zone = ZoneId.systemDefault()
@@ -541,17 +535,17 @@ class SleepScheduleStore(private val context: Context) {
             CalendarContract.Instances.BEGIN,
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY,
-            CalendarContract.Instances.EVENT_ID
+            CalendarContract.Instances.TITLE
         )
         val events = mutableListOf<Pair<Long, Long>>()
         context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            val beginIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
-            val endIdx     = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
-            val allDayIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
-            val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+            val beginIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
+            val titleIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
             while (cursor.moveToNext()) {
                 if (cursor.getInt(allDayIdx) != 0) continue
-                if (excludeEventIds.isNotEmpty() && cursor.getLong(eventIdIdx) in excludeEventIds) continue
+                if (cursor.getString(titleIdx) == "Sleep") continue
                 events += cursor.getLong(beginIdx) to cursor.getLong(endIdx)
             }
         }
