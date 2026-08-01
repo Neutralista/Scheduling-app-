@@ -29,6 +29,7 @@ object SleepNotificationHelper {
     private const val NOTIF_PRE_SLEEP    = 100
     private const val NOTIF_BEDTIME      = 101
     private const val NOTIF_NUDGE        = 102
+    private const val NOTIF_LATE_NUDGE   = 103
     private const val NOTIF_WAKE_SOFT    = 110
     private const val NOTIF_WAKE_MED     = 111
     private const val NOTIF_ALARM_STATUS = 120
@@ -154,6 +155,35 @@ object SleepNotificationHelper {
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
+                .build()
+        )
+    }
+
+    fun sendLateNudge(context: Context, minutesLate: Int) {
+        val lateText = when {
+            minutesLate >= 60 -> {
+                val h = minutesLate / 60
+                val m = minutesLate % 60
+                if (m > 0) "${h}h ${m}m past bedtime" else "${h}h past bedtime"
+            }
+            minutesLate > 0 -> "${minutesLate}m past bedtime"
+            else -> "Time to sleep"
+        }
+        val sleepModePi = PendingIntent.getBroadcast(
+            context, 204,
+            Intent(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE).setPackage(context.packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        nm(context).notify(
+            NOTIF_LATE_NUDGE,
+            NotificationCompat.Builder(context, CH_SLEEP_REMINDER)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Still awake?")
+                .setContentText(lateText)
+                .setContentIntent(openAppPi(context, 205))
+                .addAction(0, "Start Sleep Mode", sleepModePi)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
         )
     }

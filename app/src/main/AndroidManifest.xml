@@ -91,6 +91,7 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.SLEEP_PRE_REMINDER" />
                 <action android:name="com.waypoint.app.SLEEP_BEDTIME" />
+                <action android:name="com.waypoint.app.SLEEP_LATE_NUDGE" />
             </intent-filter>
         </receiver>
 
