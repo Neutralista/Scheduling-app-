@@ -153,3 +153,12 @@ scripts.set(scriptId, state)   // overwrites another script's state
 ## Branch
 
 Active development branch: `claude/app-build-issues-mknbj6`
+
+## Releases
+
+On each new release, update `CHANGELOG.md` at the repo root with:
+- **New features** — what was added and how it works from the user's perspective
+- **Bug fixes** — what broke, why, and what was changed to fix it
+- **Breaking changes** — anything that changes existing behavior the user relied on
+
+Group entries under a version heading (e.g. `## v1.2.0 — 2026-08-15`). Keep descriptions user-facing where possible; save implementation detail for bug fixes where the "why" matters.
