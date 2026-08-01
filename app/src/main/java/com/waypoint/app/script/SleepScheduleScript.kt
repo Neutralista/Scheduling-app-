@@ -12,7 +12,9 @@ import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepScheduleCard
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.signal.WorkScheduleSignals
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 
 class SleepScheduleScript(
     private val store: SleepScheduleStore,
@@ -37,7 +39,10 @@ class SleepScheduleScript(
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
-            SleepLogCard(logStore = logStore)
+            SleepLogCard(
+                logStore = logStore,
+                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry, ws) } }
+            )
         }
     }
 
@@ -46,7 +51,10 @@ class SleepScheduleScript(
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
-            SleepLogCard(logStore = logStore)
+            SleepLogCard(
+                logStore = logStore,
+                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry, ws) } }
+            )
         }
     }
 }

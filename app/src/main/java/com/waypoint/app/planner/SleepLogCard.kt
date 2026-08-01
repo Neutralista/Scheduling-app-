@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SleepLogCard(
     logStore: SleepLogStore,
+    onSleepLogged: suspend () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -63,6 +64,7 @@ fun SleepLogCard(
                 SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, null)
                 todayEntry = logStore.loadToday()
             }
+            onSleepLogged()
         }
     }
 
@@ -118,6 +120,7 @@ fun SleepLogCard(
                                         SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, oldEventId)
                                         todayEntry = logStore.loadToday()
                                     }
+                                    onSleepLogged()
                                 }
                             }
                             logStore.cancelSleepMode()
@@ -253,6 +256,7 @@ fun SleepLogCard(
                             scope.launch {
                                 SleepCalendarSync.write(context, logStore, bedMs, wakeMs, oldEventId)
                                 todayEntry = logStore.loadToday()
+                                onSleepLogged()
                             }
                         }) { Text("Save") }
                         if (isEditing) {
