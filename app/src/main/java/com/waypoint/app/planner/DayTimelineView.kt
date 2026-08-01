@@ -300,14 +300,20 @@ fun DayTimelineView(
                 var habitIdx = 0
                 mergedScheduled.forEach { se ->
                     val isSleep = se.event.category == EventCategory.SLEEP
+                    val isLoggedSleep = isSleep && se.event.isLogged
                     val seStartMin = msToMin(se.startMillis, viewStartMs)
                     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
                     val startY  = minToY(seStartMin)
                     val eventH  = (minToY(seEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
-                    val (bg, fg) = if (isSleep) {
-                        sleepAccent.copy(alpha = 0.13f) to sleepAccent
-                    } else {
-                        eventColors[habitIdx++ % eventColors.size]
+                    val (bg, fg) = when {
+                        isLoggedSleep -> sleepAccent.copy(alpha = 0.18f) to sleepAccent
+                        isSleep       -> sleepAccent.copy(alpha = 0.07f) to sleepAccent.copy(alpha = 0.50f)
+                        else          -> eventColors[habitIdx++ % eventColors.size]
+                    }
+                    val displayTitle = when {
+                        isLoggedSleep -> se.event.title
+                        isSleep       -> "${se.event.title} · planned"
+                        else          -> se.event.title
                     }
 
                     Box(
@@ -319,8 +325,11 @@ fun DayTimelineView(
                             .clip(RoundedCornerShape(6.dp))
                             .background(bg)
                             .then(
-                                if (isSleep) Modifier.border(1.dp, sleepAccent.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
-                                else Modifier
+                                when {
+                                    isLoggedSleep -> Modifier.border(1.dp, sleepAccent.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                    isSleep       -> Modifier.border(1.dp, sleepAccent.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
+                                    else          -> Modifier
+                                }
                             )
                     ) {
                         Column(
@@ -329,9 +338,9 @@ fun DayTimelineView(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                se.event.title,
+                                displayTitle,
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = if (isLoggedSleep) FontWeight.SemiBold else FontWeight.Normal,
                                 color = fg,
                                 maxLines = 1
                             )
@@ -346,9 +355,9 @@ fun DayTimelineView(
                     }
                 }
 
-                // Alarm markers — derived from the sleep block's bed/wake times
+                // Alarm markers — only for planned (non-logged) sleep, since logged sleep already happened
                 val alarmAccent = Color(0xFFF59E0B)
-                val sleepBlock = mergedScheduled.firstOrNull { it.event.category == EventCategory.SLEEP }
+                val sleepBlock = mergedScheduled.firstOrNull { it.event.category == EventCategory.SLEEP && !it.event.isLogged }
                 if (sleepBlock != null) {
                     // (epochMs, label or null for minor ticks)
                     val alarmPoints = listOf(

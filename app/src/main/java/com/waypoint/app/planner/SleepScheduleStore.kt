@@ -215,7 +215,8 @@ class SleepScheduleStore(private val context: Context) {
                         priority = PlannerPriority.SLEEP,
                         category = EventCategory.SLEEP,
                         fixedStartMillis = logged.bedMillis,
-                        fixedEndMillis = logged.wakeMillis
+                        fixedEndMillis = logged.wakeMillis,
+                        isLogged = true
                     ))
                     AppLogger.i("SleepSync", "syncToRegistry: logged sleep for $date, skipping plan")
                     continue

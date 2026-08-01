@@ -26,7 +26,9 @@ data class PlannerEvent(
      * durationMinutes is ignored — the range defines the length.
      */
     val fixedStartMillis: Long? = null,
-    val fixedEndMillis: Long? = null
+    val fixedEndMillis: Long? = null,
+    /** True for sleep events built from an actual log entry (past); false for computed planned windows. */
+    val isLogged: Boolean = false
 )
 
 sealed class EventCondition {
