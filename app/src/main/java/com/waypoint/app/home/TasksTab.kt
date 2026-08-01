@@ -70,6 +70,7 @@ import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.signal.ShiftSession
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.ui.components.TimePickerChip
@@ -299,11 +300,33 @@ private fun RoundCheckbox(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: () -> Unit) {
-    val schedule = ws.getTodaySchedule()
-    if (!schedule.isWork) return
+    val todaySchedule = ws.getTodaySchedule()
+
+    // Cross-midnight carryover: today is a day-off but yesterday had an active
+    // cross-midnight shift that was never ended (session still open).
+    val yesterday = remember { Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) } }
+    val yesterdayKey = remember { ws.dateKey(yesterday) }
+    val yesterdaySchedule = remember { ws.getSchedule(yesterday) }
+    val initialYesterdaySession = remember { ws.getSession(yesterdayKey) }
+    val isCarryover = remember {
+        !todaySchedule.isWork
+            && yesterdaySchedule.isWork
+            && yesterdaySchedule.crossesMidnight
+            && initialYesterdaySession.actualStartMillis != null
+            && initialYesterdaySession.actualEndMillis == null
+    }
+
+    if (!todaySchedule.isWork && !isCarryover) return
+
+    val schedule = if (isCarryover) yesterdaySchedule else todaySchedule
+    val effectiveDateKey = if (isCarryover) yesterdayKey else ws.dateKey(Calendar.getInstance())
 
     val scope = rememberCoroutineScope()
-    var session by remember { mutableStateOf(ws.getTodaySession()) }
+    var session by remember {
+        mutableStateOf(
+            if (isCarryover) initialYesterdaySession else ws.getTodaySession()
+        )
+    }
 
     val shiftStart = schedule.shiftStart
     val shiftEnd = schedule.shiftEnd
@@ -400,8 +423,8 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
 
     fun doStartShift(startMs: Long) {
         scope.launch {
-            ws.startShift(startMs)
-            session = ws.getTodaySession()
+            ws.saveSession(effectiveDateKey, ShiftSession(actualStartMillis = startMs))
+            session = ws.getSession(effectiveDateKey)
             onRefresh()
         }
     }
@@ -545,9 +568,9 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                                 TextButton(onClick = {
                                     scope.launch {
                                         val eventId = session.calendarEventId
-                                        ws.resetTodaySession()
+                                        ws.deleteSession(effectiveDateKey)
                                         eventId?.let { ShiftCalendarSync.delete(context, it) }
-                                        session = ws.getTodaySession()
+                                        session = ws.getSession(effectiveDateKey)
                                         onRefresh()
                                     }
                                 }) {
@@ -564,9 +587,9 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                                                 ?: System.currentTimeMillis()
                                             val endMs = parseShiftEndMillis(manualEndTime, startMs)
                                                 ?: System.currentTimeMillis()
-                                            ws.endShift(endMs)
+                                            ws.saveSession(effectiveDateKey, session.copy(actualEndMillis = endMs))
                                             ShiftCalendarSync.write(context, ws, startMs, endMs)
-                                            session = ws.getTodaySession()
+                                            session = ws.getSession(effectiveDateKey)
                                             onRefresh()
                                         }
                                     },
@@ -612,9 +635,9 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                         TextButton(onClick = {
                             scope.launch {
                                 val eventId = session.calendarEventId
-                                ws.resetTodaySession()
+                                ws.deleteSession(effectiveDateKey)
                                 eventId?.let { ShiftCalendarSync.delete(context, it) }
-                                session = ws.getTodaySession()
+                                session = ws.getSession(effectiveDateKey)
                                 onRefresh()
                             }
                         }) {
