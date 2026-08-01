@@ -135,6 +135,21 @@ fun SettingsTab(onPermissionGranted: () -> Unit) {
         Button(onClick = { showLogs = true }) { Text("View Logs") }
 
         Spacer(Modifier.height(32.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(16.dp))
+
+        val context = LocalContext.current
+        val versionName = remember {
+            runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrDefault("–")
+        }
+        Text(
+            text = "Waypoint  v$versionName",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+        )
+        Spacer(Modifier.height(24.dp))
     }
 
     if (showLogs) {
