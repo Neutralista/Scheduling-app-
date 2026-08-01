@@ -585,7 +585,7 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                                             val endMs = parseShiftEndMillis(manualEndTime, startMs)
                                                 ?: System.currentTimeMillis()
                                             ws.saveSession(effectiveDateKey, session.copy(actualEndMillis = endMs))
-                                            ShiftCalendarSync.write(context, ws, startMs, endMs)
+                                            ShiftCalendarSync.write(context, ws, startMs, endMs, dateKey = if (isCarryover) effectiveDateKey else null)
                                             session = ws.getSession(effectiveDateKey)
                                             onRefresh()
                                         }

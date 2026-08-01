@@ -12,21 +12,24 @@ object ShiftCalendarSync {
     /**
      * Creates a "Work shift" calendar event for the given start→end window.
      * If the session already has a [calendarEventId], the old event is deleted first.
-     * The new event ID is persisted back via [ws.updateShiftCalendarEventId].
+     * Pass [dateKey] for carryover sessions stored under a previous day's key;
+     * omit (null) to use today's session as normal.
      */
     suspend fun write(
         context: Context,
         ws: WorkScheduleSignals,
         startMs: Long,
-        endMs: Long
+        endMs: Long,
+        dateKey: String? = null
     ): Boolean {
-        AppLogger.i(TAG, "write: startMs=$startMs endMs=$endMs")
+        AppLogger.i(TAG, "write: startMs=$startMs endMs=$endMs dateKey=$dateKey")
         val cal = RealCalendarSignals(context)
         if (!cal.hasWritePermission()) {
             AppLogger.w(TAG, "write: no WRITE_CALENDAR permission, skipping")
             return false
         }
-        val oldEventId = ws.getTodaySession().calendarEventId
+        val session = if (dateKey != null) ws.getSession(dateKey) else ws.getTodaySession()
+        val oldEventId = session.calendarEventId
         if (oldEventId != null) cal.deleteEvent(oldEventId)
         val eventId = cal.createEvent(
             title = "Work shift",
@@ -35,7 +38,13 @@ object ShiftCalendarSync {
             description = "Logged by Waypoint"
         )
         AppLogger.i(TAG, "write: createEvent returned eventId=$eventId")
-        if (eventId > 0) ws.updateShiftCalendarEventId(eventId)
+        if (eventId > 0) {
+            if (dateKey != null) {
+                ws.saveSession(dateKey, session.copy(calendarEventId = eventId))
+            } else {
+                ws.updateShiftCalendarEventId(eventId)
+            }
+        }
         return eventId > 0
     }
 
