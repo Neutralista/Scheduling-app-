@@ -61,7 +61,10 @@ import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.ui.components.TimePickerChip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.Locale
 
 // ── Tab root ──────────────────────────────────────────────────────────────────
 
@@ -73,6 +76,17 @@ fun TasksTab(workSchedule: WorkScheduleSignals, onRefresh: () -> Unit = {}) {
     var tasks by remember { mutableStateOf(store.loadToday()) }
     var input by remember { mutableStateOf("") }
 
+    val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
+    var headerClock by remember { mutableStateOf(clockNow()) }
+    var headerDay by remember { mutableStateOf(LocalDate.now().format(dayFmt)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            headerClock = clockNow()
+            headerDay = LocalDate.now().format(dayFmt)
+        }
+    }
+
     fun submit() {
         val title = input.trim()
         if (title.isNotEmpty()) {
@@ -83,6 +97,31 @@ fun TasksTab(workSchedule: WorkScheduleSignals, onRefresh: () -> Unit = {}) {
     }
 
     Column(Modifier.fillMaxSize()) {
+        // ── Header bar: clock + day ───────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = headerClock,
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = (-1).sp
+                ),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = headerDay,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -205,8 +244,7 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
     var manualStartTime by remember { mutableStateOf(clockNow()) }
     var manualEndTime by remember { mutableStateOf(clockNow()) }
 
-    // Live clock + elapsed / remaining
-    var clockText by remember { mutableStateOf(clockNow()) }
+    // Elapsed / remaining (no clock — shown in the tab header bar)
     var elapsedText by remember { mutableStateOf("") }
     var remainingText by remember { mutableStateOf("") }
     var isOvertime by remember { mutableStateOf(false) }
@@ -224,8 +262,7 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(1000)
-            clockText = clockNow()
+            delay(30_000L)
             val startMs = session.actualStartMillis
             if (startMs != null && session.actualEndMillis == null) {
                 elapsedText = elapsedString(System.currentTimeMillis() - startMs)
@@ -237,6 +274,22 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
                     else
                         "${elapsedString(-remaining)} overtime"
                 }
+            }
+        }
+    }
+
+    // Seed elapsed/remaining immediately on first composition
+    LaunchedEffect(session) {
+        val startMs = session.actualStartMillis
+        if (startMs != null && session.actualEndMillis == null) {
+            elapsedText = elapsedString(System.currentTimeMillis() - startMs)
+            if (plannedEndMillis != null) {
+                val remaining = plannedEndMillis - System.currentTimeMillis()
+                isOvertime = remaining < 0
+                remainingText = if (remaining > 0)
+                    "${elapsedString(remaining)} left"
+                else
+                    "${elapsedString(-remaining)} overtime"
             }
         }
     }
@@ -253,50 +306,39 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: (
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        // ── Clock + status badge ──────────────────────────────────────────
+        // ── Shift time + status badge ─────────────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = clockText,
-                style = MaterialTheme.typography.displaySmall.copy(
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = (-1).sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Column(horizontalAlignment = Alignment.End) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (isClockedOut) MaterialTheme.colorScheme.surface
-                            else MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = when {
-                            isClockedOut -> "Done"
-                            isClockedIn  -> "On shift"
-                            else         -> "Work day"
-                        },
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isClockedOut) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-                if (schedule.shiftStart != null) {
-                    Spacer(Modifier.height(3.dp))
-                    val endStr = schedule.shiftEnd?.displayString ?: "?"
-                    val suffix = if (schedule.crossesMidnight) " +1" else ""
-                    Text(
-                        text = "${schedule.shiftStart.displayString} – $endStr$suffix",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                    )
-                }
+            if (schedule.shiftStart != null) {
+                val endStr = schedule.shiftEnd?.displayString ?: "?"
+                val suffix = if (schedule.crossesMidnight) " +1" else ""
+                Text(
+                    text = "${schedule.shiftStart.displayString} – $endStr$suffix",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (isClockedOut) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Text(
+                    text = when {
+                        isClockedOut -> "Done"
+                        isClockedIn  -> "On shift"
+                        else         -> "Work day"
+                    },
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isClockedOut) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
 
