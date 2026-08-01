@@ -49,6 +49,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.notification.ShiftAlarmScheduler
+import com.waypoint.app.planner.EventCategory
+import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.ShiftCalendarSync
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.signal.AfterWorkEvent
@@ -69,7 +72,11 @@ import java.util.UUID
 private val TABS = listOf("This week", "Next week", "Month", "Defaults")
 
 @Composable
-fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) {
+fun WorkScheduleCard(
+    ws: WorkScheduleSignals,
+    registry: EventPlannerRegistry? = null,
+    onShiftEnd: (() -> Unit)? = null
+) {
     val context = LocalContext.current
     val config by ws.configFlow.collectAsState()
     var session by remember { mutableStateOf(ws.getTodaySession()) }
@@ -277,6 +284,7 @@ fun WorkScheduleCard(ws: WorkScheduleSignals, onShiftEnd: (() -> Unit)? = null) 
                         today = today,
                         config = config,
                         ws = ws,
+                        registry = registry,
                         onDateOverride = onDateOverride,
                         onRemoveOverride = onRemoveOverride
                     )
@@ -602,6 +610,7 @@ private fun WeekContent(
     today: LocalDate,
     config: WorkScheduleConfig,
     ws: WorkScheduleSignals,
+    registry: EventPlannerRegistry?,
     onDateOverride: (String, DaySchedule) -> Unit,
     onRemoveOverride: (String) -> Unit
 ) {
@@ -627,6 +636,60 @@ private fun WeekContent(
                 onScheduleChange = { onDateOverride(key, it) },
                 onClearOverride = if (hasOverride) ({ onRemoveOverride(key) }) else null
             )
+            if (registry != null) {
+                val planEvents = registry.planForDate(date, ws)
+                    .scheduled
+                    .filter { it.event.category != EventCategory.SLEEP }
+                if (planEvents.isNotEmpty()) {
+                    DayPlanRow(planEvents)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayPlanRow(events: List<ScheduledEvent>) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 54.dp, end = 8.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        events.forEach { se ->
+            val startStr = formatEpochAsTime(se.startMillis)
+            val durMs = se.endMillis - se.startMillis
+            val durStr = when {
+                durMs >= 3600_000L -> {
+                    val h = durMs / 3600_000L
+                    val m = (durMs % 3600_000L) / 60_000L
+                    if (m > 0) "${h}h ${m}m" else "${h}h"
+                }
+                else -> "${durMs / 60_000L}m"
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    startStr,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.width(34.dp)
+                )
+                Text(
+                    se.event.title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    durStr,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                )
+            }
         }
     }
 }

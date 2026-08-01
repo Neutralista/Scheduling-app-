@@ -25,6 +25,7 @@ class WorkScheduleScript(
     override fun SettingsContent() {
         WorkScheduleCard(
             ws = ws,
+            registry = eventPlanner,
             onShiftEnd = {
                 sleepStore.syncToRegistry(eventPlanner, ws)
                 sleepRefresh.value++
@@ -36,6 +37,7 @@ class WorkScheduleScript(
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         WorkScheduleCard(
             ws = ws,
+            registry = eventPlanner,
             onShiftEnd = {
                 sleepStore.syncToRegistry(eventPlanner, ws)
                 sleepRefresh.value++
