@@ -105,7 +105,7 @@ class EventPlannerRegistry {
         // Place AfterShift events right at shift end in priority order.
         // Any sleep event that sits in the way is pushed later to make room.
         if (shiftEndMs != null) {
-            var cursor = shiftEndMs
+            var cursor: Long = shiftEndMs
             for (event in afterShiftEligible.sortedByDescending { it.priority }) {
                 val durationMs = event.durationMinutes * 60_000L
                 val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
