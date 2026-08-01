@@ -43,6 +43,7 @@ fun SleepLogCard(
     var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
     var todayEntry by remember { mutableStateOf(logStore.loadToday()) }
     var isEditing by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
     var calendarError by remember { mutableStateOf(false) }
 
     val scheduledBedMs = remember { logStore.getScheduledBedMs() }
@@ -130,7 +131,7 @@ fun SleepLogCard(
                     ) { Text("Done") }
                 }
 
-                todayEntry != null && !isEditing -> {
+                todayEntry != null && !isEditing && !dismissed -> {
                     val entry = todayEntry!!
                     val bedStr = epochMsToHHMM(entry.bedMillis)
                     val wakeStr = epochMsToHHMM(entry.wakeMillis)
@@ -164,10 +165,10 @@ fun SleepLogCard(
                                         calendarError = true
                                         return@launch
                                     }
+                                    todayEntry = logStore.loadToday()
                                 }
                                 calendarError = false
-                                logStore.clearToday()
-                                todayEntry = null
+                                dismissed = true
                             }
                         }) { Text("Save & Clear") }
                         if (calendarError) {
