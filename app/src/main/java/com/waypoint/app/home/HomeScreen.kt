@@ -45,7 +45,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.persistence.TaskStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.script.AppScript
@@ -78,15 +80,22 @@ fun HomeScreen(
 ) {
     val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
-
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
-    val widgetsDone = widgets.count { statesById[it.id]?.doneToday == true }
+    val context = LocalContext.current
+    val taskStore = remember { TaskStore(context) }
+    var headerRefreshKey by remember { mutableIntStateOf(0) }
+
+    val headerTasks = remember(headerRefreshKey) { taskStore.loadToday() }
+    val headerIsWorkDay = remember(headerRefreshKey) { workSchedule.getTodaySchedule().isWork }
+    val headerSession = remember(headerRefreshKey) { workSchedule.getTodaySession() }
+    val shiftComplete = headerSession.actualStartMillis != null && headerSession.actualEndMillis != null
+    val tasksTotal = headerTasks.size + if (headerIsWorkDay) 1 else 0
+    val tasksDone = headerTasks.count { it.done } + if (shiftComplete) 1 else 0
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
-            scriptCount = scripts.size,
-            widgetsDone = widgetsDone,
-            widgetsTotal = widgets.size
+            tasksDone = tasksDone,
+            tasksTotal = tasksTotal
         )
         ScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
@@ -111,7 +120,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals)
-                1 -> TasksTab(workSchedule = workSchedule)
+                1 -> TasksTab(workSchedule = workSchedule, onRefresh = { headerRefreshKey++ })
                 2 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
@@ -138,16 +147,15 @@ fun HomeScreen(
 
 @Composable
 private fun AppHeader(
-    scriptCount: Int,
-    widgetsDone: Int,
-    widgetsTotal: Int
+    tasksDone: Int,
+    tasksTotal: Int
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val bg = MaterialTheme.colorScheme.background
     val outline = MaterialTheme.colorScheme.outline
 
-    val progressFraction = if (widgetsTotal > 0) widgetsDone.toFloat() / widgetsTotal else 0f
-    val allDone = widgetsTotal > 0 && widgetsDone == widgetsTotal
+    val progressFraction = if (tasksTotal > 0) tasksDone.toFloat() / tasksTotal else 0f
+    val allDone = tasksTotal > 0 && tasksDone == tasksTotal
 
     val dateFormatter = remember {
         DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.getDefault())
@@ -208,9 +216,9 @@ private fun AppHeader(
                 }
                 Text(
                     text = when {
-                        widgetsTotal == 0 -> "$scriptCount scripts"
+                        tasksTotal == 0 -> "No tasks today"
                         allDone -> "All done"
-                        else -> "$widgetsDone of $widgetsTotal done"
+                        else -> "$tasksDone of $tasksTotal done"
                     },
                     style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant

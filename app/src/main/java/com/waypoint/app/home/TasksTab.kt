@@ -65,7 +65,7 @@ private enum class StartDialog { NONE, ON_TIME, HOW_TO_LOG, TIME_PICKER }
 // ── Tab root ──────────────────────────────────────────────────────────────────
 
 @Composable
-fun TasksTab(workSchedule: WorkScheduleSignals) {
+fun TasksTab(workSchedule: WorkScheduleSignals, onRefresh: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { TaskStore(context) }
 
@@ -77,6 +77,7 @@ fun TasksTab(workSchedule: WorkScheduleSignals) {
         if (title.isNotEmpty()) {
             tasks = store.add(title)
             input = ""
+            onRefresh()
         }
     }
 
@@ -105,7 +106,7 @@ fun TasksTab(workSchedule: WorkScheduleSignals) {
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        ShiftTaskRow(ws = workSchedule, context = context)
+        ShiftTaskRow(ws = workSchedule, context = context, onRefresh = onRefresh)
 
         if (tasks.isEmpty()) {
             Column(
@@ -124,8 +125,8 @@ fun TasksTab(workSchedule: WorkScheduleSignals) {
                 items(tasks, key = { it.id }) { task ->
                     TaskRow(
                         task = task,
-                        onToggle = { tasks = store.setDone(task.id, !task.done) },
-                        onDelete = { tasks = store.delete(task.id) }
+                        onToggle = { tasks = store.setDone(task.id, !task.done); onRefresh() },
+                        onDelete = { tasks = store.delete(task.id); onRefresh() }
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                 }
@@ -146,7 +147,7 @@ fun TasksTab(workSchedule: WorkScheduleSignals) {
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
-                    TextButton(onClick = { tasks = store.clearCompleted() }) {
+                    TextButton(onClick = { tasks = store.clearCompleted(); onRefresh() }) {
                         Text("Clear completed", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -190,7 +191,7 @@ private fun RoundCheckbox(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
+private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context, onRefresh: () -> Unit) {
     val schedule = ws.getTodaySchedule()
     if (!schedule.isWork) return
 
@@ -237,6 +238,7 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
         scope.launch {
             ws.startShift(startMs)
             session = ws.getTodaySession()
+            onRefresh()
         }
     }
 
@@ -309,13 +311,28 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
             }
 
             when {
-                isClockedOut -> { /* nothing */ }
+                isClockedOut -> {
+                    TextButton(onClick = {
+                        scope.launch {
+                            ws.resetTodaySession()
+                            session = ws.getTodaySession()
+                            onRefresh()
+                        }
+                    }) {
+                        Text(
+                            "Reset",
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
                 isClockedIn -> {
                     // Reset (accidental start)
                     TextButton(onClick = {
                         scope.launch {
                             ws.resetTodaySession()
                             session = ws.getTodaySession()
+                            onRefresh()
                         }
                     }) {
                         Text(
@@ -331,6 +348,7 @@ private fun ShiftTaskRow(ws: WorkScheduleSignals, context: Context) {
                             ws.endShift(endMs)
                             ShiftCalendarSync.write(context, ws, startMs, endMs)
                             session = ws.getTodaySession()
+                            onRefresh()
                         }
                     }) {
                         Text("End")
