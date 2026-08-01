@@ -50,12 +50,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.waypoint.app.alarm.AlarmSignals
-import com.waypoint.app.persistence.TaskStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
+import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +71,7 @@ import java.util.Locale
 fun HomeScreen(
     workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
+    taskManager: TaskManagerScript,
     calendarSignals: CalendarSignals,
     alarms: AlarmSignals,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
@@ -87,16 +88,20 @@ fun HomeScreen(
     val pagerState = rememberPagerState(initialPage = initialTab) { 5 }
     val scope = rememberCoroutineScope()
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
-    val context = LocalContext.current
-    val taskStore = remember { TaskStore(context) }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
-    val headerTasks = remember(headerRefreshKey) { taskStore.loadToday() }
     val headerIsWorkDay = remember(headerRefreshKey) { workSchedule.getTodaySchedule().isWork }
     val headerSession = remember(headerRefreshKey) { workSchedule.getTodaySession() }
     val shiftComplete = headerSession.actualStartMillis != null && headerSession.actualEndMillis != null
-    val tasksTotal = headerTasks.size + if (headerIsWorkDay) 1 else 0
-    val tasksDone = headerTasks.count { it.done } + if (shiftComplete) 1 else 0
+
+    val headerPlan = remember(headerRefreshKey) { eventPlanner.planToday(workSchedule) }
+    val plannerScheduled = remember(headerPlan) {
+        headerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
+    }
+    val plannerDoneIds = remember(headerRefreshKey) { taskManager.completions.getDoneIds() }
+
+    val tasksTotal = plannerScheduled.size + if (headerIsWorkDay) 1 else 0
+    val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds } + if (shiftComplete) 1 else 0
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
@@ -126,7 +131,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
-                1 -> TasksTab(workSchedule = workSchedule, registry = eventPlanner, onRefresh = { headerRefreshKey++ })
+                1 -> TasksTab(workSchedule = workSchedule, registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
                 2 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,

@@ -59,9 +59,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.waypoint.app.persistence.TaskEntry
-import com.waypoint.app.persistence.TaskStore
+import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.ScheduledEvent
+import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.planner.ShiftCalendarSync
 import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepCheckReceiver
@@ -90,12 +92,21 @@ private enum class StartDialog { NONE, ON_TIME, HOW_TO_LOG, TIME_PICKER }
 fun TasksTab(
     workSchedule: WorkScheduleSignals,
     registry: EventPlannerRegistry,
+    taskManager: TaskManagerScript,
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val store = remember { TaskStore(context) }
+    var refreshKey by remember { mutableIntStateOf(0) }
 
-    var tasks by remember { mutableStateOf(store.loadToday()) }
+    val plannerPlan = remember(refreshKey) { registry.planToday(workSchedule) }
+    val scheduledTasks = remember(plannerPlan) {
+        plannerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
+    }
+    val blockedTasks = remember(plannerPlan) {
+        plannerPlan.blocked.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
+    }
+    var doneIds by remember(refreshKey) { mutableStateOf(taskManager.completions.getDoneIds()) }
+
     var input by remember { mutableStateOf("") }
 
     val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
@@ -112,8 +123,17 @@ fun TasksTab(
     fun submit() {
         val title = input.trim()
         if (title.isNotEmpty()) {
-            tasks = store.add(title)
+            taskManager.submitTask(
+                TaskRequest(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = title,
+                    durationMinutes = 30,
+                    priority = 5,
+                    sourceScriptId = "user"
+                )
+            )
             input = ""
+            refreshKey++
             onRefresh()
         }
     }
@@ -168,10 +188,11 @@ fun TasksTab(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        ShiftTaskRow(ws = workSchedule, context = context, onRefresh = onRefresh)
-        SleepTaskRow(ws = workSchedule, registry = registry, context = context, onRefresh = onRefresh)
+        ShiftTaskRow(ws = workSchedule, context = context, onRefresh = { refreshKey++; onRefresh() })
+        SleepTaskRow(ws = workSchedule, registry = registry, context = context, onRefresh = { refreshKey++; onRefresh() })
 
-        if (tasks.isEmpty()) {
+        val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty()
+        if (!hasAny) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
@@ -185,33 +206,56 @@ fun TasksTab(
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                items(tasks, key = { it.id }) { task ->
-                    TaskRow(
-                        task = task,
-                        onToggle = { tasks = store.setDone(task.id, !task.done); onRefresh() },
-                        onDelete = { tasks = store.delete(task.id); onRefresh() }
+                items(scheduledTasks, key = { "s_${it.event.id}" }) { se ->
+                    val done = se.event.id in doneIds
+                    PlannerTaskRow(
+                        se = se,
+                        done = done,
+                        onToggle = {
+                            if (done) taskManager.unmarkDone(se.event.id)
+                            else taskManager.markDone(se.event.id)
+                            doneIds = taskManager.completions.getDoneIds()
+                            onRefresh()
+                        },
+                        onDelete = {
+                            taskManager.retractTask(se.event.id)
+                            refreshKey++
+                            onRefresh()
+                        }
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                 }
-            }
-
-            val doneCount = tasks.count { it.done }
-            if (doneCount > 0) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "$doneCount done",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                    TextButton(onClick = { tasks = store.clearCompleted(); onRefresh() }) {
-                        Text("Clear completed", style = MaterialTheme.typography.labelSmall)
+                if (blockedTasks.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Unscheduled",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
+                    items(blockedTasks, key = { "b_${it.event.id}" }) { be ->
+                        BlockedTaskRow(
+                            be = be,
+                            onDelete = {
+                                taskManager.retractTask(be.event.id)
+                                refreshKey++
+                                onRefresh()
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    }
+                }
+                val doneCount = scheduledTasks.count { it.event.id in doneIds }
+                if (doneCount > 0) {
+                    item {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            text = "$doneCount done",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
@@ -900,11 +944,12 @@ private fun SleepTaskRow(
     }
 }
 
-// ── Regular task row ──────────────────────────────────────────────────────────
+// ── Planner task row (scheduled) ──────────────────────────────────────────────
 
 @Composable
-private fun TaskRow(
-    task: TaskEntry,
+private fun PlannerTaskRow(
+    se: ScheduledEvent,
+    done: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -915,23 +960,68 @@ private fun TaskRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        RoundCheckbox(checked = task.done, onClick = onToggle)
-        Text(
-            text = task.title,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None
-            ),
-            color = if (task.done)
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            else
-                MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
+        RoundCheckbox(checked = done, onClick = onToggle)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = se.event.title,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None
+                ),
+                color = if (done)
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else
+                    MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+            )
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Delete task",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            )
+        }
+    }
+}
+
+// ── Blocked task row ──────────────────────────────────────────────────────────
+
+@Composable
+private fun BlockedTaskRow(be: BlockedEvent, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), CircleShape)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = be.event.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+            )
+            Text(
+                text = be.reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Delete task",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
             )
         }
     }

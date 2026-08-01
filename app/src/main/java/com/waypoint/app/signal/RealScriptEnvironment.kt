@@ -8,6 +8,7 @@ import com.waypoint.app.persistence.CountdownStore
 import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
+import com.waypoint.app.persistence.TaskCompletionStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskQueueStore
@@ -36,7 +37,7 @@ class RealScriptEnvironment(
     override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
     override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
-    override val taskManager: TaskManagerScript = TaskManagerScript(TaskQueueStore(context), eventPlanner)
+    override val taskManager: TaskManagerScript = TaskManagerScript(TaskQueueStore(context), eventPlanner, TaskCompletionStore(context))
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
     override val memory: SharedMemoryStore = SharedMemoryStore(context)
     override val streak: StreakStore = StreakStore(context)

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.AppLogger
 import com.waypoint.app.home.AddTaskSheet
+import com.waypoint.app.persistence.TaskCompletionStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.TaskQueueStore
@@ -42,7 +43,8 @@ import com.waypoint.app.planner.TaskRequest
 
 class TaskManagerScript(
     private val store: TaskQueueStore,
-    private val registry: EventPlannerRegistry
+    private val registry: EventPlannerRegistry,
+    val completions: TaskCompletionStore
 ) : AppScript {
 
     override val id = "built_in.task_manager"
@@ -76,6 +78,10 @@ class TaskManagerScript(
     }
 
     fun getAllTasks(): List<TaskRequest> = store.loadAll()
+
+    fun markDone(taskId: String) = completions.markDone(taskId)
+    fun unmarkDone(taskId: String) = completions.unmarkDone(taskId)
+    fun isDone(taskId: String) = completions.isDone(taskId)
 
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)

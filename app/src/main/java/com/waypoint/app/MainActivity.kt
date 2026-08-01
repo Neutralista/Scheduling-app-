@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                     HomeScreen(
                         workSchedule = app.env.workSchedule,
                         eventPlanner = app.env.eventPlanner,
+                        taskManager = app.env.taskManager,
                         calendarSignals = app.env.calendar,
                         alarms = app.env.alarms,
                         sleepTimesFlow = app.env.sleepStore.scheduledTimesFlow,
