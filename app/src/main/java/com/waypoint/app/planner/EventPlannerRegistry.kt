@@ -83,16 +83,20 @@ class EventPlannerRegistry {
             .filter { it.event.category == EventCategory.SLEEP && it.endMillis > dayStartMs }
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
-        // For post-midnight bed times the next sleep event lives AFTER dayEndMs, so
-        // extend the schedulable window to include the approach to that sleep start.
-        // This allows BeforeTask[SLEEP] to work regardless of whether bed time is
-        // before or after midnight, and gives the evening hours to unconstrained tasks.
-        val nextSleepStartMs = _events
+        // Tonight's sleep event — the first sleep window that begins after this morning's wake.
+        // bed time is treated as a soft preference: tasks can push it later, shortening sleep
+        // down to a 4-hour minimum.  Alarms and the sleep registry are not touched.
+        val tonightSleepEvent = _events
             .filter { it.category == EventCategory.SLEEP
                     && it.fixedStartMillis != null
                     && it.fixedStartMillis!! > cycleStartMs }
-            .minOfOrNull { it.fixedStartMillis!! }
-        val freeBlockEnd = nextSleepStartMs ?: dayEndMs
+            .minByOrNull { it.fixedStartMillis!! }
+        val preferredBedMs = tonightSleepEvent?.fixedStartMillis
+        val sleepWakeMs    = tonightSleepEvent?.fixedEndMillis
+
+        // Extend the schedulable window to wake time so tasks can run into the sleep block.
+        // After the main pass the sleep block is slid forward to match the latest task end.
+        val freeBlockEnd = sleepWakeMs ?: dayEndMs
 
         // When nowMs is provided (today's live view), past time is not schedulable.
         // Tasks that would have started before now are placed starting from now instead,
@@ -103,8 +107,11 @@ class EventPlannerRegistry {
 
         // BUFFER events are visual-only and do not block scheduling.
         // reservingBlocks carries calendar events the user marked as "reserves time".
+        // Tonight's sleep is excluded so tasks can freely schedule into that window;
+        // it is re-inserted at its final (slid) position after the scheduling pass.
         val fixedIntervals = scheduled
-            .filter { it.event.category != EventCategory.BUFFER }
+            .filter { it.event.category != EventCategory.BUFFER
+                   && it.event.id != tonightSleepEvent?.id }
             .map { it.startMillis to it.endMillis } + reservingBlocks
         val remaining = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervals).toMutableList()
 
@@ -188,12 +195,14 @@ class EventPlannerRegistry {
                 blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
             }
 
-            // Sleep sentinel bounds.
-            // nextSleepStartMs is preferred over the scheduled list because for post-midnight
-            // bed times tonight's sleep event falls outside dayEndMs and isn't in scheduled.
-            val sleepStartBound = nextSleepStartMs
-                ?: scheduled.filter { it.event.category == EventCategory.SLEEP }.minOfOrNull { it.startMillis }
-            val sleepEndBound   = scheduled.filter { it.event.category == EventCategory.SLEEP }.maxOfOrNull { it.endMillis }
+            // Sleep sentinel bounds for BeforeTask[SLEEP] / AfterTask[SLEEP].
+            // sleepStartBound = preferred bed time (the soft target for "before sleep" tasks).
+            // sleepEndBound   = this morning's wake time (after sleep → after today's wake).
+            val sleepStartBound = preferredBedMs
+                ?: scheduled.filter { it.event.category == EventCategory.SLEEP
+                                   && it.event.id != tonightSleepEvent?.id }
+                    .minOfOrNull { it.startMillis }
+            val sleepEndBound = cycleStartMs
 
             // Explicit time bounds from BeforeTask / AfterTask conditions
             val beforeTask = event.conditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
@@ -229,7 +238,9 @@ class EventPlannerRegistry {
             //             placement, and effectiveMustEndBefore triggers last-fit anyway,
             //             so the zone lower bound would only create impossible conflicts.
             // EVENING   → last-fit (mirrors scheduleLate; no additional lower bound needed)
-            val freeSpan = freeBlockEnd - cycleStartMs
+            // Base zone span on preferred bed time, not the extended wake-to-wake window,
+            // so AFTERNOON places tasks in the real active part of the day.
+            val freeSpan = (preferredBedMs ?: freeBlockEnd) - cycleStartMs
             val hasExplicitTimeWindow = event.conditions.any { it is EventCondition.TimeWindow }
             val zoneLowerBound: Long? = when {
                 event.zone == PlannerZone.AFTERNOON && !hasExplicitTimeWindow ->
@@ -379,6 +390,23 @@ class EventPlannerRegistry {
                     break
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time slot")
+            }
+        }
+
+        // Slide tonight's sleep block forward if tasks ran past preferred bed time.
+        // The 4-hour minimum-sleep guard keeps the block from compressing below a viable rest.
+        if (tonightSleepEvent != null && preferredBedMs != null && sleepWakeMs != null) {
+            val minSleepMs = 4 * 3600_000L
+            val latestAllowedBedMs = sleepWakeMs - minSleepMs
+            if (latestAllowedBedMs >= preferredBedMs) {
+                val latestTaskEnd = scheduled
+                    .filter { it.event.id != tonightSleepEvent.id && it.endMillis <= sleepWakeMs }
+                    .maxOfOrNull { it.endMillis } ?: preferredBedMs
+                val newBedMs = maxOf(preferredBedMs, minOf(latestTaskEnd, latestAllowedBedMs))
+                if (newBedMs != preferredBedMs) {
+                    scheduled.removeIf { it.event.id == tonightSleepEvent.id }
+                    scheduled += ScheduledEvent(tonightSleepEvent, newBedMs, sleepWakeMs)
+                }
             }
         }
 
