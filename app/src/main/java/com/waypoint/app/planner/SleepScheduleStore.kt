@@ -262,11 +262,11 @@ class SleepScheduleStore(private val context: Context) {
         s: SleepSchedule,
         calEvents: List<Pair<Long, Long>> = emptyList()
     ): EffectiveSleepTimes {
-        // Anchor wake at preferred time, derive bed from target duration
-        val effectiveWakeMin = s.preferredWakeTime.totalMinutes
-        val effectiveBedMin = ((effectiveWakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
+        // Use the user's directly-set preferred times as anchors.
+        // "isPostMidnight" = bed hour falls after midnight (e.g. 01:00) meaning it's
+        // already into the next calendar day, so both bed and wake are on date+1.
         var effectiveWake = s.preferredWakeTime
-        var effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
+        var effectiveBed  = s.preferredBedTime
 
         val zone = ZoneId.systemDefault()
         val isPostMidnight = effectiveBed.totalMinutes < effectiveWake.totalMinutes
