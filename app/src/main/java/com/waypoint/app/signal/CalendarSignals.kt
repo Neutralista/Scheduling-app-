@@ -18,7 +18,8 @@ data class CalendarEvent(
     val startMillis: Long,
     val endMillis: Long,
     val allDay: Boolean,
-    val calendarColor: Int
+    val calendarColor: Int,
+    val eventId: Long = -1L
 )
 
 interface CalendarSignals {
@@ -66,6 +67,7 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             .build()
 
         val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
             CalendarContract.Instances.TITLE,
             CalendarContract.Instances.BEGIN,
             CalendarContract.Instances.END,
@@ -78,18 +80,20 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             uri, projection, null, null,
             CalendarContract.Instances.BEGIN + " ASC"
         )?.use { cursor ->
-            val titleIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
-            val beginIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
-            val endIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
-            val allDayIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
-            val colorIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
+            val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+            val titleIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
+            val beginIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endIdx     = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val allDayIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
+            val colorIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
             while (cursor.moveToNext()) {
                 events.add(CalendarEvent(
                     title = cursor.getString(titleIdx) ?: "(no title)",
                     startMillis = cursor.getLong(beginIdx),
                     endMillis   = cursor.getLong(endIdx),
                     allDay      = cursor.getInt(allDayIdx) == 1,
-                    calendarColor = cursor.getInt(colorIdx)
+                    calendarColor = cursor.getInt(colorIdx),
+                    eventId     = cursor.getLong(eventIdIdx)
                 ))
             }
         }

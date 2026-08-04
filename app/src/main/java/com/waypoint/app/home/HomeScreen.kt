@@ -76,6 +76,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import com.waypoint.app.planner.ScheduledEvent
+import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.signal.CalendarEvent
 
 @Composable
 fun HomeScreen(
@@ -136,7 +139,7 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
+                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager)
                 1 -> CyclesTab(cycleTracker = cycleTracker)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
                 3 -> WidgetsTab(
@@ -254,7 +257,8 @@ private fun AppHeader(
 private fun PlanTab(
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals,
-    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
+    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
+    taskManager: TaskManagerScript
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -273,6 +277,11 @@ private fun PlanTab(
     var eventDays by remember { mutableStateOf(emptySet<LocalDate>()) }
     var showAddEvent by remember { mutableStateOf(false) }
     val hasCalPermission = remember { calendarSignals.hasPermission() }
+
+    // Timeline tap / detail state
+    var selectedCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
+    var selectedPlannerEvent by remember { mutableStateOf<ScheduledEvent?>(null) }
+    var editingTask by remember { mutableStateOf<TaskRequest?>(null) }
 
     // Keep the calendar grid in sync when day arrows navigate across month boundaries
     LaunchedEffect(selectedDate) {
@@ -466,7 +475,9 @@ private fun PlanTab(
             calendarSignals = calendarSignals,
             date = selectedDate,
             refreshKey = calRefreshKey,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            onCalendarEventClick = { selectedCalEvent = it },
+            onPlannerEventClick = { selectedPlannerEvent = it }
         )
     }
 
@@ -480,6 +491,58 @@ private fun PlanTab(
                     calRefreshKey++
                     showAddEvent = false
                 }
+            }
+        )
+    }
+
+    // ── Calendar event detail ─────────────────────────────────────────────────
+    val selCal = selectedCalEvent
+    if (selCal != null) {
+        TimelineEventDetailSheet(
+            item = TimelineDetailItem.CalEvent(selCal),
+            onDismiss = { selectedCalEvent = null },
+            onDelete = if (selCal.eventId > 0) {
+                {
+                    scope.launch {
+                        calendarSignals.deleteEvent(selCal.eventId)
+                        calRefreshKey++
+                        selectedCalEvent = null
+                    }
+                }
+            } else null
+        )
+    }
+
+    // ── Planner / task detail ─────────────────────────────────────────────────
+    val selPlanner = selectedPlannerEvent
+    if (selPlanner != null) {
+        val taskReq = taskManager.getAllTasks().find { it.id == selPlanner.event.id }
+        TimelineEventDetailSheet(
+            item = TimelineDetailItem.PlannerItem(selPlanner, taskReq),
+            onDismiss = { selectedPlannerEvent = null },
+            onEdit = if (taskReq != null) {
+                { editingTask = taskReq; selectedPlannerEvent = null }
+            } else null,
+            onDelete = if (taskReq != null) {
+                {
+                    taskManager.retractTask(selPlanner.event.id)
+                    calRefreshKey++
+                    selectedPlannerEvent = null
+                }
+            } else null
+        )
+    }
+
+    // ── Edit task via AddTaskSheet ────────────────────────────────────────────
+    val taskBeingEdited = editingTask
+    if (taskBeingEdited != null) {
+        AddTaskSheet(
+            initial = taskBeingEdited,
+            onDismiss = { editingTask = null },
+            onSave = { req ->
+                taskManager.submitTask(req)
+                calRefreshKey++
+                editingTask = null
             }
         )
     }

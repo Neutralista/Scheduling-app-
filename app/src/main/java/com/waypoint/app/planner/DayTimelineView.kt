@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,7 +61,9 @@ fun DayTimelineView(
     calendarSignals: CalendarSignals? = null,
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
+    onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null
 ) {
     // Anchor: 4 AM on the viewed date in ms. All "minute" values are relative to this.
     val viewStartMs = remember(date) {
@@ -287,6 +290,7 @@ fun DayTimelineView(
                             .height(eventH)
                             .padding(horizontal = 6.dp)
                             .clip(RoundedCornerShape(6.dp))
+                            .then(if (onCalendarEventClick != null) Modifier.clickable { onCalendarEventClick(evt) } else Modifier)
                             .background(calColor.copy(alpha = 0.13f))
                             .border(1.dp, calColor.copy(alpha = 0.38f), RoundedCornerShape(6.dp))
                     ) {
@@ -342,6 +346,7 @@ fun DayTimelineView(
                             .height(eventH)
                             .padding(horizontal = 6.dp)
                             .clip(RoundedCornerShape(6.dp))
+                            .then(if (onPlannerEventClick != null) Modifier.clickable { onPlannerEventClick(se) } else Modifier)
                             .background(bg)
                             .then(
                                 when {
