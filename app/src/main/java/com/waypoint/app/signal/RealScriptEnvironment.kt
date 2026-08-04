@@ -9,8 +9,10 @@ import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.persistence.TaskCompletionStore
+import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.planner.TaskExecutionStore
 import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.script.ScriptEnvironment
 import com.waypoint.app.script.ScriptState
@@ -36,7 +38,14 @@ class RealScriptEnvironment(
     override val calendar: CalendarSignals = RealCalendarSignals(context)
     override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
-    override val taskManager: TaskManagerScript = TaskManagerScript(TaskQueueStore(context), eventPlanner, TaskCompletionStore(context))
+    val taskExecutionStore: TaskExecutionStore = TaskExecutionStore(context)
+    val bufferRulesStore: BufferRulesStore = BufferRulesStore(context)
+    override val taskManager: TaskManagerScript = TaskManagerScript(
+        store = TaskQueueStore(context),
+        registry = eventPlanner,
+        completions = TaskCompletionStore(context),
+        executions = taskExecutionStore
+    )
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
     override val memory: SharedMemoryStore = SharedMemoryStore(context)
     override val streak: StreakStore = StreakStore(context)

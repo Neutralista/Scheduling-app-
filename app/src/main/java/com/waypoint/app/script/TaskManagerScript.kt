@@ -4,13 +4,16 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.persistence.TaskCompletionStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.PlannerEvent
+import com.waypoint.app.planner.TaskExecution
+import com.waypoint.app.planner.TaskExecutionStore
 import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.planner.TaskRequest
 
 class TaskManagerScript(
     private val store: TaskQueueStore,
     private val registry: EventPlannerRegistry,
-    val completions: TaskCompletionStore
+    val completions: TaskCompletionStore,
+    val executions: TaskExecutionStore
 ) : AppScript {
 
     override val id = "built_in.task_manager"
@@ -48,18 +51,33 @@ class TaskManagerScript(
     fun unmarkDone(taskId: String) = completions.unmarkDone(taskId)
     fun isDone(taskId: String) = completions.isDone(taskId)
 
+    fun startExecution(taskId: String): TaskExecution = executions.start(taskId)
+    fun stopExecution(taskId: String): TaskExecution? = executions.stop(taskId)
+    fun getRunningExecution(): TaskExecution? = executions.getRunning()
+    fun getExecution(taskId: String): TaskExecution? = executions.get(taskId)
+
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)
         val tasks = store.loadAll()
         tasks.forEach { req ->
+            val effectiveDuration = if (req.useMeasuredDuration) {
+                executions.loadAll()
+                    .filter { it.taskId == req.id && it.measuredMinutes != null }
+                    .mapNotNull { it.measuredMinutes }
+                    .average()
+                    .takeIf { !it.isNaN() }
+                    ?.toInt() ?: req.durationMinutes
+            } else req.durationMinutes
+
             registry.register(
                 PlannerEvent(
                     id = req.id,
                     title = req.title,
-                    durationMinutes = req.durationMinutes,
+                    durationMinutes = effectiveDuration,
                     priority = req.priority,
                     conditions = req.conditions.mapNotNull { it.toEventCondition() },
-                    sourceWidgetId = WIDGET_ID
+                    sourceWidgetId = WIDGET_ID,
+                    bufferMinutes = req.bufferMinutes
                 )
             )
         }

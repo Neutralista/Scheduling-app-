@@ -116,10 +116,14 @@ class EventPlannerRegistry {
                     val effectiveStart = if (afterShift && shiftEndMs != null) maxOf(blockStart, shiftEndMs) else blockStart
                     fitStart = effectiveStart; fitEnd = effectiveEnd
                 }
+                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
+                if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
+
                 if (fitEnd - fitStart < durationMs) continue
 
                 scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                remaining[i] = (fitStart + durationMs) to blockEnd
+                val bufferMs = event.bufferMinutes * 60_000L
+                remaining[i] = (fitStart + durationMs + bufferMs) to blockEnd
                 placed = true
                 break
             }
@@ -192,6 +196,7 @@ class EventPlannerRegistry {
             is EventCondition.BeforeShift,
             is EventCondition.DuringShift,
             is EventCondition.AfterShift -> if (!isWorkDay || shiftStartMs == null || shiftEndMs == null) return "No shift today"
+            is EventCondition.Deadline -> if (System.currentTimeMillis() > cond.byMillis) return "Past deadline"
             else -> Unit
         }
         return null

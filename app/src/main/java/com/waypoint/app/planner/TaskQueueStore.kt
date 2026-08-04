@@ -39,7 +39,12 @@ data class TaskRequest(
     val durationMinutes: Int,
     val priority: Int = 5,
     val sourceScriptId: String = "",
-    val conditions: List<TaskConditionSpec> = emptyList()
+    val conditions: List<TaskConditionSpec> = emptyList(),
+    val isRoutine: Boolean = false,
+    val subtasks: List<SubtaskDef> = emptyList(),
+    val bufferMinutes: Int = 0,
+    val useMeasuredDuration: Boolean = false,
+    val triggers: List<TaskTrigger> = emptyList()
 )
 
 class TaskQueueStore(context: Context) {

@@ -9,7 +9,7 @@ object PlannerPriority {
 }
 
 /** Visual category — drives colour/rendering in the timeline, not scheduling. */
-enum class EventCategory { DEFAULT, SLEEP }
+enum class EventCategory { DEFAULT, SLEEP, BUFFER }
 
 data class PlannerEvent(
     val id: String,
@@ -28,7 +28,9 @@ data class PlannerEvent(
     val fixedStartMillis: Long? = null,
     val fixedEndMillis: Long? = null,
     /** True for sleep events built from an actual log entry (past); false for computed planned windows. */
-    val isLogged: Boolean = false
+    val isLogged: Boolean = false,
+    /** Extra minutes added after the event ends when computing free block consumption. */
+    val bufferMinutes: Int = 0
 )
 
 sealed class EventCondition {
@@ -55,6 +57,9 @@ sealed class EventCondition {
 
     /** Only schedule in the free blocks after the shift ends */
     object AfterShift : EventCondition()
+
+    /** Must be placed before this absolute deadline (epoch ms) */
+    data class Deadline(val byMillis: Long) : EventCondition()
 }
 
 data class ScheduledEvent(
