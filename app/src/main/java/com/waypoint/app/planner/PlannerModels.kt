@@ -60,6 +60,18 @@ sealed class EventCondition {
 
     /** Must be placed before this absolute deadline (epoch ms) */
     data class Deadline(val byMillis: Long) : EventCondition()
+
+    /** Only schedule on days when ALL of the referenced tasks are also scheduled */
+    data class SameDayAs(val taskIds: Set<String>) : EventCondition()
+
+    /** Only schedule on days when NONE of the referenced tasks are scheduled */
+    data class NotSameDayAs(val taskIds: Set<String>) : EventCondition()
+
+    /** Must be placed before the earliest scheduled start of any referenced task */
+    data class BeforeTask(val taskIds: Set<String>) : EventCondition()
+
+    /** Must be placed after the latest scheduled end of any referenced task */
+    data class AfterTask(val taskIds: Set<String>) : EventCondition()
 }
 
 data class ScheduledEvent(

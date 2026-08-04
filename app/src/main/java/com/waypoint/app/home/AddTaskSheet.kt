@@ -51,8 +51,8 @@ import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.ui.components.TimePickerChip
 import java.util.UUID
 
-private enum class DayType { ANY, WORK_DAY, DAY_OFF }
-private enum class ShiftRelation { ANY, BEFORE, DURING, AFTER }
+private enum class DayRelation { ANY, SAME_DAY_AS, NOT_SAME_DAY_AS }
+private enum class OrderRelation { ANY, BEFORE_TASK, AFTER_TASK }
 
 private val DURATION_PRESETS = listOf(15, 30, 45, 60, 90, 120)
 private val DURATION_LABELS  = listOf("15m", "30m", "45m", "60m", "90m", "2h")
@@ -97,21 +97,28 @@ fun AddTaskSheet(
     val closestPriority = PRIORITY_OPTIONS.minByOrNull { kotlin.math.abs(it.value - initPriority) }?.value ?: 5
     var priority by remember { mutableIntStateOf(closestPriority) }
 
-    var dayType by remember { mutableStateOf(
+    var dayRelation by remember { mutableStateOf(
         when {
-            initConditions.any { it.type == "workDayOnly" } -> DayType.WORK_DAY
-            initConditions.any { it.type == "dayOffOnly"  } -> DayType.DAY_OFF
-            else -> DayType.ANY
+            initConditions.any { it.type == "sameDayAs" }    -> DayRelation.SAME_DAY_AS
+            initConditions.any { it.type == "notSameDayAs" } -> DayRelation.NOT_SAME_DAY_AS
+            else -> DayRelation.ANY
         }
     ) }
+    var dayRelationTaskIds by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "sameDayAs" || it.type == "notSameDayAs" }
+            ?.referenceTaskIds?.toSet() ?: emptySet()
+    ) }
 
-    var shiftRelation by remember { mutableStateOf(
+    var orderRelation by remember { mutableStateOf(
         when {
-            initConditions.any { it.type == "beforeShift" } -> ShiftRelation.BEFORE
-            initConditions.any { it.type == "duringShift" } -> ShiftRelation.DURING
-            initConditions.any { it.type == "afterShift"  } -> ShiftRelation.AFTER
-            else -> ShiftRelation.ANY
+            initConditions.any { it.type == "beforeTask" } -> OrderRelation.BEFORE_TASK
+            initConditions.any { it.type == "afterTask" }  -> OrderRelation.AFTER_TASK
+            else -> OrderRelation.ANY
         }
+    ) }
+    var orderRelationTaskIds by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "beforeTask" || it.type == "afterTask" }
+            ?.referenceTaskIds?.toSet() ?: emptySet()
     ) }
 
     var afterTimeEnabled  by remember { mutableStateOf(initTw?.start != null) }
@@ -159,16 +166,19 @@ fun AddTaskSheet(
         if (titleError || customDurError) return
 
         val conditions = buildList {
-            when (dayType) {
-                DayType.WORK_DAY -> add(TaskConditionSpec("workDayOnly"))
-                DayType.DAY_OFF  -> add(TaskConditionSpec("dayOffOnly"))
-                DayType.ANY      -> Unit
+            when (dayRelation) {
+                DayRelation.SAME_DAY_AS    -> if (dayRelationTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("sameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+                DayRelation.NOT_SAME_DAY_AS -> if (dayRelationTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("notSameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+                DayRelation.ANY            -> Unit
             }
-            when (shiftRelation) {
-                ShiftRelation.BEFORE -> add(TaskConditionSpec("beforeShift"))
-                ShiftRelation.DURING -> add(TaskConditionSpec("duringShift"))
-                ShiftRelation.AFTER  -> add(TaskConditionSpec("afterShift"))
-                ShiftRelation.ANY    -> Unit
+            when (orderRelation) {
+                OrderRelation.BEFORE_TASK -> if (orderRelationTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("beforeTask", referenceTaskIds = orderRelationTaskIds.sorted()))
+                OrderRelation.AFTER_TASK  -> if (orderRelationTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("afterTask", referenceTaskIds = orderRelationTaskIds.sorted()))
+                OrderRelation.ANY         -> Unit
             }
             val hasAfter  = afterTimeEnabled  && afterTime.isNotEmpty()
             val hasBefore = beforeTimeEnabled && beforeTime.isNotEmpty()
@@ -307,45 +317,106 @@ fun AddTaskSheet(
                     FormSection(title = "Constraints") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
-                            // Day type
+                            // Day relation
                             ConstraintSubsection("Day") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    DayType.entries.forEach { dt ->
-                                        val label = when (dt) {
-                                            DayType.ANY      -> "Any day"
-                                            DayType.WORK_DAY -> "Work days"
-                                            DayType.DAY_OFF  -> "Days off"
-                                        }
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         FilterChip(
-                                            selected = dayType == dt,
-                                            onClick  = { dayType = dt },
-                                            label    = { Text(label) }
+                                            selected = dayRelation == DayRelation.ANY,
+                                            onClick  = { dayRelation = DayRelation.ANY; dayRelationTaskIds = emptySet() },
+                                            label    = { Text("Any day") }
                                         )
+                                        FilterChip(
+                                            selected = dayRelation == DayRelation.SAME_DAY_AS,
+                                            onClick  = { dayRelation = DayRelation.SAME_DAY_AS },
+                                            label    = { Text("Same day as") }
+                                        )
+                                        FilterChip(
+                                            selected = dayRelation == DayRelation.NOT_SAME_DAY_AS,
+                                            onClick  = { dayRelation = DayRelation.NOT_SAME_DAY_AS },
+                                            label    = { Text("When not scheduled") }
+                                        )
+                                    }
+                                    if (dayRelation != DayRelation.ANY) {
+                                        if (chainTargets.isEmpty()) {
+                                            Text(
+                                                "Add more tasks to use this constraint.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        } else {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                chainTargets.forEach { task ->
+                                                    FilterChip(
+                                                        selected = task.id in dayRelationTaskIds,
+                                                        onClick  = {
+                                                            dayRelationTaskIds =
+                                                                if (task.id in dayRelationTaskIds) dayRelationTaskIds - task.id
+                                                                else dayRelationTaskIds + task.id
+                                                        },
+                                                        label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            // Shift placement
-                            ConstraintSubsection("When") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    ShiftRelation.entries.forEach { sr ->
-                                        val label = when (sr) {
-                                            ShiftRelation.ANY    -> "Any time"
-                                            ShiftRelation.BEFORE -> "Before shift"
-                                            ShiftRelation.DURING -> "During shift"
-                                            ShiftRelation.AFTER  -> "After shift"
-                                        }
+                            // Order relative to another task
+                            ConstraintSubsection("Order") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         FilterChip(
-                                            selected = shiftRelation == sr,
-                                            onClick  = { shiftRelation = sr },
-                                            label    = { Text(label) }
+                                            selected = orderRelation == OrderRelation.ANY,
+                                            onClick  = { orderRelation = OrderRelation.ANY; orderRelationTaskIds = emptySet() },
+                                            label    = { Text("Any time") }
                                         )
+                                        FilterChip(
+                                            selected = orderRelation == OrderRelation.BEFORE_TASK,
+                                            onClick  = { orderRelation = OrderRelation.BEFORE_TASK },
+                                            label    = { Text("Before") }
+                                        )
+                                        FilterChip(
+                                            selected = orderRelation == OrderRelation.AFTER_TASK,
+                                            onClick  = { orderRelation = OrderRelation.AFTER_TASK },
+                                            label    = { Text("After") }
+                                        )
+                                    }
+                                    if (orderRelation != OrderRelation.ANY) {
+                                        if (chainTargets.isEmpty()) {
+                                            Text(
+                                                "Add more tasks to use this constraint.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        } else {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                chainTargets.forEach { task ->
+                                                    FilterChip(
+                                                        selected = task.id in orderRelationTaskIds,
+                                                        onClick  = {
+                                                            orderRelationTaskIds =
+                                                                if (task.id in orderRelationTaskIds) orderRelationTaskIds - task.id
+                                                                else orderRelationTaskIds + task.id
+                                                        },
+                                                        label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

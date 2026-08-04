@@ -56,6 +56,7 @@ class EventPlannerRegistry {
         val freeBlocks = mutableListOf(TimeBlock(dayStartMs, dayEndMs))
 
         val eligible = mutableListOf<PlannerEvent>()
+        val dependentEligible = mutableListOf<PlannerEvent>()
         val blocked = mutableListOf<BlockedEvent>()
         val scheduled = mutableListOf<ScheduledEvent>()
 
@@ -67,7 +68,12 @@ class EventPlannerRegistry {
                 continue
             }
             val reason = checkDayConditions(event, date, isWorkDay, shiftStartMs, shiftEndMs)
-            if (reason != null) blocked += BlockedEvent(event, reason) else eligible += event
+            if (reason != null) { blocked += BlockedEvent(event, reason); continue }
+            val hasTaskRelative = event.conditions.any {
+                it is EventCondition.SameDayAs || it is EventCondition.NotSameDayAs ||
+                it is EventCondition.BeforeTask || it is EventCondition.AfterTask
+            }
+            if (hasTaskRelative) dependentEligible += event else eligible += event
         }
 
         eligible.sortByDescending { it.priority }
@@ -77,6 +83,7 @@ class EventPlannerRegistry {
             subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
         }.toMutableList()
 
+        // ── Pass 1: independent events (no task-relative conditions) ─────────
         for (event in eligible) {
             val durationMs = event.durationMinutes * 60_000L
             val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
@@ -100,7 +107,6 @@ class EventPlannerRegistry {
             for (i in remaining.indices) {
                 val (blockStart, blockEnd) = remaining[i]
 
-                // Skip blocks that violate shift-relative placement
                 if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                 if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
 
@@ -110,15 +116,67 @@ class EventPlannerRegistry {
                     fitStart = maxOf(blockStart, toMs(tw.startHour, tw.startMin))
                     fitEnd   = minOf(blockEnd,   toMs(tw.endHour,   tw.endMin))
                 } else {
-                    // For beforeShift, cap block end at shift start
-                    val effectiveEnd = if (beforeShift && shiftStartMs != null) minOf(blockEnd, shiftStartMs) else blockEnd
-                    // For afterShift, cap block start at shift end
-                    val effectiveStart = if (afterShift && shiftEndMs != null) maxOf(blockStart, shiftEndMs) else blockStart
+                    val effectiveEnd   = if (beforeShift && shiftStartMs != null) minOf(blockEnd,   shiftStartMs) else blockEnd
+                    val effectiveStart = if (afterShift  && shiftEndMs   != null) maxOf(blockStart, shiftEndMs)   else blockStart
                     fitStart = effectiveStart; fitEnd = effectiveEnd
                 }
                 val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
                 if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
+                if (fitEnd - fitStart < durationMs) continue
 
+                scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                val bufferMs = event.bufferMinutes * 60_000L
+                remaining[i] = (fitStart + durationMs + bufferMs) to blockEnd
+                placed = true
+                break
+            }
+
+            if (!placed) blocked += BlockedEvent(event, "No available time slot")
+        }
+
+        // ── Pass 2: task-relative events (evaluated against Pass 1 results) ──
+        val scheduledIds get() = scheduled.map { it.event.id }.toSet()
+
+        for (event in dependentEligible.sortedByDescending { it.priority }) {
+            val sameDayAs    = event.conditions.filterIsInstance<EventCondition.SameDayAs>().firstOrNull()
+            val notSameDayAs = event.conditions.filterIsInstance<EventCondition.NotSameDayAs>().firstOrNull()
+            val beforeTask   = event.conditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
+            val afterTask    = event.conditions.filterIsInstance<EventCondition.AfterTask>().firstOrNull()
+
+            val ids = scheduledIds
+            if (sameDayAs != null && !sameDayAs.taskIds.all { it in ids }) {
+                blocked += BlockedEvent(event, "Required tasks not scheduled today"); continue
+            }
+            if (notSameDayAs != null && notSameDayAs.taskIds.any { it in ids }) {
+                blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
+            }
+
+            // Derive hard time bounds from referenced scheduled tasks
+            val mustEndBefore   = beforeTask?.taskIds
+                ?.mapNotNull { id -> scheduled.find { it.event.id == id }?.startMillis }
+                ?.minOrNull()
+            val mustStartAfter  = afterTask?.taskIds
+                ?.mapNotNull { id -> scheduled.find { it.event.id == id }?.endMillis }
+                ?.maxOrNull()
+
+            val durationMs = event.durationMinutes * 60_000L
+            val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
+            var placed = false
+
+            for (i in remaining.indices) {
+                val (blockStart, blockEnd) = remaining[i]
+                val fitStart = maxOf(
+                    blockStart,
+                    mustStartAfter ?: blockStart,
+                    tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart
+                )
+                val fitEnd = minOf(
+                    blockEnd,
+                    mustEndBefore ?: blockEnd,
+                    tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd
+                )
+                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
+                if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
                 if (fitEnd - fitStart < durationMs) continue
 
                 scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
