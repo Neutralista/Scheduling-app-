@@ -272,9 +272,10 @@ private fun LabeledTime(label: String, millis: Long) {
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             Cycle.formatTime(millis),
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            fontFeatureSettings = "tnum"
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = FontWeight.Medium,
+                fontFeatureSettings = "tnum"
+            )
         )
     }
 }
