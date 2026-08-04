@@ -53,8 +53,6 @@ class EventPlannerRegistry {
         val dayStartMs = cal.timeInMillis
         val dayEndMs = dayStartMs + 24 * 3600_000L
 
-        val freeBlocks = mutableListOf(TimeBlock(dayStartMs, dayEndMs))
-
         val eligible = mutableListOf<PlannerEvent>()
         val dependentEligible = mutableListOf<PlannerEvent>()
         val blocked = mutableListOf<BlockedEvent>()
@@ -78,16 +76,17 @@ class EventPlannerRegistry {
 
         eligible.sortByDescending { it.priority }
 
+        // Free time starts when the user wakes (end of the sleep block), not at midnight.
+        // This aligns scheduling with the waking cycle rather than the calendar boundary.
+        val cycleStartMs = scheduled
+            .filter { it.event.category == EventCategory.SLEEP && it.endMillis > dayStartMs }
+            .maxOfOrNull { it.endMillis } ?: dayStartMs
+
+        val freeBlocks = mutableListOf(TimeBlock(cycleStartMs, dayEndMs))
         val fixedIntervals = scheduled.map { it.startMillis to it.endMillis }
         val remaining = freeBlocks.flatMap { block ->
             subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
         }.toMutableList()
-
-        // The first sleep block's start — used to skip pre-sleep midnight blocks for
-        // unconstrained tasks so they land in daytime rather than at 00:00.
-        val firstSleepStartMs = scheduled
-            .filter { it.event.category == EventCategory.SLEEP }
-            .minOfOrNull { it.startMillis }
 
         // ── Pass 1: independent events (no task-relative conditions) ─────────
         for (event in eligible) {
@@ -115,10 +114,6 @@ class EventPlannerRegistry {
 
                 if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                 if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
-
-                // Skip pre-sleep blocks (e.g. 00:00–01:00) for tasks with no explicit time window —
-                // they should land in daytime rather than the dead-of-night slot before sleep.
-                if (tw == null && firstSleepStartMs != null && blockEnd <= firstSleepStartMs) continue
 
                 val fitStart: Long
                 val fitEnd: Long
