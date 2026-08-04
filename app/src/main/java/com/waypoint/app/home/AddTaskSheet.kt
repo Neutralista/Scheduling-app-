@@ -568,9 +568,15 @@ fun AddTaskSheet(
                     }
 
                     // Chains
-                    if (chainTargets.isNotEmpty()) {
-                        FormSection(title = "Chains") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FormSection(title = "Chains") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (chainTargets.isEmpty()) {
+                                Text(
+                                    "Add more tasks to define chains between them.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            } else {
                                 Text(
                                     "Chain to another task when this task starts or finishes.",
                                     style = MaterialTheme.typography.labelSmall,
