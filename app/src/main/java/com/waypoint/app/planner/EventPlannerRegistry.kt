@@ -135,15 +135,13 @@ class EventPlannerRegistry {
         }
 
         // ── Pass 2: task-relative events (evaluated against Pass 1 results) ──
-        val scheduledIds get() = scheduled.map { it.event.id }.toSet()
-
         for (event in dependentEligible.sortedByDescending { it.priority }) {
             val sameDayAs    = event.conditions.filterIsInstance<EventCondition.SameDayAs>().firstOrNull()
             val notSameDayAs = event.conditions.filterIsInstance<EventCondition.NotSameDayAs>().firstOrNull()
             val beforeTask   = event.conditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
             val afterTask    = event.conditions.filterIsInstance<EventCondition.AfterTask>().firstOrNull()
 
-            val ids = scheduledIds
+            val ids = scheduled.map { it.event.id }.toSet()
             if (sameDayAs != null && !sameDayAs.taskIds.all { it in ids }) {
                 blocked += BlockedEvent(event, "Required tasks not scheduled today"); continue
             }
