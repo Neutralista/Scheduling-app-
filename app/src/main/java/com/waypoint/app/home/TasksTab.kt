@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,18 +18,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,20 +45,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.ScheduledEvent
-import com.waypoint.app.planner.TaskRequest
-import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.script.TaskManagerScript
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -81,6 +77,8 @@ fun TasksTab(
 ) {
     val context = LocalContext.current
     var refreshKey by remember { mutableIntStateOf(0) }
+    var showAdd by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<TaskRequest?>(null) }
 
     val plannerPlan = remember(refreshKey) { registry.planToday() }
     val scheduledTasks = remember(plannerPlan) {
@@ -90,8 +88,7 @@ fun TasksTab(
         plannerPlan.blocked.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
     }
     var doneIds by remember(refreshKey) { mutableStateOf(taskManager.completions.getDoneIds()) }
-
-    var input by remember { mutableStateOf("") }
+    val allTasks = remember(refreshKey) { taskManager.getAllTasks() }
 
     val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
     var headerClock by remember { mutableStateOf(clockNow()) }
@@ -104,30 +101,12 @@ fun TasksTab(
         }
     }
 
-    fun submit() {
-        val title = input.trim()
-        if (title.isNotEmpty()) {
-            taskManager.submitTask(
-                TaskRequest(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = title,
-                    durationMinutes = 30,
-                    priority = 5,
-                    sourceScriptId = "user"
-                )
-            )
-            input = ""
-            refreshKey++
-            onRefresh()
-        }
-    }
-
     Column(Modifier.fillMaxSize()) {
-        // ── Header bar: clock + day ───────────────────────────────────────
+        // ── Header bar: clock + day + Add button ──────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -139,34 +118,14 @@ fun TasksTab(
                 ),
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Text(
-                text = headerDay,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                placeholder = { Text("Add a task…", style = MaterialTheme.typography.bodyMedium) },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submit() })
-            )
-            TextButton(onClick = { submit() }, enabled = input.isNotBlank()) {
-                Text("Add")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = headerDay,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+                Spacer(Modifier.width(4.dp))
+                TextButton(onClick = { showAdd = true }) { Text("+ Add") }
             }
         }
 
@@ -200,6 +159,7 @@ fun TasksTab(
                             doneIds = taskManager.completions.getDoneIds()
                             onRefresh()
                         },
+                        onEdit = { editTarget = allTasks.find { it.id == se.event.id } },
                         onDelete = {
                             taskManager.retractTask(se.event.id)
                             refreshKey++
@@ -220,6 +180,7 @@ fun TasksTab(
                     items(blockedTasks, key = { "b_${it.event.id}" }) { be ->
                         BlockedTaskRow(
                             be = be,
+                            onEdit = { editTarget = allTasks.find { it.id == be.event.id } },
                             onDelete = {
                                 taskManager.retractTask(be.event.id)
                                 refreshKey++
@@ -243,6 +204,20 @@ fun TasksTab(
                 }
             }
         }
+    }
+
+    if (showAdd || editTarget != null) {
+        AddTaskSheet(
+            initial = editTarget,
+            onDismiss = { showAdd = false; editTarget = null },
+            onSave = { req ->
+                taskManager.submitTask(req)
+                refreshKey++
+                onRefresh()
+                showAdd = false
+                editTarget = null
+            }
+        )
     }
 }
 
@@ -510,6 +485,7 @@ private fun PlannerTaskRow(
     se: ScheduledEvent,
     done: Boolean,
     onToggle: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -537,6 +513,14 @@ private fun PlannerTaskRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
             )
         }
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit task",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Close,
@@ -550,7 +534,7 @@ private fun PlannerTaskRow(
 // ── Blocked task row ──────────────────────────────────────────────────────────
 
 @Composable
-private fun BlockedTaskRow(be: BlockedEvent, onDelete: () -> Unit) {
+private fun BlockedTaskRow(be: BlockedEvent, onEdit: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -576,6 +560,14 @@ private fun BlockedTaskRow(be: BlockedEvent, onDelete: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
             )
         }
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit task",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+            )
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Close,
@@ -597,4 +589,3 @@ private fun formatShiftTime(millis: Long): String {
     val c = Calendar.getInstance().apply { timeInMillis = millis }
     return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
 }
-
