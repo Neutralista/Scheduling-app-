@@ -84,6 +84,17 @@
         </receiver>
 
         <receiver
+            android:name=".cycle.WakeCheckReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.waypoint.app.WAKE_CHECK" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".notification.SleepAlarmReceiver"
             android:exported="false">
             <intent-filter>

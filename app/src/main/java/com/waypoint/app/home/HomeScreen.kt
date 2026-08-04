@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.cycle.CycleTracker
+import com.waypoint.app.cycle.CyclesTab
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
@@ -70,6 +72,7 @@ fun HomeScreen(
     taskManager: TaskManagerScript,
     calendarSignals: CalendarSignals,
     alarms: AlarmSignals,
+    cycleTracker: CycleTracker,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
@@ -81,7 +84,7 @@ fun HomeScreen(
     onPermissionGranted: () -> Unit,
     initialTab: Int = 0
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 5 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
@@ -106,7 +109,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "Tasks", "Modules", "Alarms", "Settings")
+            listOf("Plan", "Cycles", "Tasks", "Modules", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -123,14 +126,15 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
-                1 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
-                2 -> WidgetsTab(
+                1 -> CyclesTab(cycleTracker = cycleTracker)
+                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
+                3 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
-                3 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                4 -> SettingsTab(
+                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                5 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
                     scripts = scripts,
                     statesById = statesById,

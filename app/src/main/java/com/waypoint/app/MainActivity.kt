@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
                         taskManager = app.env.taskManager,
                         calendarSignals = app.env.calendar,
                         alarms = app.env.alarms,
+                        cycleTracker = app.cycleTracker,
                         sleepTimesFlow = app.env.sleepStore.scheduledTimesFlow,
                         scripts = scripts,
                         statesById = statesById,
@@ -86,5 +87,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val app = application as WaypointApplication
+        app.cycleTracker.recordActive()
     }
 }

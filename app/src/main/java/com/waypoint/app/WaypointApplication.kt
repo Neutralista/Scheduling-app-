@@ -3,6 +3,7 @@ package com.waypoint.app
 import android.app.Application
 import com.waypoint.app.background.CalendarSyncWorker
 import com.waypoint.app.background.ScriptTickWorker
+import com.waypoint.app.cycle.CycleTracker
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
@@ -24,6 +25,8 @@ class WaypointApplication : Application() {
         private set
     lateinit var scriptStore: ScriptStore
         private set
+    lateinit var cycleTracker: CycleTracker
+        private set
 
     private val appScope = MainScope()
 
@@ -40,6 +43,7 @@ class WaypointApplication : Application() {
             scriptStateStore = ScriptStateStore(applicationContext)
             scriptStore = ScriptStore(applicationContext)
             env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
+            cycleTracker = CycleTracker(applicationContext)
 
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
