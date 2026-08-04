@@ -75,6 +75,15 @@ sealed class EventCondition {
 
     /** Must be placed after the latest scheduled end of any referenced task */
     data class AfterTask(val taskIds: Set<String>) : EventCondition()
+
+    /** Must finish before the start of a specific calendar event */
+    data class BeforeCalEvent(val eventId: Long) : EventCondition()
+
+    /** Must start after the end of a specific calendar event */
+    data class AfterCalEvent(val eventId: Long) : EventCondition()
+
+    /** Must be placed within the reserved time slot of a specific calendar event */
+    data class DuringCalEvent(val eventId: Long) : EventCondition()
 }
 
 data class ScheduledEvent(

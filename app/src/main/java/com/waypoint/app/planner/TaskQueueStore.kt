@@ -13,7 +13,8 @@ data class TaskConditionSpec(
     val end: String? = null,
     val days: List<Int>? = null,
     val deadlineMillis: Long? = null,
-    val referenceTaskIds: List<String>? = null
+    val referenceTaskIds: List<String>? = null,
+    val calendarEventId: Long? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
@@ -35,6 +36,9 @@ data class TaskConditionSpec(
         "notSameDayAs"   -> referenceTaskIds?.takeIf { it.isNotEmpty() }?.let { EventCondition.NotSameDayAs(it.toSet()) }
         "beforeTask"     -> referenceTaskIds?.takeIf { it.isNotEmpty() }?.let { EventCondition.BeforeTask(it.toSet()) }
         "afterTask"      -> referenceTaskIds?.takeIf { it.isNotEmpty() }?.let { EventCondition.AfterTask(it.toSet()) }
+        "beforeCalEvent" -> calendarEventId?.let { EventCondition.BeforeCalEvent(it) }
+        "afterCalEvent"  -> calendarEventId?.let { EventCondition.AfterCalEvent(it) }
+        "duringCalEvent" -> calendarEventId?.let { EventCondition.DuringCalEvent(it) }
         else             -> null
     }
 }

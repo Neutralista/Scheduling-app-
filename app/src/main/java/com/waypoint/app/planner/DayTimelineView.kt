@@ -65,7 +65,8 @@ fun DayTimelineView(
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
-    onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null
+    onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
+    onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null
 ) {
     // Anchor: 4 AM on the viewed date in ms. All "minute" values are relative to this.
     val viewStartMs = remember(date) {
@@ -84,6 +85,8 @@ fun DayTimelineView(
     }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    // All non-allDay calendar events keyed by eventId — for condition resolution (BeforeCalEvent etc.)
+    var calEventBlocks by remember(date, refreshKey) { mutableStateOf<Map<Long, Pair<Long, Long>>>(emptyMap()) }
     // Calendar events that the user marked as "reserves time" — fed into the planner as fixed blocks
     var reservingBlocks by remember(date, refreshKey) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
     val scrollState = rememberScrollState()
@@ -107,6 +110,10 @@ fun DayTimelineView(
                 val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
                 val combined = today + nextDay
                 calEvents = combined
+                val allCalBlocks = combined
+                    .filter { !it.allDay && it.title != "Sleep" }
+                    .associate { it.eventId to (it.startMillis to it.endMillis) }
+                calEventBlocks = allCalBlocks
                 val blocks = combined
                     .filter { evt ->
                         !evt.allDay && evt.title != "Sleep" &&
@@ -114,8 +121,9 @@ fun DayTimelineView(
                     }
                     .map { it.startMillis to it.endMillis }
                 reservingBlocks = blocks
-                plan = registry.planForDate(date, extraFixedBlocks = blocks)
-                nextDayScheduled = registry.planForDate(date.plusDays(1), extraFixedBlocks = blocks).scheduled
+                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks)
+                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
+                onCalEventsChanged?.invoke(combined)
             }
         }
         fetchAndSync()
@@ -131,9 +139,10 @@ fun DayTimelineView(
             while (true) {
                 delay(60_000L)
                 nowMin = minutesFromViewStart(viewStartMs)
+                val allCalBlocks = calEventBlocks
                 val blocks = reservingBlocks
-                plan = registry.planForDate(date, extraFixedBlocks = blocks)
-                nextDayScheduled = registry.planForDate(date.plusDays(1), extraFixedBlocks = blocks).scheduled
+                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks)
+                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
             }
         }
     }

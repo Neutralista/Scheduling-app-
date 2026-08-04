@@ -29,15 +29,17 @@ class EventPlannerRegistry {
         isWorkDay: Boolean = false,
         shiftStartMs: Long? = null,
         shiftEndMs: Long? = null,
-        extraFixedBlocks: List<Pair<Long, Long>> = emptyList()
-    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, extraFixedBlocks)
+        calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
+        reservingBlocks: List<Pair<Long, Long>> = emptyList()
+    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, calendarEventBlocks, reservingBlocks)
 
     fun planForDate(
         date: LocalDate,
         isWorkDay: Boolean = false,
         shiftStartMs: Long? = null,
         shiftEndMs: Long? = null,
-        extraFixedBlocks: List<Pair<Long, Long>> = emptyList()
+        calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
+        reservingBlocks: List<Pair<Long, Long>> = emptyList()
     ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -78,10 +80,10 @@ class EventPlannerRegistry {
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
         // BUFFER events are visual-only and do not block scheduling.
-        // extraFixedBlocks carries calendar events the user marked as "reserves time".
+        // reservingBlocks carries calendar events the user marked as "reserves time".
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER }
-            .map { it.startMillis to it.endMillis } + extraFixedBlocks
+            .map { it.startMillis to it.endMillis } + reservingBlocks
         val remaining = subtractIntervals(cycleStartMs, dayEndMs, fixedIntervals).toMutableList()
 
         // ── Build dependency graph ────────────────────────────────────────────
@@ -188,6 +190,14 @@ class EventPlannerRegistry {
 
             val mustStartAfter = listOfNotNull(explicitMustStartAfter, implicitMustStartAfter).maxOrNull()
 
+            // Merge BeforeCalEvent / AfterCalEvent bounds with task-based bounds
+            val calMustEndBefore  = event.conditions.filterIsInstance<EventCondition.BeforeCalEvent>()
+                .mapNotNull { calendarEventBlocks[it.eventId]?.first }.minOrNull()
+            val calMustStartAfter = event.conditions.filterIsInstance<EventCondition.AfterCalEvent>()
+                .mapNotNull { calendarEventBlocks[it.eventId]?.second }.maxOrNull()
+            val effectiveMustEndBefore  = listOfNotNull(mustEndBefore,  calMustEndBefore).minOrNull()
+            val effectiveMustStartAfter = listOfNotNull(mustStartAfter, calMustStartAfter).maxOrNull()
+
             var placed = false
 
             // DuringShift: constrained to the shift window only
@@ -202,6 +212,24 @@ class EventPlannerRegistry {
                 continue
             }
 
+            // DuringCalEvent: constrained to a specific calendar event's reserved slot
+            val duringCalEvent = event.conditions.filterIsInstance<EventCondition.DuringCalEvent>().firstOrNull()
+            if (duringCalEvent != null) {
+                val slot = calendarEventBlocks[duringCalEvent.eventId]
+                if (slot == null) {
+                    blocked += BlockedEvent(event, "Calendar event not found today")
+                } else {
+                    val fitStart = if (tw != null) maxOf(slot.first, toMs(tw.startHour, tw.startMin)) else slot.first
+                    val fitEnd   = if (tw != null) minOf(slot.second, toMs(tw.endHour,   tw.endMin))  else slot.second
+                    if (fitEnd - fitStart >= durationMs) {
+                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                        placed = true
+                    }
+                    if (!placed) blocked += BlockedEvent(event, "No available time in calendar event slot")
+                }
+                continue
+            }
+
             for (i in remaining.indices) {
                 val (blockStart, blockEnd) = remaining[i]
 
@@ -210,13 +238,13 @@ class EventPlannerRegistry {
 
                 val fitStart = maxOf(
                     blockStart,
-                    mustStartAfter ?: blockStart,
+                    effectiveMustStartAfter ?: blockStart,
                     tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
                     if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
                 )
                 val fitEnd = minOf(
                     blockEnd,
-                    mustEndBefore ?: blockEnd,
+                    effectiveMustEndBefore ?: blockEnd,
                     tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
                     if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
                 )

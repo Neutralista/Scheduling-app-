@@ -142,7 +142,7 @@ fun HomeScreen(
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager)
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager)
-                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
+                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, onRefresh = { headerRefreshKey++ })
                 3 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
@@ -286,6 +286,8 @@ private fun PlanTab(
     var selectedPlannerEvent by remember { mutableStateOf<ScheduledEvent?>(null) }
     var editingTask by remember { mutableStateOf<TaskRequest?>(null) }
     var editingCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
+    // Latest calendar events from the timeline — forwarded to AddTaskSheet for conditions
+    var planTabCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
 
     // Keep the calendar grid in sync when day arrows navigate across month boundaries
     LaunchedEffect(selectedDate) {
@@ -494,7 +496,8 @@ private fun PlanTab(
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f),
             onCalendarEventClick = { selectedCalEvent = it },
-            onPlannerEventClick = { selectedPlannerEvent = it }
+            onPlannerEventClick = { selectedPlannerEvent = it },
+            onCalEventsChanged = { planTabCalEvents = it }
         )
     }
 
@@ -560,6 +563,7 @@ private fun PlanTab(
         AddTaskSheet(
             initial = taskBeingEdited,
             availableTasks = remember { taskManager.getAllTasks() },
+            calendarEvents = planTabCalEvents,
             onDismiss = { editingTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)

@@ -64,6 +64,8 @@ import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.script.TaskManagerScript
+import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.signal.CalendarSignals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -79,10 +81,17 @@ import java.util.Locale
 fun TasksTab(
     registry: EventPlannerRegistry,
     taskManager: TaskManagerScript,
+    calendarSignals: CalendarSignals? = null,
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var refreshKey by remember { mutableIntStateOf(0) }
+    var todayCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        if (calendarSignals?.hasPermission() == true) {
+            todayCalEvents = calendarSignals.eventsForDate(LocalDate.now())
+        }
+    }
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<TaskRequest?>(null) }
 
@@ -292,6 +301,7 @@ fun TasksTab(
         AddTaskSheet(
             initial = editTarget,
             availableTasks = allTasks,
+            calendarEvents = todayCalEvents,
             onDismiss = { showAdd = false; editTarget = null },
             onSave = { req ->
                 taskManager.submitTask(req)

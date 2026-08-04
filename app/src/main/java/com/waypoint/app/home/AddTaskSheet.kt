@@ -50,6 +50,7 @@ import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
+import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
 import java.util.UUID
@@ -78,6 +79,7 @@ private val CHAIN_DEADLINE_LABELS   = listOf("No deadline", "5m", "15m", "30m", 
 fun AddTaskSheet(
     initial: TaskRequest? = null,
     availableTasks: List<TaskRequest> = emptyList(),
+    calendarEvents: List<CalendarEvent> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (TaskRequest) -> Unit
 ) {
@@ -124,6 +126,18 @@ fun AddTaskSheet(
 
     val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
     var selectedDays by remember { mutableStateOf(initDays) }
+
+    // ── Calendar event condition state ───────────────────────────────────────
+    var afterCalEventIds by remember { mutableStateOf(
+        initConditions.filter { it.type == "afterCalEvent" }.mapNotNull { it.calendarEventId }.toSet()
+    ) }
+    var beforeCalEventIds by remember { mutableStateOf(
+        initConditions.filter { it.type == "beforeCalEvent" }.mapNotNull { it.calendarEventId }.toSet()
+    ) }
+    var duringCalEventId by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "duringCalEvent" }?.calendarEventId
+    ) }
+    val todayCalEvents = remember(calendarEvents) { calendarEvents.filter { !it.allDay } }
 
     // ── Routine & buffer state ───────────────────────────────────────────────
     var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: false) }
@@ -204,6 +218,15 @@ fun AddTaskSheet(
             }
             if (selectedDays.isNotEmpty()) {
                 add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
+            }
+            afterCalEventIds.forEach { evtId ->
+                add(TaskConditionSpec("afterCalEvent", calendarEventId = evtId))
+            }
+            beforeCalEventIds.forEach { evtId ->
+                add(TaskConditionSpec("beforeCalEvent", calendarEventId = evtId))
+            }
+            duringCalEventId?.let { evtId ->
+                add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId))
             }
         }
 
@@ -382,7 +405,7 @@ fun AddTaskSheet(
                                 }
                             }
 
-                            // After — start-time lower bound (time + task/sleep anchors)
+                            // After — start-time lower bound (time + task/sleep/calendar anchors)
                             ConstraintSubsection("After") {
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -438,6 +461,17 @@ fun AddTaskSheet(
                                             label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
                                         )
                                     }
+                                    todayCalEvents.forEach { evt ->
+                                        FilterChip(
+                                            selected = evt.eventId in afterCalEventIds,
+                                            onClick  = {
+                                                afterCalEventIds = if (evt.eventId in afterCalEventIds)
+                                                    afterCalEventIds - evt.eventId
+                                                else afterCalEventIds + evt.eventId
+                                            },
+                                            label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
                                 }
                                 if (showAfterTimePicker) {
                                     TimePickerDialog(
@@ -452,7 +486,7 @@ fun AddTaskSheet(
                                 }
                             }
 
-                            // Before — end-time upper bound (time + task/sleep anchors)
+                            // Before — end-time upper bound (time + task/sleep/calendar anchors)
                             ConstraintSubsection("Before") {
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -508,6 +542,17 @@ fun AddTaskSheet(
                                             label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
                                         )
                                     }
+                                    todayCalEvents.forEach { evt ->
+                                        FilterChip(
+                                            selected = evt.eventId in beforeCalEventIds,
+                                            onClick  = {
+                                                beforeCalEventIds = if (evt.eventId in beforeCalEventIds)
+                                                    beforeCalEventIds - evt.eventId
+                                                else beforeCalEventIds + evt.eventId
+                                            },
+                                            label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
                                 }
                                 if (showBeforeTimePicker) {
                                     TimePickerDialog(
@@ -519,6 +564,26 @@ fun AddTaskSheet(
                                             showBeforeTimePicker = false
                                         }
                                     )
+                                }
+                            }
+
+                            // During calendar event — exclusive placement within the event's slot
+                            if (todayCalEvents.isNotEmpty()) {
+                                ConstraintSubsection("During event") {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        todayCalEvents.forEach { evt ->
+                                            FilterChip(
+                                                selected = duringCalEventId == evt.eventId,
+                                                onClick  = {
+                                                    duringCalEventId = if (duringCalEventId == evt.eventId) null else evt.eventId
+                                                },
+                                                label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
