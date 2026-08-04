@@ -151,13 +151,21 @@ class EventPlannerRegistry {
                 blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
             }
 
-            // Derive hard time bounds from referenced scheduled tasks
-            val mustEndBefore   = beforeTask?.taskIds
-                ?.mapNotNull { id -> scheduled.find { it.event.id == id }?.startMillis }
-                ?.minOrNull()
-            val mustStartAfter  = afterTask?.taskIds
-                ?.mapNotNull { id -> scheduled.find { it.event.id == id }?.endMillis }
-                ?.maxOrNull()
+            // Resolve sleep anchor bounds from the scheduled sleep block(s)
+            val sleepStartMs = scheduled.filter { it.event.category == EventCategory.SLEEP }
+                .minOfOrNull { it.startMillis }
+            val sleepEndMs = scheduled.filter { it.event.category == EventCategory.SLEEP }
+                .maxOfOrNull { it.endMillis }
+
+            // Derive hard time bounds from referenced scheduled tasks (or sleep sentinel)
+            val mustEndBefore = beforeTask?.taskIds?.mapNotNull { id ->
+                if (id == TASK_REF_SLEEP) sleepStartMs
+                else scheduled.find { it.event.id == id }?.startMillis
+            }?.minOrNull()
+            val mustStartAfter = afterTask?.taskIds?.mapNotNull { id ->
+                if (id == TASK_REF_SLEEP) sleepEndMs
+                else scheduled.find { it.event.id == id }?.endMillis
+            }?.maxOrNull()
 
             val durationMs = event.durationMinutes * 60_000L
             val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()

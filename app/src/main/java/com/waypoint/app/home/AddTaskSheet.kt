@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
@@ -393,29 +394,38 @@ fun AddTaskSheet(
                                         )
                                     }
                                     if (orderRelation != OrderRelation.ANY) {
-                                        if (chainTargets.isEmpty()) {
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            // Sleep is always available as an anchor
+                                            FilterChip(
+                                                selected = TASK_REF_SLEEP in orderRelationTaskIds,
+                                                onClick  = {
+                                                    orderRelationTaskIds =
+                                                        if (TASK_REF_SLEEP in orderRelationTaskIds) orderRelationTaskIds - TASK_REF_SLEEP
+                                                        else orderRelationTaskIds + TASK_REF_SLEEP
+                                                },
+                                                label = { Text("Sleep") }
+                                            )
+                                            chainTargets.forEach { task ->
+                                                FilterChip(
+                                                    selected = task.id in orderRelationTaskIds,
+                                                    onClick  = {
+                                                        orderRelationTaskIds =
+                                                            if (task.id in orderRelationTaskIds) orderRelationTaskIds - task.id
+                                                            else orderRelationTaskIds + task.id
+                                                    },
+                                                    label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                )
+                                            }
+                                        }
+                                        if (orderRelationTaskIds.isEmpty()) {
                                             Text(
-                                                "Add more tasks to use this constraint.",
+                                                "Select at least one anchor.",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                             )
-                                        } else {
-                                            FlowRow(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                chainTargets.forEach { task ->
-                                                    FilterChip(
-                                                        selected = task.id in orderRelationTaskIds,
-                                                        onClick  = {
-                                                            orderRelationTaskIds =
-                                                                if (task.id in orderRelationTaskIds) orderRelationTaskIds - task.id
-                                                                else orderRelationTaskIds + task.id
-                                                        },
-                                                        label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
-                                                    )
-                                                }
-                                            }
                                         }
                                     }
                                 }

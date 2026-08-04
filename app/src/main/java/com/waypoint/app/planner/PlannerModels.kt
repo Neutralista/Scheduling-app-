@@ -2,6 +2,9 @@ package com.waypoint.app.planner
 
 import java.time.LocalDate
 
+/** Sentinel task ID used in BeforeTask / AfterTask conditions to reference the sleep block. */
+const val TASK_REF_SLEEP = "__SLEEP__"
+
 /** Canonical priority levels for planner events. */
 object PlannerPriority {
     const val URGENT  = 11  // above sleep; displaces sleep windows when no free time remains
