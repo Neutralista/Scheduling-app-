@@ -51,13 +51,13 @@ class EventPlannerRegistry {
         }.timeInMillis
 
         val dayStartMs = cal.timeInMillis
-        val dayEndMs = dayStartMs + 24 * 3600_000L
+        val dayEndMs   = dayStartMs + 24 * 3600_000L
 
-        val eligible = mutableListOf<PlannerEvent>()
-        val dependentEligible = mutableListOf<PlannerEvent>()
-        val blocked = mutableListOf<BlockedEvent>()
-        val scheduled = mutableListOf<ScheduledEvent>()
+        val blocked        = mutableListOf<BlockedEvent>()
+        val scheduled      = mutableListOf<ScheduledEvent>()
+        val allSchedulable = mutableListOf<PlannerEvent>()
 
+        // ── Fixed events + day-condition filtering ────────────────────────────
         for (event in _events) {
             if (event.fixedStartMillis != null && event.fixedEndMillis != null) {
                 val start = maxOf(event.fixedStartMillis, dayStartMs)
@@ -67,46 +67,132 @@ class EventPlannerRegistry {
             }
             val reason = checkDayConditions(event, date, isWorkDay, shiftStartMs, shiftEndMs)
             if (reason != null) { blocked += BlockedEvent(event, reason); continue }
-            val hasTaskRelative = event.conditions.any {
-                it is EventCondition.SameDayAs || it is EventCondition.NotSameDayAs ||
-                it is EventCondition.BeforeTask || it is EventCondition.AfterTask
-            }
-            if (hasTaskRelative) dependentEligible += event else eligible += event
+            allSchedulable += event
         }
 
-        eligible.sortByDescending { it.priority }
-
-        // Free time starts when the user wakes (end of the sleep block), not at midnight.
-        // This aligns scheduling with the waking cycle rather than the calendar boundary.
+        // ── Free blocks start at wake time (end of sleep), not midnight ───────
         val cycleStartMs = scheduled
             .filter { it.event.category == EventCategory.SLEEP && it.endMillis > dayStartMs }
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
-        val freeBlocks = mutableListOf(TimeBlock(cycleStartMs, dayEndMs))
-        // BUFFER events are visual-only — they appear on the timeline but don't block
-        // other tasks from being scheduled in the same window.
+        // BUFFER events are visual-only and do not block scheduling.
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER }
             .map { it.startMillis to it.endMillis }
-        val remaining = freeBlocks.flatMap { block ->
-            subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
-        }.toMutableList()
+        val remaining = subtractIntervals(cycleStartMs, dayEndMs, fixedIntervals).toMutableList()
 
-        // ── Pass 1: independent events (no task-relative conditions) ─────────
-        for (event in eligible) {
-            val durationMs = event.durationMinutes * 60_000L
-            val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
+        // ── Build dependency graph ────────────────────────────────────────────
+        //
+        // Edge A → B means "A must be scheduled before B".
+        // Sources:
+        //   BeforeTask[B] on A  → A→B  (A precedes B in time)
+        //   AfterTask[A]  on B  → A→B  (B follows A in time)
+        //   SameDayAs[X]  on E  → X→E  (X must be resolved before eligibility of E is known)
+        //   NotSameDayAs[X] on E→ X→E
+        //
+        // implicitAfter[id] answers: "which already-placed events constrain id's start time
+        // from below?" — populated from BeforeTask so the referenced event inherits a lower
+        // bound automatically, without needing its own AfterTask condition.
+
+        val allIds = allSchedulable.map { it.id }.toSet()
+        val predecessors  = allSchedulable.associate { it.id to mutableSetOf<String>() }.toMutableMap()
+        val implicitAfter = allSchedulable.associate { it.id to mutableSetOf<String>() }.toMutableMap()
+
+        for (event in allSchedulable) {
+            for (cond in event.conditions) when (cond) {
+                is EventCondition.BeforeTask -> cond.taskIds.filter { it in allIds }.forEach { targetId ->
+                    predecessors.getOrPut(targetId) { mutableSetOf() }  += event.id
+                    implicitAfter.getOrPut(targetId) { mutableSetOf() } += event.id
+                }
+                is EventCondition.AfterTask -> cond.taskIds
+                    .filter { it in allIds && it != TASK_REF_SLEEP }
+                    .forEach { depId -> predecessors.getOrPut(event.id) { mutableSetOf() } += depId }
+                is EventCondition.SameDayAs -> cond.taskIds.filter { it in allIds }
+                    .forEach { depId -> predecessors.getOrPut(event.id) { mutableSetOf() } += depId }
+                is EventCondition.NotSameDayAs -> cond.taskIds.filter { it in allIds }
+                    .forEach { depId -> predecessors.getOrPut(event.id) { mutableSetOf() } += depId }
+                else -> Unit
+            }
+        }
+
+        // ── Kahn's topological sort (priority-ordered within the same depth) ──
+        val inDegree = predecessors.mapValues { it.value.size }.toMutableMap()
+        val ready = allSchedulable
+            .filter { (inDegree[it.id] ?: 0) == 0 }
+            .sortedByDescending { it.priority }
+            .toMutableList()
+        val order = mutableListOf<PlannerEvent>()
+
+        while (ready.isNotEmpty()) {
+            val event = ready.removeFirst()
+            order += event
+            for (other in allSchedulable) {
+                if (event.id !in (predecessors[other.id] ?: emptySet())) continue
+                val deg = (inDegree[other.id] ?: 0) - 1
+                inDegree[other.id] = deg
+                if (deg == 0) {
+                    val idx = ready.indexOfFirst { it.priority < other.priority }
+                    if (idx < 0) ready += other else ready.add(idx, other)
+                }
+            }
+        }
+
+        // Cyclic dependencies — block the participants
+        (allSchedulable.toSet() - order.toSet()).forEach {
+            blocked += BlockedEvent(it, "Cyclic dependency")
+        }
+
+        // ── Single scheduling pass in dependency order ────────────────────────
+        for (event in order) {
+            val durationMs  = event.durationMinutes * 60_000L
+            val tw          = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
             val beforeShift = event.conditions.any { it is EventCondition.BeforeShift }
             val afterShift  = event.conditions.any { it is EventCondition.AfterShift }
             val duringShift = event.conditions.any { it is EventCondition.DuringShift }
+
+            // SameDayAs / NotSameDayAs eligibility (checked against already-placed set)
+            val scheduledIds = scheduled.map { it.event.id }.toSet()
+            val sameDayAs    = event.conditions.filterIsInstance<EventCondition.SameDayAs>().firstOrNull()
+            val notSameDayAs = event.conditions.filterIsInstance<EventCondition.NotSameDayAs>().firstOrNull()
+            if (sameDayAs    != null && !sameDayAs.taskIds.all   { it in scheduledIds }) {
+                blocked += BlockedEvent(event, "Required tasks not scheduled today"); continue
+            }
+            if (notSameDayAs != null &&  notSameDayAs.taskIds.any { it in scheduledIds }) {
+                blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
+            }
+
+            // Sleep sentinel bounds
+            val sleepStartBound = scheduled.filter { it.event.category == EventCategory.SLEEP }.minOfOrNull { it.startMillis }
+            val sleepEndBound   = scheduled.filter { it.event.category == EventCategory.SLEEP }.maxOfOrNull { it.endMillis }
+
+            // Explicit time bounds from BeforeTask / AfterTask conditions
+            val beforeTask = event.conditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
+            val afterTask  = event.conditions.filterIsInstance<EventCondition.AfterTask>().firstOrNull()
+            val mustEndBefore = beforeTask?.taskIds?.mapNotNull { id ->
+                if (id == TASK_REF_SLEEP) sleepStartBound
+                else scheduled.find { it.event.id == id }?.startMillis
+            }?.minOrNull()
+            val explicitMustStartAfter = afterTask?.taskIds?.mapNotNull { id ->
+                if (id == TASK_REF_SLEEP) sleepEndBound
+                else scheduled.find { it.event.id == id }?.endMillis
+            }?.maxOrNull()
+
+            // Implicit lower bound: events that declared BeforeTask[this] are now placed;
+            // this event must start after the latest of their end times.
+            val implicitMustStartAfter = implicitAfter[event.id]
+                ?.mapNotNull { predId -> scheduled.find { it.event.id == predId }?.endMillis }
+                ?.maxOrNull()
+
+            val mustStartAfter = listOfNotNull(explicitMustStartAfter, implicitMustStartAfter).maxOrNull()
+
             var placed = false
 
-            // DuringShift: place only within the shift window itself
+            // DuringShift: constrained to the shift window only
             if (duringShift && shiftStartMs != null && shiftEndMs != null) {
-                val shiftFitStart = if (tw != null) maxOf(shiftStartMs, toMs(tw.startHour, tw.startMin)) else shiftStartMs
-                val shiftFitEnd   = if (tw != null) minOf(shiftEndMs,   toMs(tw.endHour,   tw.endMin))   else shiftEndMs
-                if (shiftFitEnd - shiftFitStart >= durationMs) {
-                    scheduled += ScheduledEvent(event, shiftFitStart, shiftFitStart + durationMs)
+                val fitStart = if (tw != null) maxOf(shiftStartMs, toMs(tw.startHour, tw.startMin)) else shiftStartMs
+                val fitEnd   = if (tw != null) minOf(shiftEndMs,   toMs(tw.endHour,   tw.endMin))   else shiftEndMs
+                if (fitEnd - fitStart >= durationMs) {
+                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
                     placed = true
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time in shift")
@@ -119,75 +205,17 @@ class EventPlannerRegistry {
                 if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                 if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
 
-                val fitStart: Long
-                val fitEnd: Long
-                if (tw != null) {
-                    fitStart = maxOf(blockStart, toMs(tw.startHour, tw.startMin))
-                    fitEnd   = minOf(blockEnd,   toMs(tw.endHour,   tw.endMin))
-                } else {
-                    val effectiveEnd   = if (beforeShift && shiftStartMs != null) minOf(blockEnd,   shiftStartMs) else blockEnd
-                    val effectiveStart = if (afterShift  && shiftEndMs   != null) maxOf(blockStart, shiftEndMs)   else blockStart
-                    fitStart = effectiveStart; fitEnd = effectiveEnd
-                }
-                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
-                if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
-                if (fitEnd - fitStart < durationMs) continue
-
-                scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                remaining[i] = (fitStart + durationMs) to blockEnd
-                placed = true
-                break
-            }
-
-            if (!placed) blocked += BlockedEvent(event, "No available time slot")
-        }
-
-        // ── Pass 2: task-relative events (evaluated against Pass 1 results) ──
-        for (event in dependentEligible.sortedByDescending { it.priority }) {
-            val sameDayAs    = event.conditions.filterIsInstance<EventCondition.SameDayAs>().firstOrNull()
-            val notSameDayAs = event.conditions.filterIsInstance<EventCondition.NotSameDayAs>().firstOrNull()
-            val beforeTask   = event.conditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
-            val afterTask    = event.conditions.filterIsInstance<EventCondition.AfterTask>().firstOrNull()
-
-            val ids = scheduled.map { it.event.id }.toSet()
-            if (sameDayAs != null && !sameDayAs.taskIds.all { it in ids }) {
-                blocked += BlockedEvent(event, "Required tasks not scheduled today"); continue
-            }
-            if (notSameDayAs != null && notSameDayAs.taskIds.any { it in ids }) {
-                blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
-            }
-
-            // Resolve sleep anchor bounds from the scheduled sleep block(s)
-            val sleepStartMs = scheduled.filter { it.event.category == EventCategory.SLEEP }
-                .minOfOrNull { it.startMillis }
-            val sleepEndMs = scheduled.filter { it.event.category == EventCategory.SLEEP }
-                .maxOfOrNull { it.endMillis }
-
-            // Derive hard time bounds from referenced scheduled tasks (or sleep sentinel)
-            val mustEndBefore = beforeTask?.taskIds?.mapNotNull { id ->
-                if (id == TASK_REF_SLEEP) sleepStartMs
-                else scheduled.find { it.event.id == id }?.startMillis
-            }?.minOrNull()
-            val mustStartAfter = afterTask?.taskIds?.mapNotNull { id ->
-                if (id == TASK_REF_SLEEP) sleepEndMs
-                else scheduled.find { it.event.id == id }?.endMillis
-            }?.maxOrNull()
-
-            val durationMs = event.durationMinutes * 60_000L
-            val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
-            var placed = false
-
-            for (i in remaining.indices) {
-                val (blockStart, blockEnd) = remaining[i]
                 val fitStart = maxOf(
                     blockStart,
                     mustStartAfter ?: blockStart,
-                    tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart
+                    tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
+                    if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
                 )
                 val fitEnd = minOf(
                     blockEnd,
                     mustEndBefore ?: blockEnd,
-                    tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd
+                    tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
+                    if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
                 )
                 val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
                 if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
@@ -202,7 +230,7 @@ class EventPlannerRegistry {
             if (!placed) blocked += BlockedEvent(event, "No available time slot")
         }
 
-        // Urgent tasks above SLEEP priority may displace sleep windows.
+        // ── Urgent tasks above SLEEP priority may displace sleep windows ───────
         val urgentUnplaced = blocked.filter { b -> b.event.priority > PlannerPriority.SLEEP }
         if (urgentUnplaced.isNotEmpty()) {
             blocked.removeAll { b -> b.event.priority > PlannerPriority.SLEEP }
