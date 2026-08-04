@@ -33,7 +33,9 @@ data class PlannerEvent(
     /** True for sleep events built from an actual log entry (past); false for computed planned windows. */
     val isLogged: Boolean = false,
     /** Extra minutes added after the event ends when computing free block consumption. */
-    val bufferMinutes: Int = 0
+    val bufferMinutes: Int = 0,
+    /** When true, the scheduler uses last-fit (places the event as late as possible). */
+    val scheduleLate: Boolean = false
 )
 
 sealed class EventCondition {

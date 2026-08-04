@@ -155,6 +155,7 @@ fun AddTaskSheet(
     var customBufText by remember { mutableStateOf(if (initBuffer !in bufferPresets && initBuffer > 0) initBuffer.toString() else "") }
 
     var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: false) }
+    var scheduleLate by remember { mutableStateOf(initial?.scheduleLate ?: false) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also { it.addAll(initial?.triggers ?: emptyList()) } }
@@ -246,7 +247,8 @@ fun AddTaskSheet(
                 subtasks            = subtasks.toList(),
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
-                triggers            = triggers.toList()
+                triggers            = triggers.toList(),
+                scheduleLate        = scheduleLate
             )
         )
     }
@@ -735,26 +737,46 @@ fun AddTaskSheet(
 
                     // Options
                     FormSection(title = "Options") {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    "Use measured duration",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    "Adjust scheduled duration based on logged history",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Schedule late in the day",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "Place this task as late as possible rather than first thing",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Switch(checked = scheduleLate, onCheckedChange = { scheduleLate = it })
+                            }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Use measured duration",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "Adjust scheduled duration based on logged history",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Switch(
+                                    checked = useMeasuredDuration,
+                                    onCheckedChange = { useMeasuredDuration = it }
                                 )
                             }
-                            Switch(
-                                checked = useMeasuredDuration,
-                                onCheckedChange = { useMeasuredDuration = it }
-                            )
                         }
                     }
 

@@ -77,7 +77,8 @@ class TaskManagerScript(
                     priority = req.priority,
                     conditions = req.conditions.mapNotNull { it.toEventCondition() },
                     sourceWidgetId = WIDGET_ID,
-                    bufferMinutes = req.bufferMinutes
+                    bufferMinutes = req.bufferMinutes,
+                    scheduleLate = req.scheduleLate
                 )
             )
         }

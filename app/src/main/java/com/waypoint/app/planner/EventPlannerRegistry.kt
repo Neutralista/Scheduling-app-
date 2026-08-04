@@ -212,6 +212,10 @@ class EventPlannerRegistry {
             val effectiveMustEndBefore  = listOfNotNull(mustEndBefore,  calMustEndBefore).minOrNull()
             val effectiveMustStartAfter = listOfNotNull(mustStartAfter, calMustStartAfter).maxOrNull()
 
+            // Last-fit when an upper-bound constraint exists or the event explicitly wants to
+            // land as late as possible (evening routines, pre-sleep tasks, etc.).
+            val useLast = effectiveMustEndBefore != null || event.scheduleLate
+
             var placed = false
 
             // DuringShift: constrained to the shift window only
@@ -244,32 +248,66 @@ class EventPlannerRegistry {
                 continue
             }
 
-            for (i in remaining.indices) {
-                val (blockStart, blockEnd) = remaining[i]
+            val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
 
-                if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
-                if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
-
-                val fitStart = maxOf(
-                    blockStart,
-                    effectiveMustStartAfter ?: blockStart,
-                    tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
-                    if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
-                )
-                val fitEnd = minOf(
-                    blockEnd,
-                    effectiveMustEndBefore ?: blockEnd,
-                    tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
-                    if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
-                )
-                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
-                if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
-                if (fitEnd - fitStart < durationMs) continue
-
-                scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                remaining[i] = (fitStart + durationMs) to blockEnd
-                placed = true
-                break
+            if (!useLast) {
+                // Forward first-fit: take the earliest block where the task fits.
+                for (i in remaining.indices) {
+                    val (blockStart, blockEnd) = remaining[i]
+                    if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                    if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
+                    val fitStart = maxOf(
+                        blockStart,
+                        effectiveMustStartAfter ?: blockStart,
+                        tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
+                        if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
+                    )
+                    val fitEnd = minOf(
+                        blockEnd,
+                        effectiveMustEndBefore ?: blockEnd,
+                        tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
+                        if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
+                    )
+                    if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
+                    if (fitEnd - fitStart < durationMs) continue
+                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    remaining[i] = (fitStart + durationMs) to blockEnd
+                    placed = true
+                    break
+                }
+            } else {
+                // Reverse last-fit: place as late as possible before any upper bound.
+                // Iterating in reverse finds the rightmost block, then anchors to its end.
+                for (i in remaining.indices.reversed()) {
+                    val (blockStart, blockEnd) = remaining[i]
+                    if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                    if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
+                    val upperBound = minOf(
+                        blockEnd,
+                        effectiveMustEndBefore ?: blockEnd,
+                        tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
+                        if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
+                    )
+                    val lowerBound = maxOf(
+                        blockStart,
+                        effectiveMustStartAfter ?: blockStart,
+                        tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
+                        if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
+                    )
+                    val fitStart = upperBound - durationMs
+                    if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
+                    if (fitStart < lowerBound) continue
+                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    // Preserve free time before and after the placed slot.
+                    remaining.removeAt(i)
+                    val newSegs = buildList {
+                        if (fitStart > blockStart) add(blockStart to fitStart)
+                        if (fitStart + durationMs < blockEnd) add((fitStart + durationMs) to blockEnd)
+                    }
+                    remaining.addAll(i, newSegs)
+                    placed = true
+                    break
+                }
             }
 
             if (!placed) blocked += BlockedEvent(event, "No available time slot")

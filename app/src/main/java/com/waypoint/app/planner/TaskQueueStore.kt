@@ -55,7 +55,8 @@ data class TaskRequest(
     val subtasks: List<SubtaskDef> = emptyList(),
     val bufferMinutes: Int = 0,
     val useMeasuredDuration: Boolean = false,
-    val triggers: List<TaskTrigger> = emptyList()
+    val triggers: List<TaskTrigger> = emptyList(),
+    val scheduleLate: Boolean = false
 )
 
 class TaskQueueStore(context: Context) {
