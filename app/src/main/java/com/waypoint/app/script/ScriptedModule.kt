@@ -62,6 +62,7 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.SleepModeState
 import java.util.UUID
 import com.waypoint.app.signal.HealthConnectAvailability
+import com.waypoint.app.signal.ShiftTime
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
