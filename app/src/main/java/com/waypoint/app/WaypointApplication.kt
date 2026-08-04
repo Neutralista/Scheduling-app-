@@ -57,6 +57,8 @@ class WaypointApplication : Application() {
 
             // Seed bundled scripts (assets/scripts/*.js) on first install
             scriptStore.seedBundled()
+            // Remove deprecated bundled scripts
+            scriptStore.delete("user.week_planner")
 
             // Re-register any user scripts saved in a previous session
             scriptStore.loadAll().forEach { module ->
