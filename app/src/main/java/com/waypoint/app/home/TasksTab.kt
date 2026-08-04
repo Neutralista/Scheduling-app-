@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +59,7 @@ import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.script.TaskManagerScript
 import kotlinx.coroutines.Dispatchers
@@ -90,12 +94,17 @@ fun TasksTab(
     var doneIds by remember(refreshKey) { mutableStateOf(taskManager.completions.getDoneIds()) }
     val allTasks = remember(refreshKey) { taskManager.getAllTasks() }
 
+    // Running execution — refreshed every 10 s for the elapsed-time display
+    var runningExecution by remember { mutableStateOf(taskManager.getRunningExecution()) }
+    var tickMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
     val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
     var headerClock by remember { mutableStateOf(clockNow()) }
     var headerDay by remember { mutableStateOf(LocalDate.now().format(dayFmt)) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(30_000L)
+            delay(10_000L)
+            tickMs = System.currentTimeMillis()
             headerClock = clockNow()
             headerDay = LocalDate.now().format(dayFmt)
         }
@@ -150,17 +159,40 @@ fun TasksTab(
             LazyColumn(Modifier.weight(1f)) {
                 items(scheduledTasks, key = { "s_${it.event.id}" }) { se ->
                     val done = se.event.id in doneIds
+                    val isRunning = runningExecution?.taskId == se.event.id
                     PlannerTaskRow(
                         se = se,
                         done = done,
+                        isRunning = isRunning,
+                        elapsedMs = if (isRunning) tickMs - (runningExecution!!.startMillis) else null,
                         onToggle = {
                             if (done) taskManager.unmarkDone(se.event.id)
                             else taskManager.markDone(se.event.id)
                             doneIds = taskManager.completions.getDoneIds()
                             onRefresh()
                         },
+                        onStart = {
+                            // Stop any existing running task first
+                            runningExecution?.let { taskManager.stopExecution(it.taskId) }
+                            runningExecution = taskManager.startExecution(se.event.id)
+                        },
+                        onStop = {
+                            val finished = taskManager.stopExecution(se.event.id)
+                            runningExecution = null
+                            if (finished != null) {
+                                taskManager.markDone(se.event.id)
+                                doneIds = taskManager.completions.getDoneIds()
+                                taskManager.syncToRegistry()
+                                refreshKey++
+                                onRefresh()
+                            }
+                        },
                         onEdit = { editTarget = allTasks.find { it.id == se.event.id } },
                         onDelete = {
+                            if (isRunning) {
+                                taskManager.stopExecution(se.event.id)
+                                runningExecution = null
+                            }
                             taskManager.retractTask(se.event.id)
                             refreshKey++
                             onRefresh()
@@ -484,49 +516,94 @@ private fun SleepTaskRow(
 private fun PlannerTaskRow(
     se: ScheduledEvent,
     done: Boolean,
+    isRunning: Boolean,
+    elapsedMs: Long?,
     onToggle: () -> Unit,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Row(
+    val primary = MaterialTheme.colorScheme.primary
+    val rowBg = if (isRunning)
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+    else Color.Transparent
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .background(rowBg)
     ) {
-        RoundCheckbox(checked = done, onClick = onToggle)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = se.event.title,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None
-                ),
-                color = if (done)
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                else
-                    MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-            )
-        }
-        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-            Icon(
-                Icons.Default.Edit,
-                contentDescription = "Edit task",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-            )
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Delete task",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            RoundCheckbox(checked = done, onClick = if (!isRunning) onToggle else null)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = se.event.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        textDecoration = if (done && !isRunning) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    color = when {
+                        isRunning -> primary
+                        done -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                val subtitle = if (isRunning && elapsedMs != null) {
+                    val mins = (elapsedMs / 60_000L).toInt()
+                    if (mins < 1) "Running · just started" else "Running · ${mins}m elapsed"
+                } else {
+                    "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m"
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isRunning) primary.copy(alpha = 0.7f)
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                )
+            }
+
+            if (!done) {
+                if (isRunning) {
+                    FilledTonalButton(
+                        onClick = onStop,
+                        modifier = Modifier.size(width = 60.dp, height = 32.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("Stop", style = MaterialTheme.typography.labelSmall)
+                    }
+                } else {
+                    IconButton(onClick = onStart, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "Start timer",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit task",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Delete task",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+                )
+            }
         }
     }
 }
