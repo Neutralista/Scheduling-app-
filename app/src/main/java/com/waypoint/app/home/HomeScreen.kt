@@ -84,7 +84,7 @@ fun HomeScreen(
     onPermissionGranted: () -> Unit,
     initialTab: Int = 0
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 7 }
     val scope = rememberCoroutineScope()
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
@@ -109,7 +109,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "Cycles", "Tasks", "Modules", "Alarms", "Settings")
+            listOf("Plan", "Calendar", "Cycles", "Tasks", "Modules", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -126,15 +126,16 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
-                1 -> CyclesTab(cycleTracker = cycleTracker)
-                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
-                3 -> WidgetsTab(
+                1 -> CalendarTab(calendarSignals = calendarSignals, eventPlanner = eventPlanner)
+                2 -> CyclesTab(cycleTracker = cycleTracker)
+                3 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
+                4 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
                     onStateChange = onStateChange
                 )
-                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                5 -> SettingsTab(
+                5 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                6 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
                     scripts = scripts,
                     statesById = statesById,
