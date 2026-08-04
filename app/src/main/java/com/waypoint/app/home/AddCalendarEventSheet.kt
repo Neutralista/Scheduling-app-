@@ -31,28 +31,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.ui.components.TimePickerChip
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.Locale
 
 @Composable
 fun AddCalendarEventSheet(
     date: LocalDate,
     onDismiss: () -> Unit,
-    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean) -> Unit
+    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean) -> Unit,
+    initialCalEvent: CalendarEvent? = null
 ) {
+    val isEditing = initialCalEvent != null
     val dateDisplay = remember(date) {
         date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.getDefault()))
     }
 
-    var title by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(initialCalEvent?.title ?: "") }
     var titleError by remember { mutableStateOf(false) }
-    var allDay by remember { mutableStateOf(false) }
-    var startTime by remember { mutableStateOf("09:00") }
-    var endTime by remember { mutableStateOf("10:00") }
-    var notes by remember { mutableStateOf("") }
+    var allDay by remember { mutableStateOf(initialCalEvent?.allDay ?: false) }
+    var startTime by remember { mutableStateOf(
+        if (initialCalEvent != null) fmtMs(initialCalEvent.startMillis) else "09:00"
+    ) }
+    var endTime by remember { mutableStateOf(
+        if (initialCalEvent != null) fmtMs(initialCalEvent.endMillis) else "10:00"
+    ) }
+    var notes by remember { mutableStateOf(initialCalEvent?.description ?: "") }
 
     fun save() {
         if (title.trim().isEmpty()) { titleError = true; return }
@@ -100,7 +109,7 @@ fun AddCalendarEventSheet(
                 ) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Text(
-                        text = "New Event",
+                        text = if (isEditing) "Edit Event" else "New Event",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
@@ -213,3 +222,7 @@ private fun FormRow(label: String, content: @Composable () -> Unit) {
         content()
     }
 }
+
+private fun fmtMs(ms: Long): String =
+    Calendar.getInstance().apply { timeInMillis = ms }
+        .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }

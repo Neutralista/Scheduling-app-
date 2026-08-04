@@ -19,7 +19,8 @@ data class CalendarEvent(
     val endMillis: Long,
     val allDay: Boolean,
     val calendarColor: Int,
-    val eventId: Long = -1L
+    val eventId: Long = -1L,
+    val description: String = ""
 )
 
 interface CalendarSignals {
@@ -33,6 +34,8 @@ interface CalendarSignals {
     suspend fun createEvent(title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Long
     /** Deletes an event by ID. Returns true if deleted. */
     suspend fun deleteEvent(eventId: Long): Boolean
+    /** Updates an existing event. Returns true on success. */
+    suspend fun updateEvent(eventId: Long, title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Boolean
     /** Returns all events written by Waypoint (description = "Logged by Waypoint") within the last [lookbackDays] days, as (eventId, event) pairs. */
     suspend fun queryWaypointEvents(lookbackDays: Int = 30): List<Pair<Long, CalendarEvent>>
 }
@@ -72,7 +75,8 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             CalendarContract.Instances.BEGIN,
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY,
-            CalendarContract.Instances.CALENDAR_COLOR
+            CalendarContract.Instances.CALENDAR_COLOR,
+            CalendarContract.Instances.DESCRIPTION
         )
 
         val events = mutableListOf<CalendarEvent>()
@@ -80,12 +84,13 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             uri, projection, null, null,
             CalendarContract.Instances.BEGIN + " ASC"
         )?.use { cursor ->
-            val eventIdIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
-            val titleIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
-            val beginIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
-            val endIdx     = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
-            val allDayIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
-            val colorIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
+            val eventIdIdx  = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+            val titleIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
+            val beginIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+            val endIdx      = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
+            val allDayIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Instances.ALL_DAY)
+            val colorIdx    = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
+            val descIdx     = cursor.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
             while (cursor.moveToNext()) {
                 events.add(CalendarEvent(
                     title = cursor.getString(titleIdx) ?: "(no title)",
@@ -93,7 +98,8 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
                     endMillis   = cursor.getLong(endIdx),
                     allDay      = cursor.getInt(allDayIdx) == 1,
                     calendarColor = cursor.getInt(colorIdx),
-                    eventId     = cursor.getLong(eventIdIdx)
+                    eventId     = cursor.getLong(eventIdIdx),
+                    description = if (descIdx >= 0) cursor.getString(descIdx) ?: "" else ""
                 ))
             }
         }
@@ -138,6 +144,32 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         if (!hasWritePermission()) return@withContext false
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         context.contentResolver.delete(uri, null, null) > 0
+    }
+
+    override suspend fun updateEvent(
+        eventId: Long,
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        description: String,
+        allDay: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!hasWritePermission()) {
+            AppLogger.w(TAG, "updateEvent: no WRITE_CALENDAR permission")
+            return@withContext false
+        }
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+        val values = ContentValues().apply {
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, startMillis)
+            put(CalendarContract.Events.DTEND, endMillis)
+            put(CalendarContract.Events.DESCRIPTION, description)
+            put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
+            put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+        }
+        val rows = context.contentResolver.update(uri, values, null, null)
+        AppLogger.i(TAG, "updateEvent: eventId=$eventId updated=$rows")
+        rows > 0
     }
 
     override suspend fun queryWaypointEvents(lookbackDays: Int): List<Pair<Long, CalendarEvent>> = withContext(Dispatchers.IO) {

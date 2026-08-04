@@ -282,6 +282,7 @@ private fun PlanTab(
     var selectedCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
     var selectedPlannerEvent by remember { mutableStateOf<ScheduledEvent?>(null) }
     var editingTask by remember { mutableStateOf<TaskRequest?>(null) }
+    var editingCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
 
     // Keep the calendar grid in sync when day arrows navigate across month boundaries
     LaunchedEffect(selectedDate) {
@@ -501,6 +502,9 @@ private fun PlanTab(
         TimelineEventDetailSheet(
             item = TimelineDetailItem.CalEvent(selCal),
             onDismiss = { selectedCalEvent = null },
+            onEdit = if (selCal.eventId > 0 && calendarSignals.hasWritePermission()) {
+                { editingCalEvent = selCal; selectedCalEvent = null }
+            } else null,
             onDelete = if (selCal.eventId > 0) {
                 {
                     scope.launch {
@@ -543,6 +547,27 @@ private fun PlanTab(
                 taskManager.submitTask(req)
                 calRefreshKey++
                 editingTask = null
+            }
+        )
+    }
+
+    // ── Edit calendar event via AddCalendarEventSheet ─────────────────────────
+    val calBeingEdited = editingCalEvent
+    if (calBeingEdited != null) {
+        val eventDate = remember(calBeingEdited.startMillis) {
+            Instant.ofEpochMilli(calBeingEdited.startMillis)
+                .atZone(ZoneId.systemDefault()).toLocalDate()
+        }
+        AddCalendarEventSheet(
+            date = eventDate,
+            initialCalEvent = calBeingEdited,
+            onDismiss = { editingCalEvent = null },
+            onSave = { title, startMs, endMs, notes, allDay ->
+                scope.launch {
+                    calendarSignals.updateEvent(calBeingEdited.eventId, title, startMs, endMs, notes, allDay)
+                    calRefreshKey++
+                    editingCalEvent = null
+                }
             }
         )
     }
