@@ -75,6 +75,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.signal.CalendarEvent
@@ -262,6 +263,7 @@ private fun PlanTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sleepStore = remember { SleepScheduleStore(context) }
+    val bufferStore = remember { BufferRulesStore(context) }
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
@@ -295,9 +297,16 @@ private fun PlanTab(
         eventDays = loadEventDaysForMonth(context, displayMonth)
     }
 
-    // Refresh timeline whenever sleep times change
+    // Refresh timeline whenever sleep times change; re-sync buffer rules with latest sleep anchors
     val sleepTimes by sleepTimesFlow.collectAsState()
-    LaunchedEffect(sleepTimes) { calRefreshKey++ }
+    LaunchedEffect(sleepTimes) {
+        bufferStore.syncToRegistry(
+            registry = eventPlanner,
+            sleepStartMs = sleepTimes.first,
+            wakeMs = sleepTimes.second
+        )
+        calRefreshKey++
+    }
 
     Column(Modifier.fillMaxSize()) {
 
@@ -360,6 +369,11 @@ private fun PlanTab(
                 scope.launch {
                     withContext(Dispatchers.IO) {
                         sleepStore.syncToRegistry(eventPlanner)
+                        bufferStore.syncToRegistry(
+                            registry = eventPlanner,
+                            sleepStartMs = sleepTimes.first,
+                            wakeMs = sleepTimes.second
+                        )
                     }
                     calRefreshKey++
                 }

@@ -61,6 +61,7 @@ import androidx.health.connect.client.PermissionController
 import com.waypoint.app.AppLogger
 import com.waypoint.app.LogEntry
 import com.waypoint.app.LogLevel
+import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.HealthConnectAvailability
@@ -79,6 +80,7 @@ fun SettingsTab(
     onRemoveScript: (String) -> Unit = {},
     onResetScript: (String) -> Unit = {}
 ) {
+    val context = LocalContext.current
     var showLogs by remember { mutableStateOf(false) }
     var showScripts by remember { mutableStateOf(false) }
 
@@ -132,6 +134,14 @@ fun SettingsTab(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
+        val bufferStore = remember { BufferRulesStore(context) }
+        BufferRulesCard(store = bufferStore)
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
         Text(
             text = "Scripts",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -169,7 +179,6 @@ fun SettingsTab(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Spacer(Modifier.height(16.dp))
 
-        val context = LocalContext.current
         val versionName = remember {
             runCatching {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
