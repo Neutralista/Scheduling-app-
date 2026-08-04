@@ -92,6 +92,18 @@ class CycleTracker(private val context: Context) {
         prefs.edit().putLong(KEY_LAST_ACTIVE, millis).apply()
     }
 
+    /**
+     * Called by the sleep scheduler when it authoritatively detects sleep onset.
+     * Preferred over the independent inactivity check because the sleep scheduler
+     * already has a calibrated estimate of the onset time.
+     */
+    fun recordSleepAt(sleepStartMs: Long) {
+        val current = store.loadCurrent() ?: return
+        if (current.sleepStartMillis != null) return  // already recorded
+        AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler)")
+        store.save(current.copy(sleepStartMillis = sleepStartMs))
+    }
+
     /** Manually open a new cycle right now — used when the user taps "Start cycle". */
     fun manualStart(): Cycle {
         val now = System.currentTimeMillis()

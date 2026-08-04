@@ -15,6 +15,7 @@ import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import com.waypoint.app.AppLogger
 import com.waypoint.app.R
+import com.waypoint.app.WaypointApplication
 
 class AlarmRingService : Service() {
 
@@ -53,6 +54,9 @@ class AlarmRingService : Service() {
         stopSoundAndVibration()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        // User explicitly dismissed the wake alarm — most authoritative wake signal available.
+        // recordActive() will close the sleeping cycle and open a new one.
+        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
     }
 
     private fun snooze() {

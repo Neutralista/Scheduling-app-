@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import com.waypoint.app.AppLogger
+import com.waypoint.app.WaypointApplication
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -39,10 +40,20 @@ class SleepCheckReceiver : BroadcastReceiver() {
         if (wasLogged && !isInteractive) {
             AppLogger.i(TAG, "onReceive: sleep onset detected, checking if wake can be pushed")
             adjustWakeForSleepOnset(context, logStore)
+            // Bridge: feed the authoritative sleep-start estimate into the cycle tracker
+            val sleepStartMs = logStore.getSleepStartMillis()
+            if (sleepStartMs != null) {
+                (context.applicationContext as? WaypointApplication)
+                    ?.cycleTracker?.recordSleepAt(sleepStartMs)
+            }
         }
 
         // Auto-logged a completed sleep session → write to calendar asynchronously
         if (wasLogged && isInteractive) {
+            // Bridge: user is awake and sleep is fully logged — open a new cycle now rather
+            // than waiting for ACTION_USER_PRESENT (which may not fire if phone stays unlocked).
+            (context.applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
+
             val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
