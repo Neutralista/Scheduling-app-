@@ -31,7 +31,10 @@ class EventPlannerRegistry {
         shiftEndMs: Long? = null,
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
         reservingBlocks: List<Pair<Long, Long>> = emptyList()
-    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, calendarEventBlocks, reservingBlocks)
+    ): DayPlan = planForDate(
+        LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, calendarEventBlocks, reservingBlocks,
+        nowMs = System.currentTimeMillis()
+    )
 
     fun planForDate(
         date: LocalDate,
@@ -39,7 +42,8 @@ class EventPlannerRegistry {
         shiftStartMs: Long? = null,
         shiftEndMs: Long? = null,
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
-        reservingBlocks: List<Pair<Long, Long>> = emptyList()
+        reservingBlocks: List<Pair<Long, Long>> = emptyList(),
+        nowMs: Long? = null
     ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -90,12 +94,19 @@ class EventPlannerRegistry {
             .minOfOrNull { it.fixedStartMillis!! }
         val freeBlockEnd = nextSleepStartMs ?: dayEndMs
 
+        // When nowMs is provided (today's live view), past time is not schedulable.
+        // Tasks that would have started before now are placed starting from now instead,
+        // so the plan always reflects what can still realistically happen. The priority-
+        // ordered greedy pass then ensures the most important tasks claim the shrinking
+        // window first — least-priority tasks fall off the end naturally.
+        val planStartMs = if (nowMs != null) maxOf(cycleStartMs, nowMs) else cycleStartMs
+
         // BUFFER events are visual-only and do not block scheduling.
         // reservingBlocks carries calendar events the user marked as "reserves time".
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER }
             .map { it.startMillis to it.endMillis } + reservingBlocks
-        val remaining = subtractIntervals(cycleStartMs, freeBlockEnd, fixedIntervals).toMutableList()
+        val remaining = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervals).toMutableList()
 
         // ── Build dependency graph ────────────────────────────────────────────
         //

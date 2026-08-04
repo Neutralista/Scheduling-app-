@@ -78,8 +78,12 @@ fun DayTimelineView(
     val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
     val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
-    var plan by remember(date, refreshKey) { mutableStateOf(registry.planForDate(date)) }
-    // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window
+    val isToday = date == LocalDate.now()
+    var plan by remember(date, refreshKey) {
+        mutableStateOf(registry.planForDate(date, nowMs = if (isToday) System.currentTimeMillis() else null))
+    }
+    // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window.
+    // Tomorrow's plan is never trimmed to now — it should show the full intended schedule.
     var nextDayScheduled by remember(date, refreshKey) {
         mutableStateOf(registry.planForDate(date.plusDays(1)).scheduled)
     }
@@ -121,7 +125,8 @@ fun DayTimelineView(
                     }
                     .map { it.startMillis to it.endMillis }
                 reservingBlocks = blocks
-                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks)
+                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                    nowMs = if (isToday) System.currentTimeMillis() else null)
                 nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
                 onCalEventsChanged?.invoke(combined)
             }
@@ -141,7 +146,8 @@ fun DayTimelineView(
                 nowMin = minutesFromViewStart(viewStartMs)
                 val allCalBlocks = calEventBlocks
                 val blocks = reservingBlocks
-                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks)
+                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                    nowMs = if (isToday) System.currentTimeMillis() else null)
                 nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
             }
         }
