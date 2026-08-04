@@ -28,14 +28,16 @@ class EventPlannerRegistry {
     fun planToday(
         isWorkDay: Boolean = false,
         shiftStartMs: Long? = null,
-        shiftEndMs: Long? = null
-    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs)
+        shiftEndMs: Long? = null,
+        extraFixedBlocks: List<Pair<Long, Long>> = emptyList()
+    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, extraFixedBlocks)
 
     fun planForDate(
         date: LocalDate,
         isWorkDay: Boolean = false,
         shiftStartMs: Long? = null,
-        shiftEndMs: Long? = null
+        shiftEndMs: Long? = null,
+        extraFixedBlocks: List<Pair<Long, Long>> = emptyList()
     ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -76,9 +78,10 @@ class EventPlannerRegistry {
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
         // BUFFER events are visual-only and do not block scheduling.
+        // extraFixedBlocks carries calendar events the user marked as "reserves time".
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER }
-            .map { it.startMillis to it.endMillis }
+            .map { it.startMillis to it.endMillis } + extraFixedBlocks
         val remaining = subtractIntervals(cycleStartMs, dayEndMs, fixedIntervals).toMutableList()
 
         // ── Build dependency graph ────────────────────────────────────────────

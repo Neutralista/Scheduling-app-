@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
+import com.waypoint.app.planner.CalendarPrefsStore
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.ZoneId
@@ -59,6 +60,7 @@ private val LABEL_WIDTH = 44.dp
 fun DayTimelineView(
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
+    calendarPrefsStore: CalendarPrefsStore? = null,
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
@@ -82,6 +84,8 @@ fun DayTimelineView(
     }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    // Calendar events that the user marked as "reserves time" — fed into the planner as fixed blocks
+    var reservingBlocks by remember(date, refreshKey) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
@@ -94,19 +98,30 @@ fun DayTimelineView(
         scrollState.animateScrollTo(scrollPx)
     }
 
-    // Calendar fetch: runs immediately, then every 15 minutes; also re-runs on refreshKey change
+    // Calendar fetch: runs immediately, then every minute; also re-runs on refreshKey change.
+    // After fetching, computes which events reserve scheduling time and re-runs the planner.
     LaunchedEffect(date, refreshKey) {
-        suspend fun fetchCal() {
+        suspend fun fetchAndSync() {
             if (calendarSignals?.hasPermission() == true) {
                 val today = calendarSignals.eventsForDate(date)
                 val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
-                calEvents = (today + nextDay)
+                val combined = today + nextDay
+                calEvents = combined
+                val blocks = combined
+                    .filter { evt ->
+                        !evt.allDay && evt.title != "Sleep" &&
+                            (calendarPrefsStore == null || calendarPrefsStore.reservesTime(evt.eventId))
+                    }
+                    .map { it.startMillis to it.endMillis }
+                reservingBlocks = blocks
+                plan = registry.planForDate(date, extraFixedBlocks = blocks)
+                nextDayScheduled = registry.planForDate(date.plusDays(1), extraFixedBlocks = blocks).scheduled
             }
         }
-        fetchCal()
+        fetchAndSync()
         while (true) {
             delay(60_000L)
-            fetchCal()
+            fetchAndSync()
         }
     }
 
@@ -116,8 +131,9 @@ fun DayTimelineView(
             while (true) {
                 delay(60_000L)
                 nowMin = minutesFromViewStart(viewStartMs)
-                plan = registry.planForDate(date)
-                nextDayScheduled = registry.planForDate(date.plusDays(1)).scheduled
+                val blocks = reservingBlocks
+                plan = registry.planForDate(date, extraFixedBlocks = blocks)
+                nextDayScheduled = registry.planForDate(date.plusDays(1), extraFixedBlocks = blocks).scheduled
             }
         }
     }

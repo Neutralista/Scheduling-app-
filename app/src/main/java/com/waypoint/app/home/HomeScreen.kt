@@ -76,6 +76,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import com.waypoint.app.planner.BufferRulesStore
+import com.waypoint.app.planner.CalendarPrefsStore
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.signal.CalendarEvent
@@ -264,6 +265,7 @@ private fun PlanTab(
     val scope = rememberCoroutineScope()
     val sleepStore = remember { SleepScheduleStore(context) }
     val bufferStore = remember { BufferRulesStore(context) }
+    val calPrefsStore = remember { CalendarPrefsStore(context) }
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
@@ -487,6 +489,7 @@ private fun PlanTab(
         DayTimelineView(
             registry = eventPlanner,
             calendarSignals = calendarSignals,
+            calendarPrefsStore = calPrefsStore,
             date = selectedDate,
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f),
@@ -499,9 +502,10 @@ private fun PlanTab(
         AddCalendarEventSheet(
             date = selectedDate,
             onDismiss = { showAddEvent = false },
-            onSave = { title, startMs, endMs, notes, allDay ->
+            onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
                 scope.launch {
-                    calendarSignals.createEvent(title, startMs, endMs, notes, allDay)
+                    val eventId = calendarSignals.createEvent(title, startMs, endMs, notes, allDay)
+                    if (eventId > 0) calPrefsStore.setReservesTime(eventId, reservesTime)
                     calRefreshKey++
                     showAddEvent = false
                 }
@@ -575,10 +579,12 @@ private fun PlanTab(
         AddCalendarEventSheet(
             date = eventDate,
             initialCalEvent = calBeingEdited,
+            initialReservesTime = calPrefsStore.reservesTime(calBeingEdited.eventId),
             onDismiss = { editingCalEvent = null },
-            onSave = { title, startMs, endMs, notes, allDay ->
+            onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
                 scope.launch {
                     calendarSignals.updateEvent(calBeingEdited.eventId, title, startMs, endMs, notes, allDay)
+                    calPrefsStore.setReservesTime(calBeingEdited.eventId, reservesTime)
                     calRefreshKey++
                     editingCalEvent = null
                 }

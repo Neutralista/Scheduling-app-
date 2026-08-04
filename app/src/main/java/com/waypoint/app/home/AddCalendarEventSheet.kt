@@ -44,8 +44,9 @@ import java.util.Locale
 fun AddCalendarEventSheet(
     date: LocalDate,
     onDismiss: () -> Unit,
-    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean) -> Unit,
-    initialCalEvent: CalendarEvent? = null
+    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean, reservesTime: Boolean) -> Unit,
+    initialCalEvent: CalendarEvent? = null,
+    initialReservesTime: Boolean = true
 ) {
     val isEditing = initialCalEvent != null
     val dateDisplay = remember(date) {
@@ -55,6 +56,7 @@ fun AddCalendarEventSheet(
     var title by remember { mutableStateOf(initialCalEvent?.title ?: "") }
     var titleError by remember { mutableStateOf(false) }
     var allDay by remember { mutableStateOf(initialCalEvent?.allDay ?: false) }
+    var reservesTime by remember { mutableStateOf(initialReservesTime) }
     var startTime by remember { mutableStateOf(
         if (initialCalEvent != null) fmtMs(initialCalEvent.startMillis) else "09:00"
     ) }
@@ -83,7 +85,7 @@ fun AddCalendarEventSheet(
             endMs = if (rawEnd <= startMs) startMs + 3_600_000L else rawEnd
         }
 
-        onSave(title.trim(), startMs, endMs, notes.trim(), allDay)
+        onSave(title.trim(), startMs, endMs, notes.trim(), allDay, reservesTime)
     }
 
     Dialog(
@@ -168,6 +170,30 @@ fun AddCalendarEventSheet(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Switch(checked = allDay, onCheckedChange = { allDay = it })
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
+                    // Reserve scheduling time toggle
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Reserve scheduling time",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = if (reservesTime) "Tasks won't be placed during this event"
+                                       else "Event shown as a reminder only",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = reservesTime, onCheckedChange = { reservesTime = it })
                     }
 
                     // Time pickers
