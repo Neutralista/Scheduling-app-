@@ -83,7 +83,11 @@ class EventPlannerRegistry {
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
         val freeBlocks = mutableListOf(TimeBlock(cycleStartMs, dayEndMs))
-        val fixedIntervals = scheduled.map { it.startMillis to it.endMillis }
+        // BUFFER events are visual-only — they appear on the timeline but don't block
+        // other tasks from being scheduled in the same window.
+        val fixedIntervals = scheduled
+            .filter { it.event.category != EventCategory.BUFFER }
+            .map { it.startMillis to it.endMillis }
         val remaining = freeBlocks.flatMap { block ->
             subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
         }.toMutableList()
@@ -130,8 +134,7 @@ class EventPlannerRegistry {
                 if (fitEnd - fitStart < durationMs) continue
 
                 scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                val bufferMs = event.bufferMinutes * 60_000L
-                remaining[i] = (fitStart + durationMs + bufferMs) to blockEnd
+                remaining[i] = (fitStart + durationMs) to blockEnd
                 placed = true
                 break
             }
@@ -191,8 +194,7 @@ class EventPlannerRegistry {
                 if (fitEnd - fitStart < durationMs) continue
 
                 scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                val bufferMs = event.bufferMinutes * 60_000L
-                remaining[i] = (fitStart + durationMs + bufferMs) to blockEnd
+                remaining[i] = (fitStart + durationMs) to blockEnd
                 placed = true
                 break
             }
