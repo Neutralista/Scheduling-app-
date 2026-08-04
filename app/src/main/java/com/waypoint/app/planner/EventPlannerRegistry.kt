@@ -83,6 +83,12 @@ class EventPlannerRegistry {
             subtractIntervals(block.startMillis, block.endMillis, fixedIntervals)
         }.toMutableList()
 
+        // The first sleep block's start — used to skip pre-sleep midnight blocks for
+        // unconstrained tasks so they land in daytime rather than at 00:00.
+        val firstSleepStartMs = scheduled
+            .filter { it.event.category == EventCategory.SLEEP }
+            .minOfOrNull { it.startMillis }
+
         // ── Pass 1: independent events (no task-relative conditions) ─────────
         for (event in eligible) {
             val durationMs = event.durationMinutes * 60_000L
@@ -109,6 +115,10 @@ class EventPlannerRegistry {
 
                 if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                 if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
+
+                // Skip pre-sleep blocks (e.g. 00:00–01:00) for tasks with no explicit time window —
+                // they should land in daytime rather than the dead-of-night slot before sleep.
+                if (tw == null && firstSleepStartMs != null && blockEnd <= firstSleepStartMs) continue
 
                 val fitStart: Long
                 val fitEnd: Long
