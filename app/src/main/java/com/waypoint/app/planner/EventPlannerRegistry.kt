@@ -213,12 +213,17 @@ class EventPlannerRegistry {
 
             // Zone: soft time-of-day anchor.
             // MORNING  → no extra lower bound (first-fit from wake, same as default)
-            // AFTERNOON → lower bound at one-third of the free window (roughly mid-afternoon)
+            // AFTERNOON → lower bound at one-third of the free window, but only when no
+            //             explicit TimeWindow is set — an explicit window already constrains
+            //             placement, and effectiveMustEndBefore triggers last-fit anyway,
+            //             so the zone lower bound would only create impossible conflicts.
             // EVENING   → last-fit (mirrors scheduleLate; no additional lower bound needed)
             val freeSpan = freeBlockEnd - cycleStartMs
-            val zoneLowerBound: Long? = when (event.zone) {
-                PlannerZone.AFTERNOON -> cycleStartMs + freeSpan / 3
-                else                  -> null
+            val hasExplicitTimeWindow = event.conditions.any { it is EventCondition.TimeWindow }
+            val zoneLowerBound: Long? = when {
+                event.zone == PlannerZone.AFTERNOON && !hasExplicitTimeWindow ->
+                    cycleStartMs + freeSpan / 3
+                else -> null
             }
 
             val effectiveMustStartAfter = listOfNotNull(
