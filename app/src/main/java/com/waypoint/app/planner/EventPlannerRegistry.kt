@@ -79,12 +79,23 @@ class EventPlannerRegistry {
             .filter { it.event.category == EventCategory.SLEEP && it.endMillis > dayStartMs }
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
+        // For post-midnight bed times the next sleep event lives AFTER dayEndMs, so
+        // extend the schedulable window to include the approach to that sleep start.
+        // This allows BeforeTask[SLEEP] to work regardless of whether bed time is
+        // before or after midnight, and gives the evening hours to unconstrained tasks.
+        val nextSleepStartMs = _events
+            .filter { it.category == EventCategory.SLEEP
+                    && it.fixedStartMillis != null
+                    && it.fixedStartMillis!! > cycleStartMs }
+            .minOfOrNull { it.fixedStartMillis!! }
+        val freeBlockEnd = nextSleepStartMs ?: dayEndMs
+
         // BUFFER events are visual-only and do not block scheduling.
         // reservingBlocks carries calendar events the user marked as "reserves time".
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER }
             .map { it.startMillis to it.endMillis } + reservingBlocks
-        val remaining = subtractIntervals(cycleStartMs, dayEndMs, fixedIntervals).toMutableList()
+        val remaining = subtractIntervals(cycleStartMs, freeBlockEnd, fixedIntervals).toMutableList()
 
         // ── Build dependency graph ────────────────────────────────────────────
         //
@@ -166,8 +177,11 @@ class EventPlannerRegistry {
                 blocked += BlockedEvent(event, "Excluded tasks are scheduled today"); continue
             }
 
-            // Sleep sentinel bounds
-            val sleepStartBound = scheduled.filter { it.event.category == EventCategory.SLEEP }.minOfOrNull { it.startMillis }
+            // Sleep sentinel bounds.
+            // nextSleepStartMs is preferred over the scheduled list because for post-midnight
+            // bed times tonight's sleep event falls outside dayEndMs and isn't in scheduled.
+            val sleepStartBound = nextSleepStartMs
+                ?: scheduled.filter { it.event.category == EventCategory.SLEEP }.minOfOrNull { it.startMillis }
             val sleepEndBound   = scheduled.filter { it.event.category == EventCategory.SLEEP }.maxOfOrNull { it.endMillis }
 
             // Explicit time bounds from BeforeTask / AfterTask conditions
@@ -268,9 +282,18 @@ class EventPlannerRegistry {
             for (entry in urgentUnplaced.sortedByDescending { it.event.priority }) {
                 val event = entry.event
                 val durationMs = event.durationMinutes * 60_000L
-                val sleepSlots = scheduled
-                    .filter { it.event.category == EventCategory.SLEEP }
-                    .sortedBy { it.startMillis }
+                // Include post-midnight sleep events that didn't make it into scheduled
+                // (because their fixedStartMillis > dayEndMs for the current date).
+                val scheduledSleepIds = scheduled.filter { it.event.category == EventCategory.SLEEP }
+                    .map { it.event.id }.toSet()
+                val sleepSlots = (scheduled.filter { it.event.category == EventCategory.SLEEP } +
+                    _events.filter { e ->
+                        e.category == EventCategory.SLEEP &&
+                        e.fixedStartMillis != null && e.fixedEndMillis != null &&
+                        e.fixedStartMillis!! > cycleStartMs &&
+                        e.id !in scheduledSleepIds
+                    }.map { e -> ScheduledEvent(e, e.fixedStartMillis!!, e.fixedEndMillis!!) }
+                ).sortedBy { it.startMillis }
                 var placed = false
                 for (sleepSlot in sleepSlots) {
                     val available = sleepSlot.endMillis - sleepSlot.startMillis

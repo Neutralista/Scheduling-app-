@@ -137,7 +137,9 @@ fun AddTaskSheet(
     var duringCalEventId by remember { mutableStateOf(
         initConditions.firstOrNull { it.type == "duringCalEvent" }?.calendarEventId
     ) }
-    val todayCalEvents = remember(calendarEvents) { calendarEvents.filter { !it.allDay } }
+    val todayCalEvents = remember(calendarEvents) {
+        calendarEvents.filter { !it.allDay && !it.title.equals("sleep", ignoreCase = true) }
+    }
 
     // ── Routine & buffer state ───────────────────────────────────────────────
     var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: false) }
