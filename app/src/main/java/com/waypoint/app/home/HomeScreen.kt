@@ -555,6 +555,7 @@ private fun PlanTab(
     if (taskBeingEdited != null) {
         AddTaskSheet(
             initial = taskBeingEdited,
+            availableTasks = remember { taskManager.getAllTasks() },
             onDismiss = { editingTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)

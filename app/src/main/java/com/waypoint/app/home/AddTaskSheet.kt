@@ -46,6 +46,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.TaskTrigger
+import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.ui.components.TimePickerChip
 import java.util.UUID
 
@@ -66,10 +68,14 @@ private val PRIORITY_OPTIONS = listOf(
 
 private val DAY_NAMES = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+private val CHAIN_DEADLINE_PRESETS  = listOf(0, 5, 15, 30, 60)
+private val CHAIN_DEADLINE_LABELS   = listOf("No deadline", "5m", "15m", "30m", "1h")
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddTaskSheet(
     initial: TaskRequest? = null,
+    availableTasks: List<TaskRequest> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (TaskRequest) -> Unit
 ) {
@@ -131,6 +137,20 @@ fun AddTaskSheet(
 
     var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: false) }
 
+    // ── Trigger chain state ──────────────────────────────────────────────────
+    val triggers = remember { mutableStateListOf<TaskTrigger>().also { it.addAll(initial?.triggers ?: emptyList()) } }
+    var showAddChain by remember { mutableStateOf(false) }
+    var chainEvent by remember { mutableStateOf(TriggerEvent.TASK_COMPLETED) }
+    var chainTargetId by remember { mutableStateOf<String?>(null) }
+    var chainDeadline by remember { mutableIntStateOf(0) }
+    var chainError by remember { mutableStateOf("") }
+
+    // Tasks eligible as chain targets: all tasks except this one
+    val currentId = initial?.id
+    val chainTargets = remember(availableTasks) {
+        availableTasks.filter { it.id != currentId }
+    }
+
     // ── Save logic ───────────────────────────────────────────────────────────
     fun save() {
         titleError    = title.trim().isEmpty()
@@ -177,7 +197,8 @@ fun AddTaskSheet(
                 isRoutine           = isRoutine,
                 subtasks            = subtasks.toList(),
                 bufferMinutes       = resolvedBuffer,
-                useMeasuredDuration = useMeasuredDuration
+                useMeasuredDuration = useMeasuredDuration,
+                triggers            = triggers.toList()
             )
         )
     }
@@ -543,6 +564,153 @@ fun AddTaskSheet(
                                 checked = useMeasuredDuration,
                                 onCheckedChange = { useMeasuredDuration = it }
                             )
+                        }
+                    }
+
+                    // Chains
+                    if (chainTargets.isNotEmpty()) {
+                        FormSection(title = "Chains") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "Chain to another task when this task starts or finishes.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+
+                                triggers.forEachIndexed { i, trigger ->
+                                    val targetTitle = chainTargets.find { it.id == trigger.chainTaskId }?.title
+                                        ?: availableTasks.find { it.id == trigger.chainTaskId }?.title
+                                        ?: trigger.chainTaskId
+                                    val eventLabel = if (trigger.event == TriggerEvent.TASK_COMPLETED) "On finish" else "On start"
+                                    val deadlineLabel = if (trigger.deadlineMinutes > 0) " · ${trigger.deadlineMinutes}m deadline" else ""
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            "$eventLabel → $targetTitle$deadlineLabel",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.weight(1f),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        IconButton(
+                                            onClick = { triggers.removeAt(i) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Remove chain",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (!showAddChain) {
+                                    TextButton(
+                                        onClick = {
+                                            showAddChain = true
+                                            chainError = ""
+                                            chainTargetId = null
+                                            chainEvent = TriggerEvent.TASK_COMPLETED
+                                            chainDeadline = 0
+                                        }
+                                    ) { Text("+ Add chain") }
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        ConstraintSubsection("Trigger event") {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                FilterChip(
+                                                    selected = chainEvent == TriggerEvent.TASK_COMPLETED,
+                                                    onClick  = { chainEvent = TriggerEvent.TASK_COMPLETED; chainError = "" },
+                                                    label    = { Text("On finish") }
+                                                )
+                                                FilterChip(
+                                                    selected = chainEvent == TriggerEvent.TASK_STARTED,
+                                                    onClick  = { chainEvent = TriggerEvent.TASK_STARTED; chainError = "" },
+                                                    label    = { Text("On start") }
+                                                )
+                                            }
+                                        }
+
+                                        ConstraintSubsection("Chain to task") {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                chainTargets.forEach { task ->
+                                                    FilterChip(
+                                                        selected = chainTargetId == task.id,
+                                                        onClick  = { chainTargetId = task.id; chainError = "" },
+                                                        label    = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        ConstraintSubsection("Deadline for chained task") {
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                CHAIN_DEADLINE_PRESETS.forEachIndexed { i, mins ->
+                                                    FilterChip(
+                                                        selected = chainDeadline == mins,
+                                                        onClick  = { chainDeadline = mins },
+                                                        label    = { Text(CHAIN_DEADLINE_LABELS[i]) }
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (chainError.isNotEmpty()) {
+                                            Text(
+                                                chainError,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            TextButton(onClick = { showAddChain = false; chainError = "" }) {
+                                                Text("Cancel")
+                                            }
+                                            TextButton(onClick = {
+                                                val targetId = chainTargetId
+                                                if (targetId == null) {
+                                                    chainError = "Select a task to chain to"
+                                                    return@TextButton
+                                                }
+                                                // Circular guard: check if target chains back to us
+                                                val targetTask = chainTargets.find { it.id == targetId }
+                                                val thisId = initial?.id
+                                                if (thisId != null && targetTask?.triggers?.any {
+                                                    it.chainTaskId == thisId
+                                                } == true) {
+                                                    chainError = "Circular chain: that task already chains back to this one"
+                                                    return@TextButton
+                                                }
+                                                triggers.add(
+                                                    TaskTrigger(
+                                                        event = chainEvent,
+                                                        chainTaskId = targetId,
+                                                        deadlineMinutes = chainDeadline
+                                                    )
+                                                )
+                                                showAddChain = false
+                                                chainError = ""
+                                            }) {
+                                                Text("Add", color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

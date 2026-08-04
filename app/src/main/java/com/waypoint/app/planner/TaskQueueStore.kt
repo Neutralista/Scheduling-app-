@@ -11,7 +11,8 @@ data class TaskConditionSpec(
     val type: String,
     val start: String? = null,
     val end: String? = null,
-    val days: List<Int>? = null
+    val days: List<Int>? = null,
+    val deadlineMillis: Long? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
@@ -28,6 +29,7 @@ data class TaskConditionSpec(
         "beforeShift"    -> EventCondition.BeforeShift
         "duringShift"    -> EventCondition.DuringShift
         "afterShift"     -> EventCondition.AfterShift
+        "deadline"       -> deadlineMillis?.let { EventCondition.Deadline(it) }
         else             -> null
     }
 }

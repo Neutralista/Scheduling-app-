@@ -59,8 +59,10 @@ import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.script.TaskManagerScript
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -93,6 +95,10 @@ fun TasksTab(
     }
     var doneIds by remember(refreshKey) { mutableStateOf(taskManager.completions.getDoneIds()) }
     val allTasks = remember(refreshKey) { taskManager.getAllTasks() }
+    // Tasks that are the target of at least one chain trigger from another task
+    val chainTargetIds = remember(allTasks) {
+        allTasks.flatMap { it.triggers }.map { it.chainTaskId }.toSet()
+    }
 
     // Running execution — refreshed every 10 s for the elapsed-time display
     var runningExecution by remember { mutableStateOf(taskManager.getRunningExecution()) }
@@ -169,6 +175,7 @@ fun TasksTab(
                         isRunning = isRunning,
                         routineSubtaskIdx = if (isRunning) routineSubtaskIdx else 0,
                         elapsedMs = if (isRunning) tickMs - (runningExecution!!.startMillis) else null,
+                        hasIncomingChain = se.event.id in chainTargetIds,
                         onToggle = {
                             if (done) taskManager.unmarkDone(se.event.id)
                             else taskManager.markDone(se.event.id)
@@ -184,6 +191,9 @@ fun TasksTab(
                             taskReq?.subtasks?.firstOrNull()?.let { sub ->
                                 taskManager.executions.startSubtask(se.event.id, sub.id)
                             }
+                            applyTriggers(TriggerEvent.TASK_STARTED, se.event.id, allTasks, taskManager)
+                            refreshKey++
+                            onRefresh()
                         },
                         onStop = {
                             // Stop active subtask if any
@@ -194,6 +204,7 @@ fun TasksTab(
                             runningExecution = null
                             if (finished != null) {
                                 taskManager.markDone(se.event.id)
+                                applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
                                 doneIds = taskManager.completions.getDoneIds()
                                 taskManager.syncToRegistry()
                                 refreshKey++
@@ -218,6 +229,7 @@ fun TasksTab(
                                 runningExecution = null
                                 if (finished != null) {
                                     taskManager.markDone(se.event.id)
+                                    applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
                                     doneIds = taskManager.completions.getDoneIds()
                                     taskManager.syncToRegistry()
                                     refreshKey++
@@ -279,6 +291,7 @@ fun TasksTab(
     if (showAdd || editTarget != null) {
         AddTaskSheet(
             initial = editTarget,
+            availableTasks = allTasks,
             onDismiss = { showAdd = false; editTarget = null },
             onSave = { req ->
                 taskManager.submitTask(req)
@@ -558,6 +571,7 @@ private fun PlannerTaskRow(
     isRunning: Boolean,
     routineSubtaskIdx: Int,
     elapsedMs: Long?,
+    hasIncomingChain: Boolean = false,
     onToggle: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -609,8 +623,9 @@ private fun PlannerTaskRow(
                     }
                     else -> "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m"
                 }
+                val chainSuffix = if (hasIncomingChain && !isRunning) " · chained" else ""
                 Text(
-                    text = subtitle,
+                    text = subtitle + chainSuffix,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRunning) primary.copy(alpha = 0.7f)
                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
@@ -719,6 +734,31 @@ private fun BlockedTaskRow(be: BlockedEvent, onEdit: () -> Unit, onDelete: () ->
             )
         }
     }
+}
+
+// ── Trigger engine ────────────────────────────────────────────────────────────
+
+private fun applyTriggers(
+    event: TriggerEvent,
+    sourceTaskId: String,
+    allTasks: List<TaskRequest>,
+    taskManager: TaskManagerScript
+) {
+    val source = allTasks.find { it.id == sourceTaskId } ?: return
+    val now = System.currentTimeMillis()
+    source.triggers
+        .filter { it.event == event }
+        .forEach { trigger ->
+            val target = allTasks.find { it.id == trigger.chainTaskId } ?: return@forEach
+            val updatedConditions = if (trigger.deadlineMinutes > 0) {
+                val byMs = now + trigger.deadlineMinutes * 60_000L
+                target.conditions.filter { it.type != "deadline" } +
+                    TaskConditionSpec("deadline", deadlineMillis = byMs)
+            } else {
+                target.conditions
+            }
+            taskManager.submitTask(target.copy(conditions = updatedConditions))
+        }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
