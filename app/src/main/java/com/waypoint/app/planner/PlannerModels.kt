@@ -1,6 +1,7 @@
 package com.waypoint.app.planner
 
 import java.time.LocalDate
+import kotlinx.serialization.Serializable
 
 /** Sentinel task ID used in BeforeTask / AfterTask conditions to reference the sleep block. */
 const val TASK_REF_SLEEP = "__SLEEP__"
@@ -13,6 +14,10 @@ object PlannerPriority {
 
 /** Visual category — drives colour/rendering in the timeline, not scheduling. */
 enum class EventCategory { DEFAULT, SLEEP, BUFFER }
+
+/** Soft time-of-day zone for scheduling preference. */
+@Serializable
+enum class PlannerZone { MORNING, AFTERNOON, EVENING }
 
 data class PlannerEvent(
     val id: String,
@@ -35,7 +40,9 @@ data class PlannerEvent(
     /** Extra minutes added after the event ends when computing free block consumption. */
     val bufferMinutes: Int = 0,
     /** When true, the scheduler uses last-fit (places the event as late as possible). */
-    val scheduleLate: Boolean = false
+    val scheduleLate: Boolean = false,
+    /** Soft time-of-day preference; null means no preference (default first-fit). */
+    val zone: PlannerZone? = null
 )
 
 sealed class EventCondition {

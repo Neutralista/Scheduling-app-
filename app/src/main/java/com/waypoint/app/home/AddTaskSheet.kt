@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
@@ -155,7 +156,10 @@ fun AddTaskSheet(
     var customBufText by remember { mutableStateOf(if (initBuffer !in bufferPresets && initBuffer > 0) initBuffer.toString() else "") }
 
     var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: false) }
-    var scheduleLate by remember { mutableStateOf(initial?.scheduleLate ?: false) }
+    // Migrate old scheduleLate=true tasks that pre-date the zone field
+    var zone by remember { mutableStateOf(
+        initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
+    ) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also { it.addAll(initial?.triggers ?: emptyList()) } }
@@ -248,7 +252,8 @@ fun AddTaskSheet(
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
                 triggers            = triggers.toList(),
-                scheduleLate        = scheduleLate
+                scheduleLate        = zone == PlannerZone.EVENING,
+                zone                = zone
             )
         )
     }
@@ -350,6 +355,47 @@ fun AddTaskSheet(
                                     label    = { Text(opt.label) }
                                 )
                             }
+                        }
+                    }
+
+                    // Time of day
+                    FormSection(title = "Time of day") {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                FilterChip(
+                                    selected = zone == null,
+                                    onClick  = { zone = null },
+                                    label    = { Text("Any") }
+                                )
+                                FilterChip(
+                                    selected = zone == PlannerZone.MORNING,
+                                    onClick  = { zone = PlannerZone.MORNING },
+                                    label    = { Text("Morning") }
+                                )
+                                FilterChip(
+                                    selected = zone == PlannerZone.AFTERNOON,
+                                    onClick  = { zone = PlannerZone.AFTERNOON },
+                                    label    = { Text("Afternoon") }
+                                )
+                                FilterChip(
+                                    selected = zone == PlannerZone.EVENING,
+                                    onClick  = { zone = PlannerZone.EVENING },
+                                    label    = { Text("Evening") }
+                                )
+                            }
+                            Text(
+                                text = when (zone) {
+                                    PlannerZone.MORNING   -> "Scheduled first thing after wake"
+                                    PlannerZone.AFTERNOON -> "Scheduled in the middle third of your day"
+                                    PlannerZone.EVENING   -> "Scheduled as late as possible before sleep"
+                                    null                  -> "No preference — filled in wherever it fits"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                            )
                         }
                     }
 
@@ -737,46 +783,26 @@ fun AddTaskSheet(
 
                     // Options
                     FormSection(title = "Options") {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        "Schedule late in the day",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        "Place this task as late as possible rather than first thing",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Switch(checked = scheduleLate, onCheckedChange = { scheduleLate = it })
-                            }
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        "Use measured duration",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        "Adjust scheduled duration based on logged history",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Switch(
-                                    checked = useMeasuredDuration,
-                                    onCheckedChange = { useMeasuredDuration = it }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Use measured duration",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "Adjust scheduled duration based on logged history",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
                             }
+                            Switch(
+                                checked = useMeasuredDuration,
+                                onCheckedChange = { useMeasuredDuration = it }
+                            )
                         }
                     }
 

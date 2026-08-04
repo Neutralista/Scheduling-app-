@@ -209,12 +209,27 @@ class EventPlannerRegistry {
                 .mapNotNull { calendarEventBlocks[it.eventId]?.first }.minOrNull()
             val calMustStartAfter = event.conditions.filterIsInstance<EventCondition.AfterCalEvent>()
                 .mapNotNull { calendarEventBlocks[it.eventId]?.second }.maxOrNull()
-            val effectiveMustEndBefore  = listOfNotNull(mustEndBefore,  calMustEndBefore).minOrNull()
-            val effectiveMustStartAfter = listOfNotNull(mustStartAfter, calMustStartAfter).maxOrNull()
+            val effectiveMustEndBefore = listOfNotNull(mustEndBefore, calMustEndBefore).minOrNull()
 
-            // Last-fit when an upper-bound constraint exists or the event explicitly wants to
-            // land as late as possible (evening routines, pre-sleep tasks, etc.).
-            val useLast = effectiveMustEndBefore != null || event.scheduleLate
+            // Zone: soft time-of-day anchor.
+            // MORNING  → no extra lower bound (first-fit from wake, same as default)
+            // AFTERNOON → lower bound at one-third of the free window (roughly mid-afternoon)
+            // EVENING   → last-fit (mirrors scheduleLate; no additional lower bound needed)
+            val freeSpan = freeBlockEnd - cycleStartMs
+            val zoneLowerBound: Long? = when (event.zone) {
+                PlannerZone.AFTERNOON -> cycleStartMs + freeSpan / 3
+                else                  -> null
+            }
+
+            val effectiveMustStartAfter = listOfNotNull(
+                mustStartAfter, calMustStartAfter, zoneLowerBound
+            ).maxOrNull()
+
+            // Last-fit when an upper-bound constraint exists, the event prefers to land
+            // late (scheduleLate), or the zone is EVENING.
+            val useLast = effectiveMustEndBefore != null
+                    || event.scheduleLate
+                    || event.zone == PlannerZone.EVENING
 
             var placed = false
 
