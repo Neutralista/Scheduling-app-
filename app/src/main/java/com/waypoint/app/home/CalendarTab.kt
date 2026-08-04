@@ -255,6 +255,7 @@ private fun DayCell(
 
     Column(
         modifier = Modifier
+            .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
