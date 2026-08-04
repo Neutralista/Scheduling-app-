@@ -61,9 +61,7 @@ import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.SleepModeState
 import java.util.UUID
-import com.waypoint.app.signal.DaySchedule
 import com.waypoint.app.signal.HealthConnectAvailability
-import com.waypoint.app.signal.ShiftTime
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -204,132 +202,6 @@ private fun NativeObject.toNotificationConfig(): NotificationConfig? {
 @OptIn(DelicateCoroutinesApi::class)
 private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scriptable, scriptId: String = ""): NativeObject {
     val obj = cx.newObject(scope) as NativeObject
-
-    // ── workSchedule ─────────────────────────────────────────────────────────
-    try {
-        val ws = cx.newObject(scope) as NativeObject
-        val session = env.workSchedule.getTodaySession()
-        val todaySchedule = env.workSchedule.getTodaySchedule()
-        ScriptableObject.putProperty(ws, "shiftStart", todaySchedule.shiftStart?.displayString ?: "")
-        ScriptableObject.putProperty(ws, "shiftEnd",   todaySchedule.shiftEnd?.displayString   ?: "")
-        ScriptableObject.putProperty(ws, "isWorkDay",  todaySchedule.isWork)
-        ScriptableObject.putProperty(ws, "isClockedIn",
-            session.actualStartMillis != null && session.actualEndMillis == null)
-        ScriptableObject.putProperty(ws, "clockedInAt",
-            session.actualStartMillis?.let { java.util.Date(it).toString() } ?: "")
-        ScriptableObject.putProperty(ws, "isClockedOut",
-            session.actualStartMillis != null && session.actualEndMillis != null)
-        ScriptableObject.putProperty(ws, "clockedOutAt",
-            session.actualEndMillis?.let { java.util.Date(it).toString() } ?: "")
-        ScriptableObject.putProperty(ws, "shiftDurationMinutes",
-            if (session.actualStartMillis != null && session.actualEndMillis != null)
-                (session.actualEndMillis - session.actualStartMillis) / 60_000.0
-            else 0.0)
-        ScriptableObject.putProperty(ws, "setShiftStart", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-                val key = env.workSchedule.dateKey(Calendar.getInstance())
-                GlobalScope.launch(Dispatchers.IO) {
-                    try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftStart = newTime)) }
-                    catch (e: Throwable) { AppLogger.e("WS", "setShiftStart failed", e) }
-                }
-                return null
-            }
-        })
-        ScriptableObject.putProperty(ws, "setShiftEnd", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val newTime = ShiftTime.parse(args.getOrNull(0)?.toString() ?: return null) ?: return null
-                val key = env.workSchedule.dateKey(Calendar.getInstance())
-                GlobalScope.launch(Dispatchers.IO) {
-                    try { env.workSchedule.setDateOverride(key, todaySchedule.copy(shiftEnd = newTime)) }
-                    catch (e: Throwable) { AppLogger.e("WS", "setShiftEnd failed", e) }
-                }
-                return null
-            }
-        })
-        ScriptableObject.putProperty(ws, "getScheduleForDate", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val cal = parseDateStr(args.getOrNull(0)?.toString() ?: return null) ?: return null
-                val schedule = env.workSchedule.getSchedule(cal)
-                val o = cx.newObject(scope) as NativeObject
-                ScriptableObject.putProperty(o, "isWork", schedule.isWork)
-                ScriptableObject.putProperty(o, "shiftStart", schedule.shiftStart?.displayString ?: "")
-                ScriptableObject.putProperty(o, "shiftEnd",   schedule.shiftEnd?.displayString   ?: "")
-                return o
-            }
-        })
-        ScriptableObject.putProperty(ws, "setScheduleForDate", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val dateArg = args.getOrNull(0)?.toString()
-                AppLogger.i("WS", "setScheduleForDate called date=$dateArg")
-                val cal  = parseDateStr(dateArg ?: return null) ?: run {
-                    AppLogger.w("WS", "setScheduleForDate: bad date \"$dateArg\""); return null
-                }
-                val opts = args.getOrNull(1) as? NativeObject ?: run {
-                    AppLogger.w("WS", "setScheduleForDate: opts not NativeObject"); return null
-                }
-                val key    = env.workSchedule.dateKey(cal)
-                val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
-                val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-                val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-                AppLogger.i("WS", "setScheduleForDate: key=$key isWork=$isWork start=$start end=$end")
-                GlobalScope.launch(Dispatchers.IO) {
-                    try {
-                        env.workSchedule.setDateOverride(key, DaySchedule(isWork, start, end))
-                        AppLogger.i("WS", "setDateOverride done key=$key")
-                    }
-                    catch (e: Throwable) { AppLogger.e("WS", "setDateOverride failed", e) }
-                }
-                return null
-            }
-        })
-        ScriptableObject.putProperty(ws, "setSchedulesForDates", object : BaseFunction() {
-            override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? {
-                val arg0 = args.getOrNull(0)
-                AppLogger.i("WS", "setSchedulesForDates called arg0=${arg0?.javaClass?.simpleName}")
-                val map = arg0 as? NativeObject ?: run {
-                    AppLogger.w("WS", "setSchedulesForDates: arg0 not NativeObject, got ${arg0?.javaClass?.simpleName}")
-                    return null
-                }
-                AppLogger.i("WS", "setSchedulesForDates: ${map.ids.size} keys")
-                val overrides = mutableMapOf<String, DaySchedule>()
-                for (rawKey in map.ids) {
-                    val dateStr = rawKey.toString()
-                    val cal = parseDateStr(dateStr)
-                    if (cal == null) {
-                        AppLogger.w("WS", "setSchedulesForDates: skipping bad date key \"$dateStr\"")
-                        continue
-                    }
-                    val opts = map.get(dateStr, map) as? NativeObject
-                    if (opts == null) {
-                        AppLogger.w("WS", "setSchedulesForDates: opts for $dateStr not NativeObject")
-                        continue
-                    }
-                    val key    = env.workSchedule.dateKey(cal)
-                    val isWork = (opts.get("isWork", opts) as? Boolean) ?: true
-                    val start  = opts.get("shiftStart", opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-                    val end    = opts.get("shiftEnd",   opts)?.toString()?.takeIf { it.isNotEmpty() }?.let { ShiftTime.parse(it) }
-                    overrides[key] = DaySchedule(isWork, start, end)
-                }
-                AppLogger.i("WS", "setSchedulesForDates: ${overrides.size} valid overrides, launching write")
-                if (overrides.isNotEmpty()) {
-                    val snapshot = overrides.toMap()
-                    GlobalScope.launch(Dispatchers.IO) {
-                        try {
-                            env.workSchedule.setBulkDateOverrides(snapshot)
-                            AppLogger.i("WS", "setBulkDateOverrides done: ${snapshot.size} dates")
-                        }
-                        catch (e: Throwable) { AppLogger.e("WS", "setBulkDateOverrides failed", e) }
-                    }
-                }
-                return null
-            }
-        })
-        ScriptableObject.putProperty(obj, "workSchedule", ws)
-    } catch (e: Throwable) {
-        AppLogger.e("Bridge", "workSchedule section failed: ${e.javaClass.name}: ${e.message}")
-        ScriptableObject.putProperty(obj, "workSchedule", cx.newObject(scope))
-    }
 
     // ── sleep ────────────────────────────────────────────────────────────────
     try {
@@ -636,9 +508,6 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
                                     e[0].toIntOrNull() ?: 0, e[1].toIntOrNull() ?: 0
                                 )
                             }
-                            "workDayOnly"    -> EventCondition.WorkDayOnly
-                            "dayOffOnly"     -> EventCondition.DayOffOnly
-                            "notDuringShift" -> EventCondition.NotDuringShift
                             "daysOfWeek"     -> {
                                 val dArr = co.get("days", co) as? NativeArray ?: return@mapNotNull null
                                 val days = (0 until dArr.length.toInt())
@@ -932,17 +801,6 @@ private fun buildScriptsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
     return obj
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-private fun parseDateStr(s: String): Calendar? {
-    val parts = s.split("-")
-    if (parts.size != 3) return null
-    val y = parts[0].toIntOrNull() ?: return null
-    val m = parts[1].toIntOrNull()?.minus(1) ?: return null
-    val d = parts[2].toIntOrNull() ?: return null
-    return Calendar.getInstance().apply { set(y, m, d, 0, 0, 0); set(Calendar.MILLISECOND, 0) }
-}
-
 // ── Settings spec ─────────────────────────────────────────────────────────────
 
 /** A single declarative field returned by a script's settings() function. */
@@ -981,7 +839,6 @@ data class SettingSpec(
  *
  *   // React to state changes (optional):
  *   StepGoal.prototype.onTick = function(state, signals, scripts) {
- *     // e.g. read signals.workSchedule.shiftEnd
  *     return null; // return new state or null to keep current
  *   };
  *
@@ -1322,95 +1179,6 @@ class ScriptedModule private constructor(
                                     TextButton(onClick = {
                                         onStateChange(applyAnswer(current, "%02d:%02d".format(tpState.hour, tpState.minute)))
                                     }) { Text("OK") }
-                                }
-                            }
-                        }
-                    }
-                }
-                "workday" -> {
-                    var isWork by remember(current) { mutableStateOf(true) }
-                    var pickingStart by remember(current) { mutableStateOf(true) }
-                    val sh = remember(current) { dialog.placeholder.split(":").getOrNull(0)?.toIntOrNull() ?: 9 }
-                    val sm = remember(current) { dialog.placeholder.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
-                    val eh = remember(current) { dialog.placeholder2.split(":").getOrNull(0)?.toIntOrNull() ?: 17 }
-                    val em = remember(current) { dialog.placeholder2.split(":").getOrNull(1)?.toIntOrNull() ?: 0 }
-                    val startState = rememberTimePickerState(initialHour = sh, initialMinute = sm, is24Hour = true)
-                    val endState   = rememberTimePickerState(initialHour = eh, initialMinute = em, is24Hour = true)
-                    BasicAlertDialog(onDismissRequest = {}) {
-                        Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
-                            Column(
-                                modifier = Modifier.padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = dialog.question,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    FilterChip(
-                                        selected = isWork,
-                                        onClick = { isWork = true; pickingStart = true },
-                                        label = { Text(dialog.yesLabel) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    FilterChip(
-                                        selected = !isWork,
-                                        onClick = { isWork = false },
-                                        label = { Text(dialog.noLabel) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                if (isWork) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Spacer(Modifier.height(12.dp))
-                                        Text(
-                                            text = if (pickingStart) "Shift start" else "Shift end",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Spacer(Modifier.height(8.dp))
-                                        if (pickingStart) TimePicker(state = startState)
-                                        else             TimePicker(state = endState)
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row {
-                                        if (dialog.backLabel != null) {
-                                            TextButton(onClick = { onStateChange(applyAnswer(current, "back")) }) {
-                                                Text(dialog.backLabel)
-                                            }
-                                        }
-                                        TextButton(onClick = { onStateChange(applyAnswer(current, "cancel")) }) {
-                                            Text("Cancel")
-                                        }
-                                    }
-                                    TextButton(onClick = {
-                                        when {
-                                            !isWork -> onStateChange(applyAnswer(current, "off"))
-                                            pickingStart -> pickingStart = false
-                                            else -> {
-                                                val ans = "work|%02d:%02d|%02d:%02d".format(
-                                                    startState.hour, startState.minute,
-                                                    endState.hour,   endState.minute
-                                                )
-                                                onStateChange(applyAnswer(current, ans))
-                                            }
-                                        }
-                                    }) {
-                                        Text(when {
-                                            !isWork      -> "Confirm"
-                                            pickingStart -> "Next"
-                                            else         -> "Confirm"
-                                        })
-                                    }
                                 }
                             }
                         }

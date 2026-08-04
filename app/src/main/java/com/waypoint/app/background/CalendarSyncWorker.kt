@@ -17,7 +17,7 @@ class CalendarSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
         val app = applicationContext as WaypointApplication
         val logStore = SleepLogStore(app)
         SleepCalendarSync.syncLogToCalendar(app, logStore)
-        app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+        app.env.sleepStore.syncToRegistry(app.env.eventPlanner)
         return Result.success()
     }
 

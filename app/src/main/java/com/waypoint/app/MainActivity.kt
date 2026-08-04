@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
         // Sync sleep alarms from foreground Activity context — alarm scheduling APIs
         // can throw on some OEM builds when called from a background Application context.
         try {
-            app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+            app.env.sleepStore.syncToRegistry(app.env.eventPlanner)
         } catch (e: Throwable) {
             AppLogger.e("MainActivity", "syncToRegistry failed", e)
         }
@@ -68,7 +68,6 @@ class MainActivity : ComponentActivity() {
             WaypointTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(
-                        workSchedule = app.env.workSchedule,
                         eventPlanner = app.env.eventPlanner,
                         taskManager = app.env.taskManager,
                         calendarSignals = app.env.calendar,

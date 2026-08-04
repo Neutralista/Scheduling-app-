@@ -19,7 +19,7 @@ class BootReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                app.env.sleepStore.syncToRegistry(app.env.eventPlanner, app.env.workSchedule)
+                app.env.sleepStore.syncToRegistry(app.env.eventPlanner)
                 UserAlarmScheduler.scheduleAll(context, app.env.alarms.getAll())
             } finally {
                 pendingResult.finish()

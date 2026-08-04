@@ -9,7 +9,6 @@ import com.waypoint.app.notification.SleepAlarmScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
 import com.waypoint.app.signal.ShiftTime
-import com.waypoint.app.signal.WorkScheduleSignals
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -68,13 +67,11 @@ class SleepScheduleStore(private val context: Context) {
 
     /**
      * Pushes tonight's sleep window forward so bed = now + 30 min, maintaining the target
-     * sleep duration (capped by the shift's morning-buffer ceiling on work days).
-     * Cancels any pending late nudges, reschedules alarms, and updates the planner registry
-     * for today. Returns the new (bedMs, wakeMs).
+     * sleep duration. Cancels any pending late nudges, reschedules alarms, and updates the
+     * planner registry for today. Returns the new (bedMs, wakeMs).
      */
     fun rescheduleBedToNow(
         logStore: SleepLogStore,
-        ws: WorkScheduleSignals,
         registry: EventPlannerRegistry
     ): Pair<Long, Long> {
         val s = load()
@@ -82,33 +79,15 @@ class SleepScheduleStore(private val context: Context) {
         val newBedMs = now + 30 * 60_000L
 
         val today = LocalDate.now()
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, today.year)
-            set(Calendar.MONTH, today.monthValue - 1)
-            set(Calendar.DAY_OF_MONTH, today.dayOfMonth)
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }
-        val schedule = ws.getSchedule(cal)
-        val zone = ZoneId.systemDefault()
         val targetWakeMs = newBedMs + s.targetSleepMinutes * 60_000L
-        val wakeCeilMs = if (schedule.isWork && schedule.shiftStart != null) {
-            val latestWakeMin = schedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
-            if (latestWakeMin > 0)
-                today.plusDays(1).atTime(latestWakeMin / 60, latestWakeMin % 60)
-                    .atZone(zone).toInstant().toEpochMilli()
-            else Long.MAX_VALUE
-        } else Long.MAX_VALUE
 
         var adjustedBedMs = newBedMs
-        var adjustedWakeMs = minOf(targetWakeMs, wakeCeilMs)
+        var adjustedWakeMs = targetWakeMs
 
-        // Apply 15-min transition buffer around calendar and planner events (mirrors step 5 of computeEffectiveTimesForDate)
-        val plan = registry.planForDate(today, ws)
+        val plan = registry.planForDate(today)
         val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
         val minSleepMs = 60 * 60_000L
 
-        // Bed push: event straddles bedtime
         val bedBeforePush = adjustedBedMs
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
@@ -121,12 +100,10 @@ class SleepScheduleStore(private val context: Context) {
                 adjustedBedMs = minOf(evEnd + 15 * 60_000L, adjustedWakeMs)
             }
         }
-        // Forward slide: push wake to maintain target (capped at shift ceiling)
         if (adjustedBedMs > bedBeforePush) {
             val newTarget = adjustedBedMs + s.targetSleepMinutes * 60_000L
-            if (newTarget > adjustedWakeMs) adjustedWakeMs = minOf(newTarget, wakeCeilMs)
+            if (newTarget > adjustedWakeMs) adjustedWakeMs = newTarget
         }
-        // Wake pull: event starts inside the sleep window
         val wakeBeforePull = adjustedWakeMs
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
@@ -139,10 +116,9 @@ class SleepScheduleStore(private val context: Context) {
                 adjustedWakeMs = maxOf(evStart - 15 * 60_000L, adjustedBedMs + minSleepMs)
             }
         }
-        // Backward slide: pull bed earlier to preserve target (floored at now+30 — user's chosen bedtime)
         if (adjustedWakeMs < wakeBeforePull) {
-            val targetBed = adjustedWakeMs - s.targetSleepMinutes * 60_000L
-            if (targetBed < adjustedBedMs) adjustedBedMs = maxOf(targetBed, newBedMs)
+            val targetBedMs = adjustedWakeMs - s.targetSleepMinutes * 60_000L
+            if (targetBedMs < adjustedBedMs) adjustedBedMs = maxOf(targetBedMs, newBedMs)
         }
 
         SleepAlarmScheduler.cancelLateNudge(context)
@@ -153,9 +129,7 @@ class SleepScheduleStore(private val context: Context) {
         SleepNotificationHelper.showAlarmStatus(context, adjustedBedMs, adjustedWakeMs)
         _scheduledTimes.value = adjustedBedMs to adjustedWakeMs
 
-        // A bed time before noon means we're still in last night's midnight-crossing window
-        // (user was awake past midnight). Use yesterday's event ID so the correct night's
-        // block moves — not tonight's future window.
+        val zone = ZoneId.systemDefault()
         val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
         val sleepNightDate = if (adjustedBedMs < noonMs) today.minusDays(1) else today
         registry.register(PlannerEvent(
@@ -171,23 +145,14 @@ class SleepScheduleStore(private val context: Context) {
         return adjustedBedMs to adjustedWakeMs
     }
 
-    /** Effective wake/bed for today — used by SleepScheduleCard to display adjusted times. */
-    fun computeEffectiveTimes(ws: WorkScheduleSignals, registry: EventPlannerRegistry): EffectiveSleepTimes {
+    fun computeEffectiveTimes(registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
-        val plan = registry.planForDate(today, ws)
+        val plan = registry.planForDate(today)
         val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
-        return computeEffectiveTimesForDate(today, plan, ws, load(), calEvents)
+        return computeEffectiveTimesForDate(today, plan, load(), calEvents)
     }
 
-    /**
-     * Registers fixed sleep events for a rolling window (yesterday through +7 days).
-     * Each event spans bed-time on date D to wake-time on date D+1, and is split
-     * naturally at midnight by the planner then stitched in the timeline view.
-     */
-    fun syncToRegistry(
-        registry: EventPlannerRegistry,
-        ws: WorkScheduleSignals
-    ) {
+    fun syncToRegistry(registry: EventPlannerRegistry) {
         registry.clearSleepEvents()
         val s = load()
         if (!s.enabled) {
@@ -204,7 +169,6 @@ class SleepScheduleStore(private val context: Context) {
         for (dayOffset in -1..7) {
             val date = today.plusDays(dayOffset.toLong())
 
-            // For past nights: if sleep was already logged, register actual times and skip planning
             if (dayOffset < 0) {
                 val logged = logStore.loadForDate(date.plusDays(1).toString())
                 if (logged != null && logged.wakeMillis > logged.bedMillis) {
@@ -223,11 +187,10 @@ class SleepScheduleStore(private val context: Context) {
                 }
             }
 
-            val plan = registry.planForDate(date, ws)
+            val plan = registry.planForDate(date)
             val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
-            val effective = computeEffectiveTimesForDate(date, plan, ws, s, calEvents)
+            val effective = computeEffectiveTimesForDate(date, plan, s, calEvents)
 
-            // If the user manually delayed today's sleep window, preserve it on refresh
             if (dayOffset == 0) {
                 val now = System.currentTimeMillis()
                 if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE) {
@@ -236,8 +199,6 @@ class SleepScheduleStore(private val context: Context) {
                     if (storedBedMs != null && storedWakeMs != null && storedWakeMs > now && storedWakeMs > storedBedMs) {
                         val zone = ZoneId.systemDefault()
                         val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
-                        // A bed before noon is a midnight-crossing window pushed into this morning:
-                        // it belongs to yesterday's night event, not tonight's.
                         val eventDate = if (storedBedMs < noonMs) today.minusDays(1) else date
                         registry.register(PlannerEvent(
                             id = "sleep_$eventDate",
@@ -249,7 +210,6 @@ class SleepScheduleStore(private val context: Context) {
                             fixedEndMillis = storedWakeMs
                         ))
                         if (eventDate == today.minusDays(1)) {
-                            // Last-night window: also register tonight's sleep normally
                             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
                         }
                         _scheduledTimes.value = storedBedMs to storedWakeMs
@@ -272,15 +232,8 @@ class SleepScheduleStore(private val context: Context) {
                 prevNightEffective = effective
             }
 
-            // Schedule alarms and cache scheduled times for today only
             if (dayOffset == 0) {
                 val now = System.currentTimeMillis()
-
-                // After midnight LocalDate.now() advances to the new day, but the previous
-                // night's sleep window may still be active (we haven't woken up yet).
-                // If yesterday's wakeMs is still in the future, schedule for that window
-                // so the background worker doesn't overwrite this-morning's alarms with
-                // tomorrow night's via FLAG_UPDATE_CURRENT.
                 val (bedMs, wakeMs) = run {
                     val pd = prevNightDate
                     val pe = prevNightEffective
@@ -292,16 +245,9 @@ class SleepScheduleStore(private val context: Context) {
                 }
 
                 SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs)
-                // Schedule wake alarms without first cancelling already-armed ones so a
-                // CalendarSyncWorker run that lands within seconds of a pending alarm can't
-                // cancel it and fail to reschedule it (target slips into the past).
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
                 _scheduledTimes.value = bedMs to wakeMs
                 WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
-                // Don't overwrite cached sleep window while sleep mode is active:
-                // after midnight LocalDate.now() advances to the next day, so syncToRegistry
-                // would cache tomorrow night's times, breaking maybeNudge for the remainder
-                // of the current night.
                 if (logStore.getSleepModeState() == SleepModeState.IDLE) {
                     logStore.updateScheduledTimes(bedMs, wakeMs)
                 }
@@ -313,128 +259,15 @@ class SleepScheduleStore(private val context: Context) {
     private fun computeEffectiveTimesForDate(
         date: LocalDate,
         plan: DayPlan,
-        ws: WorkScheduleSignals,
         s: SleepSchedule,
         calEvents: List<Pair<Long, Long>> = emptyList()
     ): EffectiveSleepTimes {
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, date.year)
-            set(Calendar.MONTH, date.monthValue - 1)
-            set(Calendar.DAY_OF_MONTH, date.dayOfMonth)
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }
-        val schedule = ws.getSchedule(cal)
+        // Anchor wake at preferred time, derive bed from target duration
+        val effectiveWakeMin = s.preferredWakeTime.totalMinutes
+        val effectiveBedMin = ((effectiveWakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
+        var effectiveWake = s.preferredWakeTime
+        var effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
 
-        var effectiveWakeMin: Int
-        var effectiveBedMin: Int
-        var effectiveWake: ShiftTime
-        var effectiveBed: ShiftTime
-        var isConstrained: Boolean
-        // Floor for backward bed-slide on work days: epoch ms of shiftEnd + eveningBuffer.
-        // Long.MIN_VALUE = no floor (day off — slide as far as needed to hit target duration).
-        var shiftFloorBedEpochMs = Long.MIN_VALUE
-        // Ceiling for forward wake-slide on work days: epoch ms of shiftStart − morningBuffer.
-        // Long.MAX_VALUE = no ceiling (day off).
-        var shiftCeilingWakeEpochMs = Long.MAX_VALUE
-
-        if (!schedule.isWork || schedule.shiftStart == null || schedule.shiftEnd == null) {
-            // Day off: anchor wake at preferred time, derive bed from target duration
-            effectiveWakeMin = s.preferredWakeTime.totalMinutes
-            effectiveBedMin = ((effectiveWakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
-            effectiveWake = s.preferredWakeTime
-            effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
-            isConstrained = false
-            // Fall through to step 5 so calendar events are still respected
-        } else {
-            isConstrained = true
-
-            // Step 1: Compute hard constraints from shift buffers
-            val latestWakeMin = schedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
-
-            val shiftEndMinAbs: Int = if (date == LocalDate.now()) {
-                val session = ws.getTodaySession()
-                if (session.actualEndMillis != null) {
-                    val endCal = Calendar.getInstance().apply { timeInMillis = session.actualEndMillis }
-                    val actualEndMin = endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
-                    if (actualEndMin < schedule.shiftStart.totalMinutes) actualEndMin + 24 * 60 else actualEndMin
-                } else if (schedule.crossesMidnight) {
-                    schedule.shiftEnd.totalMinutes + 24 * 60
-                } else {
-                    schedule.shiftEnd.totalMinutes
-                }
-            } else if (schedule.crossesMidnight) {
-                schedule.shiftEnd.totalMinutes + 24 * 60
-            } else {
-                schedule.shiftEnd.totalMinutes
-            }
-
-            val earliestBedMin = (shiftEndMinAbs + s.minEveningBufferMinutes) % (24 * 60)
-            val isFloorNextDay = shiftEndMinAbs + s.minEveningBufferMinutes >= 24 * 60
-            val constraintZone = ZoneId.systemDefault()
-            shiftFloorBedEpochMs = if (isFloorNextDay)
-                date.plusDays(1).atTime(earliestBedMin / 60, earliestBedMin % 60)
-                    .atZone(constraintZone).toInstant().toEpochMilli()
-            else
-                date.atTime(earliestBedMin / 60, earliestBedMin % 60)
-                    .atZone(constraintZone).toInstant().toEpochMilli()
-
-            if (latestWakeMin > 0) {
-                shiftCeilingWakeEpochMs = date.plusDays(1)
-                    .atTime(latestWakeMin / 60, latestWakeMin % 60)
-                    .atZone(constraintZone).toInstant().toEpochMilli()
-            }
-
-            // Step 2: Anchor wake on preferred time, clamped by morning constraint
-            effectiveWakeMin = s.preferredWakeTime.totalMinutes
-            if (latestWakeMin > 0 && effectiveWakeMin > latestWakeMin) effectiveWakeMin = latestWakeMin
-            effectiveWake = ShiftTime(effectiveWakeMin / 60, effectiveWakeMin % 60)
-
-            // Step 3: Derive bed from target duration (wake − target)
-            effectiveBedMin = ((effectiveWakeMin - s.targetSleepMinutes) % 1440 + 1440) % 1440
-            effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
-
-            // Step 4: If derived bed falls before the evening buffer, push the window forward.
-            // derivedBedIsPostMidnight: bed wraps past midnight (e.g. 5h target → 02:00 AM bed).
-            // In that case the real-time ordering is floor(PM) < bed(next-day AM), so "too early"
-            // comparisons must account for the day boundary, not just clock minutes.
-            val derivedBedIsPostMidnight = effectiveBedMin < effectiveWakeMin
-            val bedTooEarly = if (schedule.crossesMidnight) {
-                effectiveBedMin !in earliestBedMin..latestWakeMin
-            } else if (derivedBedIsPostMidnight && !isFloorNextDay) {
-                // next-morning bed is always after a same-evening floor in real time
-                false
-            } else if (!derivedBedIsPostMidnight && isFloorNextDay) {
-                // same-evening bed is always before a next-morning floor in real time
-                true
-            } else {
-                effectiveBedMin < earliestBedMin
-            }
-
-            if (bedTooEarly) {
-                effectiveBedMin = earliestBedMin
-                effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
-                val newWakeMin = (effectiveBedMin + s.targetSleepMinutes) % 1440
-                effectiveWakeMin = if (latestWakeMin > 0 && newWakeMin > latestWakeMin) latestWakeMin else newWakeMin
-                effectiveWake = ShiftTime(effectiveWakeMin / 60, effectiveWakeMin % 60)
-            }
-        }
-
-        // Cap sleep at preferred duration — shift buffers can over-expand the window on work days
-        if (isConstrained) {
-            val rawSleepMin = if (effectiveBed.totalMinutes > effectiveWake.totalMinutes)
-                effectiveWake.totalMinutes + (1440 - effectiveBed.totalMinutes)
-            else
-                effectiveWake.totalMinutes - effectiveBed.totalMinutes
-            if (rawSleepMin > s.targetSleepMinutes) {
-                val excess = rawSleepMin - s.targetSleepMinutes
-                effectiveBedMin = (effectiveBed.totalMinutes + excess) % 1440
-                effectiveBed = ShiftTime(effectiveBedMin / 60, effectiveBedMin % 60)
-            }
-        }
-
-        // Step 5: 15-min transition buffer around non-sleep events that crowd bedtime
-        // Applies to both work days and days off — calendar events always shift the window
         val zone = ZoneId.systemDefault()
         val isPostMidnight = effectiveBed.totalMinutes < effectiveWake.totalMinutes
         var bedEpochMs = if (isPostMidnight)
@@ -446,10 +279,8 @@ class SleepScheduleStore(private val context: Context) {
 
         var wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
             .atZone(zone).toInstant().toEpochMilli()
-        val minSleepMs = 60 * 60_000L // never compress sleep below 1h
+        val minSleepMs = 60 * 60_000L
 
-        // Bed push: event straddles bedtime (starts before bed, ends after) → push bed later.
-        // Events entirely inside the sleep window are handled by wake-pull below.
         val bedBeforePush = bedEpochMs
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
@@ -463,16 +294,11 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
 
-        // Forward slide: if bed was pushed later, slide wake to maintain target duration.
-        // On work days, wake can't go past the shift's morning-buffer ceiling.
         if (bedEpochMs > bedBeforePush) {
             val targetWakeMs = bedEpochMs + s.targetSleepMinutes * 60_000L
-            if (targetWakeMs > wakeEpochMs) {
-                wakeEpochMs = minOf(targetWakeMs, shiftCeilingWakeEpochMs)
-            }
+            if (targetWakeMs > wakeEpochMs) wakeEpochMs = targetWakeMs
         }
 
-        // Wake pull: event starts inside the sleep window → pull wake earlier
         val wakeBeforePull = wakeEpochMs
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
@@ -486,13 +312,9 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
 
-        // Slide bed back to preserve target duration when wake was pulled in.
-        // On work days, bed can't go before the shift's evening-buffer floor.
         if (wakeEpochMs < wakeBeforePull) {
             val targetBedMs = wakeEpochMs - s.targetSleepMinutes * 60_000L
-            if (targetBedMs < bedEpochMs) {
-                bedEpochMs = maxOf(targetBedMs, shiftFloorBedEpochMs)
-            }
+            if (targetBedMs < bedEpochMs) bedEpochMs = targetBedMs
         }
 
         effectiveBed = Calendar.getInstance().apply { timeInMillis = bedEpochMs }
@@ -500,7 +322,7 @@ class SleepScheduleStore(private val context: Context) {
         effectiveWake = Calendar.getInstance().apply { timeInMillis = wakeEpochMs }
             .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
 
-        return EffectiveSleepTimes(effectiveWake, effectiveBed, isConstrained = isConstrained)
+        return EffectiveSleepTimes(effectiveWake, effectiveBed, isConstrained = false)
     }
 
     private fun registerSleepEventForDate(
@@ -523,11 +345,6 @@ class SleepScheduleStore(private val context: Context) {
         ))
     }
 
-    /**
-     * Converts bed/wake ShiftTimes for a given date into epoch milliseconds.
-     * When bed < wake in clock time (post-midnight shift), both endpoints land on date+1.
-     * Otherwise bed is on date and wake is on date+1 (standard overnight span).
-     */
     private fun sleepMillis(date: LocalDate, bed: ShiftTime, wake: ShiftTime): Pair<Long, Long> {
         val zone = ZoneId.systemDefault()
         return if (bed.totalMinutes < wake.totalMinutes) {
@@ -539,9 +356,6 @@ class SleepScheduleStore(private val context: Context) {
         }
     }
 
-    /** Synchronous ContentResolver query for non-all-day calendar events on [date].
-     *  Events titled "Sleep" are always excluded — they are Waypoint-created sleep windows
-     *  and must not feed back as scheduling constraints (covers orphans too). */
     private fun calendarEventsForDate(date: LocalDate): List<Pair<Long, Long>> {
         if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) !=
             PackageManager.PERMISSION_GRANTED) return emptyList()

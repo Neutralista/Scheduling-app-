@@ -13,8 +13,6 @@ object NotificationHelper {
 
     private const val CHANNEL_ID       = "waypoint_reminders"
     private const val NOTIF_ID         = 1
-    private const val SHIFT_CHANNEL_ID = "waypoint_shift"
-    private const val SHIFT_NOTIF_ID   = 2
     const val SCRIPTS_CHANNEL_ID       = "waypoint_scripts"
 
     fun createChannel(context: Context) {
@@ -24,39 +22,11 @@ object NotificationHelper {
         nm(context).createNotificationChannel(channel)
     }
 
-    fun createShiftChannel(context: Context) {
-        val channel = NotificationChannel(
-            SHIFT_CHANNEL_ID, "Shift reminders", NotificationManager.IMPORTANCE_HIGH
-        ).apply { description = "Clock-out reminder when your planned shift ends" }
-        nm(context).createNotificationChannel(channel)
-    }
-
     fun createScriptsChannel(context: Context) {
         val channel = NotificationChannel(
             SCRIPTS_CHANNEL_ID, "Script notifications", NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "Notifications triggered by scripts" }
         nm(context).createNotificationChannel(channel)
-    }
-
-    fun sendShiftEndReminder(context: Context) {
-        val pi = PendingIntent.getActivity(
-            context, 1,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        nm(context).notify(
-            SHIFT_NOTIF_ID,
-            NotificationCompat.Builder(context, SHIFT_CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Time to clock out")
-                .setContentText("Your planned shift end has arrived — don't forget to end your shift")
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .build()
-        )
     }
 
     fun sendDailyReminder(context: Context) {

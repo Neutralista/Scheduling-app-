@@ -12,7 +12,6 @@ import com.waypoint.app.script.ScriptRegistry
 import com.waypoint.app.script.ScriptStore
 import com.waypoint.app.script.SleepScheduleScript
 import com.waypoint.app.script.TaskManagerScript
-import com.waypoint.app.script.WorkScheduleScript
 import com.waypoint.app.signal.RealScriptEnvironment
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,18 +41,13 @@ class WaypointApplication : Application() {
             scriptStore = ScriptStore(applicationContext)
             env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
 
-            // Shared refresh signal so WorkScheduleScript can trigger SleepScheduleScript recompose
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
 
             // Register built-in scripts — task manager first so it's ready for others
             ScriptRegistry.register(env.taskManager, env)
             ScriptRegistry.register(
-                WorkScheduleScript(env.workSchedule, env.sleepStore, env.eventPlanner, sleepRefresh, env.taskManager),
-                env
-            )
-            ScriptRegistry.register(
-                SleepScheduleScript(env.sleepStore, env.eventPlanner, env.workSchedule, sleepRefresh, sleepLogStore),
+                SleepScheduleScript(env.sleepStore, env.eventPlanner, sleepRefresh, sleepLogStore),
                 env
             )
 
@@ -65,7 +59,6 @@ class WaypointApplication : Application() {
                 ScriptRegistry.register(module, env)
             }
 
-            NotificationHelper.createShiftChannel(this)
             NotificationHelper.createScriptsChannel(this)
             SleepNotificationHelper.createChannels(this)
             ReminderScheduler.cancel(this) // daily habit reminder disabled until habits feature is built

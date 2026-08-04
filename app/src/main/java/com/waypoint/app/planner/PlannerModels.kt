@@ -4,7 +4,6 @@ import java.time.LocalDate
 
 /** Canonical priority levels for planner events. */
 object PlannerPriority {
-    const val SHIFT   = 99  // work shifts — immovable backbone; conceptual only
     const val URGENT  = 11  // above sleep; displaces sleep windows when no free time remains
     const val SLEEP   = 10  // sleep windows — high priority but displaceable by urgent tasks
 }
@@ -38,21 +37,6 @@ sealed class EventCondition {
         val startHour: Int, val startMin: Int,
         val endHour: Int, val endMin: Int
     ) : EventCondition()
-
-    object WorkDayOnly : EventCondition()
-    object DayOffOnly : EventCondition()
-
-    /** Cannot overlap the active shift window */
-    object NotDuringShift : EventCondition()
-
-    /** Must be placed inside the shift window */
-    object DuringShift : EventCondition()
-
-    /** Only placed in the pre-shift free block */
-    object BeforeShift : EventCondition()
-
-    /** Only placed in the post-shift free block */
-    object AfterShift : EventCondition()
 
     /** ISO day-of-week set: 1=Mon … 7=Sun */
     data class DaysOfWeek(val days: Set<Int>) : EventCondition()

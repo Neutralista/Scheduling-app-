@@ -11,7 +11,6 @@ import com.waypoint.app.planner.SleepLogCard
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepScheduleCard
 import com.waypoint.app.planner.SleepScheduleStore
-import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
@@ -19,7 +18,6 @@ import kotlinx.coroutines.withContext
 class SleepScheduleScript(
     private val store: SleepScheduleStore,
     private val registry: EventPlannerRegistry,
-    private val ws: WorkScheduleSignals,
     private val sleepRefresh: MutableStateFlow<Int>,
     private val logStore: SleepLogStore
 ) : AppScript {
@@ -31,17 +29,17 @@ class SleepScheduleScript(
 
     override suspend fun resetToDefaults() {
         store.resetToDefaults()
-        store.syncToRegistry(registry, ws)
+        store.syncToRegistry(registry)
     }
 
     @Composable
     override fun SettingsContent() {
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
+            SleepScheduleCard(store = store, registry = registry, refreshKey = refreshKey)
             SleepLogCard(
                 logStore = logStore,
-                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry, ws) } }
+                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry) } }
             )
         }
     }
@@ -50,10 +48,10 @@ class SleepScheduleScript(
     override fun WidgetContent(state: ScriptState?, onStateChange: (ScriptState) -> Unit) {
         val refreshKey by sleepRefresh.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SleepScheduleCard(store = store, registry = registry, ws = ws, refreshKey = refreshKey)
+            SleepScheduleCard(store = store, registry = registry, refreshKey = refreshKey)
             SleepLogCard(
                 logStore = logStore,
-                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry, ws) } }
+                onSleepLogged = { withContext(Dispatchers.IO) { store.syncToRegistry(registry) } }
             )
         }
     }

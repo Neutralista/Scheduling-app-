@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,7 +55,6 @@ import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarSignals
-import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +66,6 @@ import java.util.Locale
 
 @Composable
 fun HomeScreen(
-    workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
     taskManager: TaskManagerScript,
     calendarSignals: CalendarSignals,
@@ -90,18 +86,14 @@ fun HomeScreen(
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
-    val headerIsWorkDay = remember(headerRefreshKey) { workSchedule.getTodaySchedule().isWork }
-    val headerSession = remember(headerRefreshKey) { workSchedule.getTodaySession() }
-    val shiftComplete = headerSession.actualStartMillis != null && headerSession.actualEndMillis != null
-
-    val headerPlan = remember(headerRefreshKey) { eventPlanner.planToday(workSchedule) }
+    val headerPlan = remember(headerRefreshKey) { eventPlanner.planToday() }
     val plannerScheduled = remember(headerPlan) {
         headerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
     }
     val plannerDoneIds = remember(headerRefreshKey) { taskManager.completions.getDoneIds() }
 
-    val tasksTotal = plannerScheduled.size + if (headerIsWorkDay) 1 else 0
-    val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds } + if (shiftComplete) 1 else 0
+    val tasksTotal = plannerScheduled.size
+    val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
@@ -130,8 +122,8 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(workSchedule = workSchedule, eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
-                1 -> TasksTab(workSchedule = workSchedule, registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
+                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow)
+                1 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
                 2 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
@@ -245,7 +237,6 @@ private fun AppHeader(
 
 @Composable
 private fun PlanTab(
-    workSchedule: WorkScheduleSignals,
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
@@ -257,7 +248,6 @@ private fun PlanTab(
     val selectedDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
     var calRefreshKey by remember { mutableIntStateOf(0) }
-    var showShiftLog by remember { mutableStateOf(false) }
 
     // Refresh timeline whenever sleep times change (covers reschedule, sync, wake adjustment)
     val sleepTimes by sleepTimesFlow.collectAsState()
@@ -321,7 +311,7 @@ private fun PlanTab(
             IconButton(onClick = {
                 scope.launch {
                     withContext(Dispatchers.IO) {
-                        sleepStore.syncToRegistry(eventPlanner, workSchedule)
+                        sleepStore.syncToRegistry(eventPlanner)
                     }
                     calRefreshKey++
                 }
@@ -333,29 +323,14 @@ private fun PlanTab(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            TextButton(
-                onClick = { showShiftLog = true },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    "Log",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         DayTimelineView(
-            ws = workSchedule,
             registry = eventPlanner,
             calendarSignals = calendarSignals,
             date = selectedDate,
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f)
         )
-    }
-
-    if (showShiftLog) {
-        ShiftLogSheet(ws = workSchedule, calendarSignals = calendarSignals, onDismiss = { showShiftLog = false })
     }
 }

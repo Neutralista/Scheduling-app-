@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
-import com.waypoint.app.signal.WorkScheduleSignals
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.ZoneId
@@ -57,7 +56,6 @@ private val LABEL_WIDTH = 44.dp
 
 @Composable
 fun DayTimelineView(
-    ws: WorkScheduleSignals,
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
     date: LocalDate = LocalDate.now(),
@@ -71,24 +69,14 @@ fun DayTimelineView(
             .toInstant().toEpochMilli()
     }
 
-    val dateCal = remember(date) {
-        Calendar.getInstance().apply {
-            set(Calendar.YEAR, date.year)
-            set(Calendar.MONTH, date.monthValue - 1)
-            set(Calendar.DAY_OF_MONTH, date.dayOfMonth)
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0);      set(Calendar.MILLISECOND, 0)
-        }
-    }
     val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
     val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
-    var plan by remember(date, refreshKey) { mutableStateOf(registry.planForDate(date, ws)) }
+    var plan by remember(date, refreshKey) { mutableStateOf(registry.planForDate(date)) }
     // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window
     var nextDayScheduled by remember(date, refreshKey) {
-        mutableStateOf(registry.planForDate(date.plusDays(1), ws).scheduled)
+        mutableStateOf(registry.planForDate(date.plusDays(1)).scheduled)
     }
-    val dateSchedule = remember(date) { ws.getSchedule(dateCal) }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     val scrollState = rememberScrollState()
@@ -125,8 +113,8 @@ fun DayTimelineView(
             while (true) {
                 delay(60_000L)
                 nowMin = minutesFromViewStart(viewStartMs)
-                plan = registry.planForDate(date, ws)
-                nextDayScheduled = registry.planForDate(date.plusDays(1), ws).scheduled
+                plan = registry.planForDate(date)
+                nextDayScheduled = registry.planForDate(date.plusDays(1)).scheduled
             }
         }
     }
@@ -138,17 +126,6 @@ fun DayTimelineView(
     val terCont    = MaterialTheme.colorScheme.tertiaryContainer
     val onSecCont  = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont  = MaterialTheme.colorScheme.onTertiaryContainer
-
-    // Convert absolute LocalTime to relative minutes from the 4 AM view start
-    fun absToRel(absMin: Int): Int {
-        val rel = absMin - VIEW_START_HOUR * 60
-        return if (rel < 0) rel + 1440 else rel
-    }
-    val shiftStartMin = dateSchedule.shiftStart?.let { absToRel(it.hour * 60 + it.minute) }
-    val shiftEndMin   = dateSchedule.shiftEnd?.let { t ->
-        val absMin = t.hour * 60 + t.minute + if (dateSchedule.crossesMidnight) 1440 else 0
-        absToRel(absMin)
-    }
 
     fun minToY(minutes: Int): Dp =
         HOUR_HEIGHT * ((minutes - START_HOUR * 60).coerceIn(0, TOTAL_HOURS * 60) / 60f)
@@ -202,29 +179,6 @@ fun DayTimelineView(
                     }
                 }
 
-                // Shift block
-                if (dateSchedule.isWork && shiftStartMin != null && shiftEndMin != null) {
-                    val startY = minToY(shiftStartMin)
-                    val shiftH = (minToY(shiftEndMin) - startY).coerceAtLeast(4.dp)
-                    Box(
-                        Modifier
-                            .yOffset(startY)
-                            .fillMaxWidth()
-                            .height(shiftH)
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(primary.copy(alpha = 0.09f))
-                            .border(1.dp, primary.copy(alpha = 0.20f), RoundedCornerShape(6.dp))
-                    ) {
-                        Text(
-                            text = "Shift · ${dateSchedule.shiftStart!!.displayString}–${dateSchedule.shiftEnd?.displayString ?: "?"}",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
-                            color = primary.copy(alpha = 0.60f)
-                        )
-                    }
-                }
-
                 // Merge today's events with next-day events that fall inside the 4AM-4AM window,
                 // stitching adjacent blocks of the same logical event into one continuous bar.
                 val mergedScheduled = run {
@@ -252,8 +206,6 @@ fun DayTimelineView(
                 val viewTotalMin = TOTAL_HOURS * 60
                 val occupiedRanges = run {
                     val raw = mutableListOf<Pair<Int, Int>>()
-                    if (dateSchedule.isWork && shiftStartMin != null && shiftEndMin != null)
-                        raw += shiftStartMin to shiftEndMin
                     mergedScheduled.forEach { se ->
                         val s = msToMin(se.startMillis, viewStartMs)
                         val e = msToMin(se.endMillis,   viewStartMs)

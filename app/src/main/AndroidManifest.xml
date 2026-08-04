@@ -62,10 +62,6 @@
             </intent-filter>
         </receiver>
 
-        <receiver
-            android:name=".notification.ShiftEndAlarmReceiver"
-            android:exported="false" />
-
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="shortService"

@@ -10,11 +10,9 @@ import android.os.PowerManager
 import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.notification.WakeAlarmScheduler
-import com.waypoint.app.signal.RealWorkScheduleSignals
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 class SleepCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -83,29 +81,7 @@ class SleepCheckReceiver : BroadcastReceiver() {
             return
         }
 
-        // Ceiling = shiftStart − morningBuffer on the day the ideal wake falls on.
-        // Using idealWakeMs (not currentWakeMs) so the ceiling reflects the shift the user
-        // would work after waking at the rescheduled time, not the originally-planned wake day.
-        val ws = RealWorkScheduleSignals(context)
-        val wakeDayCal = Calendar.getInstance().apply { timeInMillis = idealWakeMs }
-        val wakeSchedule = ws.getSchedule(wakeDayCal)
-
-        val ceilingMs: Long = if (wakeSchedule.isWork && wakeSchedule.shiftStart != null) {
-            val latestWakeMin = wakeSchedule.shiftStart.totalMinutes - s.minMorningBufferMinutes
-            if (latestWakeMin <= 0) {
-                AppLogger.w(TAG, "adjustWake: morning buffer exceeds shift start, no room")
-                return
-            }
-            Calendar.getInstance().apply {
-                timeInMillis = idealWakeMs
-                set(Calendar.HOUR_OF_DAY, latestWakeMin / 60)
-                set(Calendar.MINUTE, latestWakeMin % 60)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-        } else {
-            Long.MAX_VALUE
-        }
+        val ceilingMs: Long = Long.MAX_VALUE
 
         val newWakeMs = minOf(idealWakeMs, ceilingMs)
 

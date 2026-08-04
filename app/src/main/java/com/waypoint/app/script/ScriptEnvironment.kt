@@ -12,7 +12,6 @@ import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.DeviceActivitySignals
 import com.waypoint.app.signal.HealthConnectSignals
 import com.waypoint.app.signal.LocationSignals
-import com.waypoint.app.signal.WorkScheduleSignals
 
 /**
  * Everything a script can read or write. Replaces the old SignalSources and
@@ -31,7 +30,6 @@ interface ScriptEnvironment {
     val healthConnect: HealthConnectSignals
     val calendar: CalendarSignals
     val alarms: AlarmSignals
-    val workSchedule: WorkScheduleSignals
     val eventPlanner: EventPlannerRegistry
     val taskManager: TaskManagerScript
     val sleepStore: SleepScheduleStore

@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.signal.ShiftTime
-import com.waypoint.app.signal.WorkScheduleSignals
 import com.waypoint.app.ui.components.TimePickerChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -37,7 +36,6 @@ import java.util.Calendar
 fun SleepScheduleCard(
     store: SleepScheduleStore,
     registry: EventPlannerRegistry,
-    ws: WorkScheduleSignals,
     refreshKey: Int = 0,
     modifier: Modifier = Modifier
 ) {
@@ -46,9 +44,7 @@ fun SleepScheduleCard(
     val logStore = remember { SleepLogStore(context) }
 
     var schedule by remember { mutableStateOf(store.load()) }
-    val todaySchedule = remember { ws.getTodaySchedule() }
-    val isWorkDay = todaySchedule.isWork && todaySchedule.shiftStart != null && todaySchedule.shiftEnd != null
-    val effective = remember(schedule, refreshKey) { store.computeEffectiveTimes(ws, registry) }
+    val effective = remember(schedule, refreshKey) { store.computeEffectiveTimes(registry) }
 
     var sleepState by remember { mutableStateOf(logStore.getSleepModeState()) }
     var scheduledBedMs by remember { mutableStateOf(logStore.getScheduledBedMs()) }
@@ -79,7 +75,7 @@ fun SleepScheduleCard(
             rescheduledBedMs == null
 
     fun commit() {
-        store.syncToRegistry(registry, ws)
+        store.syncToRegistry(registry)
         schedule = store.load()
         rescheduledBedMs = null
         rescheduledWakeMs = null
@@ -101,58 +97,29 @@ fun SleepScheduleCard(
 
             if (schedule.enabled) {
                 Spacer(Modifier.height(12.dp))
-                if (isWorkDay) {
-                    Text(
-                        "Auto-adjusted · +2h around your shift",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Column {
-                            Text(
-                                "Wake",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(effective.wakeTime.displayString, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Preferred times",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SleepTimeField(
+                        label = "Wake",
+                        value = schedule.preferredWakeTime.displayString,
+                        modifier = Modifier.weight(1f),
+                        onCommit = { text ->
+                            ShiftTime.parse(text)?.let { store.setPreferredWakeTime(it); commit() }
                         }
-                        Column {
-                            Text(
-                                "Bed",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(effective.bedTime.displayString, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                } else {
-                    Text(
-                        "Preferred times (day off)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SleepTimeField(
-                            label = "Wake",
-                            value = schedule.preferredWakeTime.displayString,
-                            modifier = Modifier.weight(1f),
-                            onCommit = { text ->
-                                ShiftTime.parse(text)?.let { store.setPreferredWakeTime(it); commit() }
-                            }
-                        )
-                        SleepTimeField(
-                            label = "Bed",
-                            value = schedule.preferredBedTime.displayString,
-                            modifier = Modifier.weight(1f),
-                            onCommit = { text ->
-                                ShiftTime.parse(text)?.let { store.setPreferredBedTime(it); commit() }
-                            }
-                        )
-                    }
+                    SleepTimeField(
+                        label = "Bed",
+                        value = schedule.preferredBedTime.displayString,
+                        modifier = Modifier.weight(1f),
+                        onCommit = { text ->
+                            ShiftTime.parse(text)?.let { store.setPreferredBedTime(it); commit() }
+                        }
+                    )
                 }
 
                 // Summary line — shows rescheduled times when overridden, computed otherwise
@@ -198,7 +165,7 @@ fun SleepScheduleCard(
                             onClick = {
                                 scope.launch {
                                     val (newBed, newWake) = withContext(Dispatchers.IO) {
-                                        store.rescheduleBedToNow(logStore, ws, registry)
+                                        store.rescheduleBedToNow(logStore, registry)
                                     }
                                     rescheduledBedMs = newBed
                                     rescheduledWakeMs = newWake

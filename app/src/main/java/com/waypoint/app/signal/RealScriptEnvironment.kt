@@ -35,7 +35,6 @@ class RealScriptEnvironment(
     override val healthConnect: HealthConnectSignals = RealHealthConnectSignals(context)
     override val calendar: CalendarSignals = RealCalendarSignals(context)
     override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
-    override val workSchedule: WorkScheduleSignals = RealWorkScheduleSignals(context)
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
     override val taskManager: TaskManagerScript = TaskManagerScript(TaskQueueStore(context), eventPlanner, TaskCompletionStore(context))
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
