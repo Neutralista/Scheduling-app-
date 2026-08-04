@@ -279,6 +279,7 @@ private fun PlanTab(
     var displayMonth by remember { mutableStateOf(YearMonth.now()) }
     var eventDays by remember { mutableStateOf(emptySet<LocalDate>()) }
     var showAddEvent by remember { mutableStateOf(false) }
+    var showAddTask  by remember { mutableStateOf(false) }
     val hasCalPermission = remember { calendarSignals.hasPermission() }
 
     // Timeline tap / detail state
@@ -483,6 +484,7 @@ private fun PlanTab(
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
             )
+            TextButton(onClick = { showAddTask  = true }) { Text("+ Task")  }
             TextButton(onClick = { showAddEvent = true }) { Text("+ Event") }
         }
 
@@ -554,6 +556,20 @@ private fun PlanTab(
                     selectedPlannerEvent = null
                 }
             } else null
+        )
+    }
+
+    // ── Add task from Plan tab header ─────────────────────────────────────────
+    if (showAddTask) {
+        AddTaskSheet(
+            availableTasks = remember { taskManager.getAllTasks() },
+            calendarEvents = planTabCalEvents,
+            onDismiss = { showAddTask = false },
+            onSave = { req ->
+                taskManager.submitTask(req)
+                calRefreshKey++
+                showAddTask = false
+            }
         )
     }
 
