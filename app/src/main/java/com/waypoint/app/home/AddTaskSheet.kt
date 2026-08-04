@@ -50,10 +50,10 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.ui.components.TimePickerChip
+import com.waypoint.app.ui.components.TimePickerDialog
 import java.util.UUID
 
 private enum class DayRelation { ANY, SAME_DAY_AS, NOT_SAME_DAY_AS }
-private enum class OrderRelation { ANY, BEFORE_TASK, AFTER_TASK }
 
 private val DURATION_PRESETS = listOf(15, 30, 45, 60, 90, 120)
 private val DURATION_LABELS  = listOf("15m", "30m", "45m", "60m", "90m", "2h")
@@ -110,22 +110,16 @@ fun AddTaskSheet(
             ?.referenceTaskIds?.toSet() ?: emptySet()
     ) }
 
-    var orderRelation by remember { mutableStateOf(
-        when {
-            initConditions.any { it.type == "beforeTask" } -> OrderRelation.BEFORE_TASK
-            initConditions.any { it.type == "afterTask" }  -> OrderRelation.AFTER_TASK
-            else -> OrderRelation.ANY
-        }
+    var afterTaskIds by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "afterTask" }?.referenceTaskIds?.toSet() ?: emptySet()
     ) }
-    var orderRelationTaskIds by remember { mutableStateOf(
-        initConditions.firstOrNull { it.type == "beforeTask" || it.type == "afterTask" }
-            ?.referenceTaskIds?.toSet() ?: emptySet()
+    var afterTime by remember { mutableStateOf<String?>(initTw?.start?.takeIf { it != "00:00" }) }
+    var beforeTaskIds by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "beforeTask" }?.referenceTaskIds?.toSet() ?: emptySet()
     ) }
-
-    var afterTimeEnabled  by remember { mutableStateOf(initTw?.start != null) }
-    var afterTime         by remember { mutableStateOf(initTw?.start ?: "09:00") }
-    var beforeTimeEnabled by remember { mutableStateOf(initTw?.end != null) }
-    var beforeTime        by remember { mutableStateOf(initTw?.end ?: "17:00") }
+    var beforeTime by remember { mutableStateOf<String?>(initTw?.end?.takeIf { it != "23:59" }) }
+    var showAfterTimePicker  by remember { mutableStateOf(false) }
+    var showBeforeTimePicker by remember { mutableStateOf(false) }
 
     val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
     var selectedDays by remember { mutableStateOf(initDays) }
@@ -174,21 +168,12 @@ fun AddTaskSheet(
                     add(TaskConditionSpec("notSameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
                 DayRelation.ANY            -> Unit
             }
-            when (orderRelation) {
-                OrderRelation.BEFORE_TASK -> if (orderRelationTaskIds.isNotEmpty())
-                    add(TaskConditionSpec("beforeTask", referenceTaskIds = orderRelationTaskIds.sorted()))
-                OrderRelation.AFTER_TASK  -> if (orderRelationTaskIds.isNotEmpty())
-                    add(TaskConditionSpec("afterTask", referenceTaskIds = orderRelationTaskIds.sorted()))
-                OrderRelation.ANY         -> Unit
-            }
-            val hasAfter  = afterTimeEnabled  && afterTime.isNotEmpty()
-            val hasBefore = beforeTimeEnabled && beforeTime.isNotEmpty()
-            if (hasAfter || hasBefore) {
-                add(TaskConditionSpec(
-                    type  = "timeWindow",
-                    start = if (hasAfter)  afterTime  else "00:00",
-                    end   = if (hasBefore) beforeTime else "23:59"
-                ))
+            if (afterTaskIds.isNotEmpty())
+                add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
+            if (beforeTaskIds.isNotEmpty())
+                add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
+            if (afterTime != null || beforeTime != null) {
+                add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
             }
             if (selectedDays.isNotEmpty()) {
                 add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
@@ -370,112 +355,127 @@ fun AddTaskSheet(
                                 }
                             }
 
-                            // Order relative to another task
-                            ConstraintSubsection("Order") {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        FilterChip(
-                                            selected = orderRelation == OrderRelation.ANY,
-                                            onClick  = { orderRelation = OrderRelation.ANY; orderRelationTaskIds = emptySet() },
-                                            label    = { Text("Any time") }
-                                        )
-                                        FilterChip(
-                                            selected = orderRelation == OrderRelation.BEFORE_TASK,
-                                            onClick  = { orderRelation = OrderRelation.BEFORE_TASK },
-                                            label    = { Text("Before") }
-                                        )
-                                        FilterChip(
-                                            selected = orderRelation == OrderRelation.AFTER_TASK,
-                                            onClick  = { orderRelation = OrderRelation.AFTER_TASK },
-                                            label    = { Text("After") }
-                                        )
-                                    }
-                                    if (orderRelation != OrderRelation.ANY) {
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            // After — start-time lower bound (time + task/sleep anchors)
+                            ConstraintSubsection("After") {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (afterTime != null) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
-                                            // Sleep is always available as an anchor
-                                            FilterChip(
-                                                selected = TASK_REF_SLEEP in orderRelationTaskIds,
-                                                onClick  = {
-                                                    orderRelationTaskIds =
-                                                        if (TASK_REF_SLEEP in orderRelationTaskIds) orderRelationTaskIds - TASK_REF_SLEEP
-                                                        else orderRelationTaskIds + TASK_REF_SLEEP
-                                                },
-                                                label = { Text("Sleep") }
-                                            )
-                                            chainTargets.forEach { task ->
-                                                FilterChip(
-                                                    selected = task.id in orderRelationTaskIds,
-                                                    onClick  = {
-                                                        orderRelationTaskIds =
-                                                            if (task.id in orderRelationTaskIds) orderRelationTaskIds - task.id
-                                                            else orderRelationTaskIds + task.id
-                                                    },
-                                                    label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                            TimePickerChip(value = afterTime!!, onValueChange = { afterTime = it })
+                                            IconButton(
+                                                onClick = { afterTime = null },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close, contentDescription = "Remove time",
+                                                    modifier = Modifier.size(12.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                                 )
                                             }
                                         }
-                                        if (orderRelationTaskIds.isEmpty()) {
-                                            Text(
-                                                "Select at least one anchor.",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                            )
-                                        }
+                                    } else {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick  = { showAfterTimePicker = true },
+                                            label    = { Text("+ time") }
+                                        )
                                     }
+                                    FilterChip(
+                                        selected = TASK_REF_SLEEP in afterTaskIds,
+                                        onClick  = {
+                                            afterTaskIds = if (TASK_REF_SLEEP in afterTaskIds)
+                                                afterTaskIds - TASK_REF_SLEEP else afterTaskIds + TASK_REF_SLEEP
+                                        },
+                                        label = { Text("Sleep") }
+                                    )
+                                    chainTargets.forEach { task ->
+                                        FilterChip(
+                                            selected = task.id in afterTaskIds,
+                                            onClick  = {
+                                                afterTaskIds = if (task.id in afterTaskIds)
+                                                    afterTaskIds - task.id else afterTaskIds + task.id
+                                            },
+                                            label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
+                                }
+                                if (showAfterTimePicker) {
+                                    TimePickerDialog(
+                                        initialHour   = afterTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 9,
+                                        initialMinute = afterTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+                                        onDismiss = { showAfterTimePicker = false },
+                                        onConfirm = { h, m ->
+                                            afterTime = "%02d:%02d".format(h, m)
+                                            showAfterTimePicker = false
+                                        }
+                                    )
                                 }
                             }
 
-                            // Time window
-                            ConstraintSubsection("Time window") {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Switch(
-                                            checked = afterTimeEnabled,
-                                            onCheckedChange = { afterTimeEnabled = it }
-                                        )
-                                        Text(
-                                            "After",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (afterTimeEnabled) MaterialTheme.colorScheme.onSurface
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        if (afterTimeEnabled) {
-                                            TimePickerChip(
-                                                value = afterTime,
-                                                onValueChange = { afterTime = it }
-                                            )
+                            // Before — end-time upper bound (time + task/sleep anchors)
+                            ConstraintSubsection("Before") {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (beforeTime != null) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            TimePickerChip(value = beforeTime!!, onValueChange = { beforeTime = it })
+                                            IconButton(
+                                                onClick = { beforeTime = null },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close, contentDescription = "Remove time",
+                                                    modifier = Modifier.size(12.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                )
+                                            }
                                         }
+                                    } else {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick  = { showBeforeTimePicker = true },
+                                            label    = { Text("+ time") }
+                                        )
                                     }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Switch(
-                                            checked = beforeTimeEnabled,
-                                            onCheckedChange = { beforeTimeEnabled = it }
+                                    FilterChip(
+                                        selected = TASK_REF_SLEEP in beforeTaskIds,
+                                        onClick  = {
+                                            beforeTaskIds = if (TASK_REF_SLEEP in beforeTaskIds)
+                                                beforeTaskIds - TASK_REF_SLEEP else beforeTaskIds + TASK_REF_SLEEP
+                                        },
+                                        label = { Text("Sleep") }
+                                    )
+                                    chainTargets.forEach { task ->
+                                        FilterChip(
+                                            selected = task.id in beforeTaskIds,
+                                            onClick  = {
+                                                beforeTaskIds = if (task.id in beforeTaskIds)
+                                                    beforeTaskIds - task.id else beforeTaskIds + task.id
+                                            },
+                                            label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
                                         )
-                                        Text(
-                                            "Before",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (beforeTimeEnabled) MaterialTheme.colorScheme.onSurface
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        if (beforeTimeEnabled) {
-                                            TimePickerChip(
-                                                value = beforeTime,
-                                                onValueChange = { beforeTime = it }
-                                            )
+                                    }
+                                }
+                                if (showBeforeTimePicker) {
+                                    TimePickerDialog(
+                                        initialHour   = beforeTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 22,
+                                        initialMinute = beforeTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+                                        onDismiss = { showBeforeTimePicker = false },
+                                        onConfirm = { h, m ->
+                                            beforeTime = "%02d:%02d".format(h, m)
+                                            showBeforeTimePicker = false
                                         }
-                                    }
+                                    )
                                 }
                             }
 
