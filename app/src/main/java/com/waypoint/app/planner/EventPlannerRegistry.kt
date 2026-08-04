@@ -25,9 +25,18 @@ class EventPlannerRegistry {
         _events.removeAll { it.category == EventCategory.SLEEP }
     }
 
-    fun planToday(): DayPlan = planForDate(LocalDate.now())
+    fun planToday(
+        isWorkDay: Boolean = false,
+        shiftStartMs: Long? = null,
+        shiftEndMs: Long? = null
+    ): DayPlan = planForDate(LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs)
 
-    fun planForDate(date: LocalDate): DayPlan {
+    fun planForDate(
+        date: LocalDate,
+        isWorkDay: Boolean = false,
+        shiftStartMs: Long? = null,
+        shiftEndMs: Long? = null
+    ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
             set(Calendar.MONTH, date.monthValue - 1)
@@ -57,7 +66,7 @@ class EventPlannerRegistry {
                 if (end > start) scheduled += ScheduledEvent(event, start, end)
                 continue
             }
-            val reason = checkDayConditions(event, date)
+            val reason = checkDayConditions(event, date, isWorkDay, shiftStartMs, shiftEndMs)
             if (reason != null) blocked += BlockedEvent(event, reason) else eligible += event
         }
 
@@ -71,10 +80,29 @@ class EventPlannerRegistry {
         for (event in eligible) {
             val durationMs = event.durationMinutes * 60_000L
             val tw = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
+            val beforeShift = event.conditions.any { it is EventCondition.BeforeShift }
+            val afterShift  = event.conditions.any { it is EventCondition.AfterShift }
+            val duringShift = event.conditions.any { it is EventCondition.DuringShift }
             var placed = false
+
+            // DuringShift: place only within the shift window itself
+            if (duringShift && shiftStartMs != null && shiftEndMs != null) {
+                val shiftFitStart = if (tw != null) maxOf(shiftStartMs, toMs(tw.startHour, tw.startMin)) else shiftStartMs
+                val shiftFitEnd   = if (tw != null) minOf(shiftEndMs,   toMs(tw.endHour,   tw.endMin))   else shiftEndMs
+                if (shiftFitEnd - shiftFitStart >= durationMs) {
+                    scheduled += ScheduledEvent(event, shiftFitStart, shiftFitStart + durationMs)
+                    placed = true
+                }
+                if (!placed) blocked += BlockedEvent(event, "No available time in shift")
+                continue
+            }
 
             for (i in remaining.indices) {
                 val (blockStart, blockEnd) = remaining[i]
+
+                // Skip blocks that violate shift-relative placement
+                if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
 
                 val fitStart: Long
                 val fitEnd: Long
@@ -82,7 +110,11 @@ class EventPlannerRegistry {
                     fitStart = maxOf(blockStart, toMs(tw.startHour, tw.startMin))
                     fitEnd   = minOf(blockEnd,   toMs(tw.endHour,   tw.endMin))
                 } else {
-                    fitStart = blockStart; fitEnd = blockEnd
+                    // For beforeShift, cap block end at shift start
+                    val effectiveEnd = if (beforeShift && shiftStartMs != null) minOf(blockEnd, shiftStartMs) else blockEnd
+                    // For afterShift, cap block start at shift end
+                    val effectiveStart = if (afterShift && shiftEndMs != null) maxOf(blockStart, shiftEndMs) else blockStart
+                    fitStart = effectiveStart; fitEnd = effectiveEnd
                 }
                 if (fitEnd - fitStart < durationMs) continue
 
@@ -146,9 +178,20 @@ class EventPlannerRegistry {
         return segs.filter { (s, e) -> e > s }
     }
 
-    private fun checkDayConditions(event: PlannerEvent, date: LocalDate): String? {
+    private fun checkDayConditions(
+        event: PlannerEvent,
+        date: LocalDate,
+        isWorkDay: Boolean,
+        shiftStartMs: Long?,
+        shiftEndMs: Long?
+    ): String? {
         for (cond in event.conditions) when (cond) {
             is EventCondition.DaysOfWeek -> if (date.dayOfWeek.value !in cond.days) return "Not scheduled for today"
+            is EventCondition.WorkDayOnly -> if (!isWorkDay) return "Work days only"
+            is EventCondition.DayOffOnly  -> if (isWorkDay) return "Days off only"
+            is EventCondition.BeforeShift,
+            is EventCondition.DuringShift,
+            is EventCondition.AfterShift -> if (!isWorkDay || shiftStartMs == null || shiftEndMs == null) return "No shift today"
             else -> Unit
         }
         return null

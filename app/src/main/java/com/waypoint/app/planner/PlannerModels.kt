@@ -40,6 +40,21 @@ sealed class EventCondition {
 
     /** ISO day-of-week set: 1=Mon … 7=Sun */
     data class DaysOfWeek(val days: Set<Int>) : EventCondition()
+
+    /** Only schedule on work days (requires work schedule context) */
+    object WorkDayOnly : EventCondition()
+
+    /** Only schedule on days off (requires work schedule context) */
+    object DayOffOnly : EventCondition()
+
+    /** Only schedule in the free blocks before the shift starts */
+    object BeforeShift : EventCondition()
+
+    /** Only schedule within the shift window */
+    object DuringShift : EventCondition()
+
+    /** Only schedule in the free blocks after the shift ends */
+    object AfterShift : EventCondition()
 }
 
 data class ScheduledEvent(

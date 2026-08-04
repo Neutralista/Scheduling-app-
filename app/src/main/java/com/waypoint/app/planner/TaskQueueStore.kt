@@ -23,6 +23,11 @@ data class TaskConditionSpec(
             )
         }
         "daysOfWeek"     -> days?.let { EventCondition.DaysOfWeek(it.toSet()) }
+        "workDayOnly"    -> EventCondition.WorkDayOnly
+        "dayOffOnly"     -> EventCondition.DayOffOnly
+        "beforeShift"    -> EventCondition.BeforeShift
+        "duringShift"    -> EventCondition.DuringShift
+        "afterShift"     -> EventCondition.AfterShift
         else             -> null
     }
 }
