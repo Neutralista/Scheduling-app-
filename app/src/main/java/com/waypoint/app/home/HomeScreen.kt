@@ -56,7 +56,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.cycle.CycleTracker
-import com.waypoint.app.cycle.CyclesTab
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
@@ -123,7 +122,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "Cycles", "Tasks", "Modules", "Alarms", "Settings")
+            listOf("Plan", "History", "Tasks", "Modules", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -140,7 +139,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager)
-                1 -> CyclesTab(cycleTracker = cycleTracker)
+                1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, onRefresh = { headerRefreshKey++ })
                 3 -> WidgetsTab(
                     widgets = widgets,
