@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -152,6 +153,32 @@ fun AddTaskSheet(
     val chainTargets = remember(availableTasks) {
         availableTasks.filter { it.id != currentId }
     }
+
+    // Ordering graph derived from all tasks' declared constraints.
+    // Used to detect impossible After/Before combinations in the UI.
+    val orderGraph = remember(availableTasks) { buildOrderGraph(availableTasks) }
+
+    // "After" chip X conflicts when any selected "Before" task Y is known to come before X —
+    // meaning [after X, before Y] would be an empty window.
+    fun isAfterConflicting(taskId: String): Boolean =
+        beforeTaskIds.any { beforeId ->
+            when {
+                beforeId == TASK_REF_SLEEP -> false
+                beforeId == taskId         -> true   // same task in both
+                else -> isReachable(beforeId, taskId, orderGraph)
+            }
+        }
+
+    // "Before" chip Y conflicts when any selected "After" task X is known to come after Y —
+    // same impossible window, other direction.
+    fun isBeforeConflicting(taskId: String): Boolean =
+        afterTaskIds.any { afterId ->
+            when {
+                afterId == TASK_REF_SLEEP -> false
+                afterId == taskId         -> true    // same task in both
+                else -> isReachable(taskId, afterId, orderGraph)
+            }
+        }
 
     // ── Save logic ───────────────────────────────────────────────────────────
     fun save() {
@@ -394,12 +421,20 @@ fun AddTaskSheet(
                                         label = { Text("Sleep") }
                                     )
                                     chainTargets.forEach { task ->
+                                        val conflict = isAfterConflicting(task.id)
                                         FilterChip(
                                             selected = task.id in afterTaskIds,
+                                            enabled  = !conflict || task.id in afterTaskIds,
                                             onClick  = {
                                                 afterTaskIds = if (task.id in afterTaskIds)
                                                     afterTaskIds - task.id else afterTaskIds + task.id
                                             },
+                                            colors = if (conflict && task.id !in afterTaskIds)
+                                                FilterChipDefaults.filterChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                                    labelColor     = MaterialTheme.colorScheme.error
+                                                )
+                                            else FilterChipDefaults.filterChipColors(),
                                             label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
                                         )
                                     }
@@ -456,12 +491,20 @@ fun AddTaskSheet(
                                         label = { Text("Sleep") }
                                     )
                                     chainTargets.forEach { task ->
+                                        val conflict = isBeforeConflicting(task.id)
                                         FilterChip(
                                             selected = task.id in beforeTaskIds,
+                                            enabled  = !conflict || task.id in beforeTaskIds,
                                             onClick  = {
                                                 beforeTaskIds = if (task.id in beforeTaskIds)
                                                     beforeTaskIds - task.id else beforeTaskIds + task.id
                                             },
+                                            colors = if (conflict && task.id !in beforeTaskIds)
+                                                FilterChipDefaults.filterChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                                    labelColor     = MaterialTheme.colorScheme.error
+                                                )
+                                            else FilterChipDefaults.filterChipColors(),
                                             label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
                                         )
                                     }
@@ -804,6 +847,39 @@ fun AddTaskSheet(
             }
         }
     }
+}
+
+/**
+ * Builds a "comes before" adjacency map from the declared constraints of all tasks.
+ * Edge A→B means A is definitively scheduled before B.
+ */
+private fun buildOrderGraph(tasks: List<TaskRequest>): Map<String, Set<String>> {
+    val graph = mutableMapOf<String, MutableSet<String>>()
+    for (task in tasks) {
+        for (cond in task.conditions) when (cond.type) {
+            "beforeTask" -> cond.referenceTaskIds?.forEach { targetId ->
+                if (targetId != TASK_REF_SLEEP)
+                    graph.getOrPut(task.id) { mutableSetOf() } += targetId
+            }
+            "afterTask" -> cond.referenceTaskIds?.forEach { depId ->
+                if (depId != TASK_REF_SLEEP)
+                    graph.getOrPut(depId) { mutableSetOf() } += task.id
+            }
+        }
+    }
+    return graph
+}
+
+/** BFS reachability: true if [to] is reachable from [from] via "comes before" edges. */
+private fun isReachable(from: String, to: String, graph: Map<String, Set<String>>): Boolean {
+    val visited = mutableSetOf<String>()
+    val queue = ArrayDeque(graph[from]?.toList() ?: emptyList())
+    while (queue.isNotEmpty()) {
+        val cur = queue.removeFirst()
+        if (cur == to) return true
+        if (visited.add(cur)) graph[cur]?.forEach { if (it !in visited) queue.add(it) }
+    }
+    return false
 }
 
 @Composable
