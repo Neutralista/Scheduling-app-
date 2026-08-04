@@ -11,13 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -27,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.ui.components.TimePickerChip
@@ -109,6 +116,21 @@ fun AddTaskSheet(
     val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
     var selectedDays by remember { mutableStateOf(initDays) }
 
+    // ── Routine & buffer state ───────────────────────────────────────────────
+    var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: false) }
+    val subtasks = remember { mutableStateListOf<SubtaskDef>().also { it.addAll(initial?.subtasks ?: emptyList()) } }
+    var newSubtaskTitle by remember { mutableStateOf("") }
+    var newSubtaskDurText by remember { mutableStateOf("15") }
+
+    val bufferPresets = listOf(0, 5, 10, 15, 30)
+    val bufferLabels  = listOf("None", "5m", "10m", "15m", "30m")
+    val initBuffer = initial?.bufferMinutes ?: 0
+    var bufferMinutes by remember { mutableIntStateOf(if (initBuffer in bufferPresets) initBuffer else 0) }
+    var customBuffer  by remember { mutableStateOf(initBuffer !in bufferPresets && initBuffer > 0) }
+    var customBufText by remember { mutableStateOf(if (initBuffer !in bufferPresets && initBuffer > 0) initBuffer.toString() else "") }
+
+    var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: false) }
+
     // ── Save logic ───────────────────────────────────────────────────────────
     fun save() {
         titleError    = title.trim().isEmpty()
@@ -142,14 +164,20 @@ fun AddTaskSheet(
             }
         }
 
+        val resolvedBuffer = if (customBuffer) customBufText.toIntOrNull() ?: 0 else bufferMinutes
+
         onSave(
             TaskRequest(
-                id              = initial?.id ?: UUID.randomUUID().toString(),
-                title           = title.trim(),
-                durationMinutes = resolvedDuration,
-                priority        = priority,
-                sourceScriptId  = initial?.sourceScriptId ?: "user",
-                conditions      = conditions
+                id                  = initial?.id ?: UUID.randomUUID().toString(),
+                title               = title.trim(),
+                durationMinutes     = resolvedDuration,
+                priority            = priority,
+                sourceScriptId      = initial?.sourceScriptId ?: "user",
+                conditions          = conditions,
+                isRoutine           = isRoutine,
+                subtasks            = subtasks.toList(),
+                bufferMinutes       = resolvedBuffer,
+                useMeasuredDuration = useMeasuredDuration
             )
         )
     }
@@ -368,6 +396,153 @@ fun AddTaskSheet(
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // Buffer
+                    FormSection(title = "Buffer after") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                bufferPresets.forEachIndexed { i, mins ->
+                                    FilterChip(
+                                        selected = !customBuffer && bufferMinutes == mins,
+                                        onClick  = { bufferMinutes = mins; customBuffer = false },
+                                        label    = { Text(bufferLabels[i]) }
+                                    )
+                                }
+                                FilterChip(
+                                    selected = customBuffer,
+                                    onClick  = { customBuffer = true },
+                                    label    = { Text("Custom") }
+                                )
+                            }
+                            if (customBuffer) {
+                                OutlinedTextField(
+                                    value = customBufText,
+                                    onValueChange = { customBufText = it },
+                                    label = { Text("Minutes") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(160.dp),
+                                    singleLine = true
+                                )
+                            }
+                        }
+                    }
+
+                    // Routine & subtasks
+                    FormSection(title = "Routine") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        "Routine task",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "Step through subtasks with individual timers",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Switch(checked = isRoutine, onCheckedChange = { isRoutine = it })
+                            }
+
+                            if (isRoutine) {
+                                // Existing subtasks
+                                subtasks.forEachIndexed { i, sub ->
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            "${i + 1}. ${sub.title} (${sub.defaultDurationMinutes}m)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.weight(1f),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        IconButton(
+                                            onClick = { subtasks.removeAt(i) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Remove subtask",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Add new subtask
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = newSubtaskTitle,
+                                        onValueChange = { newSubtaskTitle = it },
+                                        label = { Text("Step name") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = newSubtaskDurText,
+                                        onValueChange = { newSubtaskDurText = it },
+                                        label = { Text("min") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.width(72.dp),
+                                        singleLine = true
+                                    )
+                                    TextButton(onClick = {
+                                        val dur = newSubtaskDurText.toIntOrNull() ?: 15
+                                        if (newSubtaskTitle.isNotBlank()) {
+                                            subtasks.add(
+                                                SubtaskDef(
+                                                    id = UUID.randomUUID().toString(),
+                                                    title = newSubtaskTitle.trim(),
+                                                    defaultDurationMinutes = dur.coerceAtLeast(1)
+                                                )
+                                            )
+                                            newSubtaskTitle = ""
+                                            newSubtaskDurText = "15"
+                                        }
+                                    }) { Text("Add") }
+                                }
+                            }
+                        }
+                    }
+
+                    // Options
+                    FormSection(title = "Options") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "Use measured duration",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "Adjust scheduled duration based on logged history",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                            Switch(
+                                checked = useMeasuredDuration,
+                                onCheckedChange = { useMeasuredDuration = it }
+                            )
                         }
                     }
                 }

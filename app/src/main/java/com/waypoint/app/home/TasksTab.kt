@@ -96,6 +96,7 @@ fun TasksTab(
 
     // Running execution — refreshed every 10 s for the elapsed-time display
     var runningExecution by remember { mutableStateOf(taskManager.getRunningExecution()) }
+    var routineSubtaskIdx by remember { mutableIntStateOf(0) }
     var tickMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
@@ -160,10 +161,13 @@ fun TasksTab(
                 items(scheduledTasks, key = { "s_${it.event.id}" }) { se ->
                     val done = se.event.id in doneIds
                     val isRunning = runningExecution?.taskId == se.event.id
+                    val taskReq = allTasks.find { it.id == se.event.id }
                     PlannerTaskRow(
                         se = se,
+                        taskReq = taskReq,
                         done = done,
                         isRunning = isRunning,
+                        routineSubtaskIdx = if (isRunning) routineSubtaskIdx else 0,
                         elapsedMs = if (isRunning) tickMs - (runningExecution!!.startMillis) else null,
                         onToggle = {
                             if (done) taskManager.unmarkDone(se.event.id)
@@ -174,9 +178,18 @@ fun TasksTab(
                         onStart = {
                             // Stop any existing running task first
                             runningExecution?.let { taskManager.stopExecution(it.taskId) }
-                            runningExecution = taskManager.startExecution(se.event.id)
+                            val exec = taskManager.startExecution(se.event.id)
+                            runningExecution = exec
+                            routineSubtaskIdx = 0
+                            taskReq?.subtasks?.firstOrNull()?.let { sub ->
+                                taskManager.executions.startSubtask(se.event.id, sub.id)
+                            }
                         },
                         onStop = {
+                            // Stop active subtask if any
+                            taskReq?.subtasks?.getOrNull(routineSubtaskIdx)?.let { sub ->
+                                taskManager.executions.stopSubtask(se.event.id, sub.id)
+                            }
                             val finished = taskManager.stopExecution(se.event.id)
                             runningExecution = null
                             if (finished != null) {
@@ -185,6 +198,31 @@ fun TasksTab(
                                 taskManager.syncToRegistry()
                                 refreshKey++
                                 onRefresh()
+                            }
+                        },
+                        onNextSubtask = {
+                            val subtasks = taskReq?.subtasks ?: emptyList()
+                            // Stop current subtask
+                            subtasks.getOrNull(routineSubtaskIdx)?.let { sub ->
+                                taskManager.executions.stopSubtask(se.event.id, sub.id)
+                            }
+                            val nextIdx = routineSubtaskIdx + 1
+                            if (nextIdx < subtasks.size) {
+                                subtasks[nextIdx].let { sub ->
+                                    taskManager.executions.startSubtask(se.event.id, sub.id)
+                                }
+                                routineSubtaskIdx = nextIdx
+                            } else {
+                                // All subtasks done — auto-finish the task
+                                val finished = taskManager.stopExecution(se.event.id)
+                                runningExecution = null
+                                if (finished != null) {
+                                    taskManager.markDone(se.event.id)
+                                    doneIds = taskManager.completions.getDoneIds()
+                                    taskManager.syncToRegistry()
+                                    refreshKey++
+                                    onRefresh()
+                                }
                             }
                         },
                         onEdit = { editTarget = allTasks.find { it.id == se.event.id } },
@@ -515,12 +553,15 @@ private fun SleepTaskRow(
 @Composable
 private fun PlannerTaskRow(
     se: ScheduledEvent,
+    taskReq: TaskRequest?,
     done: Boolean,
     isRunning: Boolean,
+    routineSubtaskIdx: Int,
     elapsedMs: Long?,
     onToggle: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onNextSubtask: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -554,11 +595,19 @@ private fun PlannerTaskRow(
                         else -> MaterialTheme.colorScheme.onSurface
                     }
                 )
-                val subtitle = if (isRunning && elapsedMs != null) {
-                    val mins = (elapsedMs / 60_000L).toInt()
-                    if (mins < 1) "Running · just started" else "Running · ${mins}m elapsed"
-                } else {
-                    "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m"
+                val isRoutine = taskReq?.isRoutine == true
+                val subtasks = taskReq?.subtasks ?: emptyList()
+                val subtitle = when {
+                    isRunning && isRoutine && subtasks.isNotEmpty() -> {
+                        val step = subtasks.getOrNull(routineSubtaskIdx)
+                        "Step ${routineSubtaskIdx + 1}/${subtasks.size}" +
+                            (step?.let { " · ${it.title}" } ?: "")
+                    }
+                    isRunning && elapsedMs != null -> {
+                        val mins = (elapsedMs / 60_000L).toInt()
+                        if (mins < 1) "Running · just started" else "Running · ${mins}m elapsed"
+                    }
+                    else -> "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m"
                 }
                 Text(
                     text = subtitle,
@@ -570,12 +619,29 @@ private fun PlannerTaskRow(
 
             if (!done) {
                 if (isRunning) {
-                    FilledTonalButton(
-                        onClick = onStop,
-                        modifier = Modifier.size(width = 60.dp, height = 32.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text("Stop", style = MaterialTheme.typography.labelSmall)
+                    val isRoutine = taskReq?.isRoutine == true
+                    val subtasks = taskReq?.subtasks ?: emptyList()
+                    val isLastStep = routineSubtaskIdx >= subtasks.size - 1
+
+                    if (isRoutine && subtasks.isNotEmpty()) {
+                        FilledTonalButton(
+                            onClick = onNextSubtask,
+                            modifier = Modifier.size(width = 72.dp, height = 32.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(
+                                if (isLastStep) "Finish" else "Next",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    } else {
+                        FilledTonalButton(
+                            onClick = onStop,
+                            modifier = Modifier.size(width = 60.dp, height = 32.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("Stop", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 } else {
                     IconButton(onClick = onStart, modifier = Modifier.size(36.dp)) {
