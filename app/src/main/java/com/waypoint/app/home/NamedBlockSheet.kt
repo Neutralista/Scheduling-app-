@@ -255,6 +255,10 @@ fun NamedBlockSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Color", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val isCustomColor = selectedColor !in BLOCK_COLORS
+                        var hexInput by remember {
+                            mutableStateOf(if (isCustomColor) "%06X".format(selectedColor and 0xFFFFFF) else "")
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             BLOCK_COLORS.forEach { argb ->
                                 val c = Color(argb)
@@ -266,9 +270,54 @@ fun NamedBlockSheet(
                                         .then(if (selectedColor == argb)
                                             Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                                         else Modifier)
-                                        .clickable { selectedColor = argb }
+                                        .clickable { selectedColor = argb; hexInput = "" }
                                 )
                             }
+                            // Custom color swatch
+                            val customSwatchColor = if (isCustomColor) Color(selectedColor)
+                                                    else MaterialTheme.colorScheme.surfaceVariant
+                            Box(
+                                Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(customSwatchColor)
+                                    .then(if (isCustomColor)
+                                        Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                    else Modifier)
+                                    .clickable {
+                                        if (!isCustomColor) {
+                                            selectedColor = 0xFF808080.toInt()
+                                            hexInput = "808080"
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!isCustomColor) {
+                                    Icon(
+                                        Icons.Default.Add, contentDescription = "Custom color",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                        if (isCustomColor) {
+                            OutlinedTextField(
+                                value = hexInput,
+                                onValueChange = { s ->
+                                    val filtered = s.filter { it.isLetterOrDigit() }.take(6).uppercase()
+                                    hexInput = filtered
+                                    if (filtered.length == 6) {
+                                        runCatching { android.graphics.Color.parseColor("#$filtered") }
+                                            .onSuccess { selectedColor = it or 0xFF000000.toInt() }
+                                    }
+                                },
+                                prefix = { Text("#") },
+                                label = { Text("Hex color") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
 

@@ -7,9 +7,11 @@ import android.provider.MediaStore
 import com.waypoint.app.background.CalendarSyncWorker
 import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.cycle.CycleTracker
+import com.waypoint.app.notification.BlockNotificationHelper
 import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
+import com.waypoint.app.planner.BlockAlarmScheduler
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.script.ScriptRegistry
@@ -21,6 +23,8 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 
@@ -110,9 +114,11 @@ class WaypointApplication : Application() {
             currentStep = "Notifications & workers"
             NotificationHelper.createScriptsChannel(this)
             SleepNotificationHelper.createChannels(this)
+            BlockNotificationHelper.createChannel(this)
             ReminderScheduler.cancel(this)
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
+            scheduleBlockAlarms(this)
             initSteps += InitStep(currentStep, true)
 
         } catch (e: Throwable) {
@@ -121,6 +127,28 @@ class WaypointApplication : Application() {
             initSteps += InitStep(currentStep, false, e)
             startupCrash = e
             // Do NOT rethrow — let MainActivity show a crash recovery UI instead.
+        }
+    }
+
+    fun scheduleBlockAlarms(context: android.content.Context = applicationContext) {
+        try {
+            val store = com.waypoint.app.planner.NamedBlockStore(context)
+            val today = LocalDate.now()
+            val now = System.currentTimeMillis()
+            store.resolveForDate(today).forEach { (block, sched) ->
+                val startMs = today.atTime(sched.startHour, sched.startMinute)
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val endMs = if (sched.endHour >= 0) {
+                    val e = today.atTime(sched.endHour, sched.endMinute)
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    if (e > startMs) e else e + 24 * 3600_000L
+                } else startMs + block.estimatedMinutes * 60_000L
+                if (startMs > now) {
+                    BlockAlarmScheduler.schedule(context, block.id, block.name, block.colorArgb, startMs, endMs)
+                }
+            }
+        } catch (e: Throwable) {
+            AppLogger.e("WaypointApp", "scheduleBlockAlarms failed", e)
         }
     }
 

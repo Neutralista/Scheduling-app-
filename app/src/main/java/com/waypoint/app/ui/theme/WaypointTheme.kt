@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 // ── Dark palette — deep plum surfaces, barley gold accent ────────────────────
 
@@ -76,10 +77,19 @@ private val Light = lightColorScheme(
 @Composable
 fun WaypointTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    blockColorArgb: Int? = null,
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) Dark else Light,
-        content = content
-    )
+    val base = if (darkTheme) Dark else Light
+    val colorScheme = if (blockColorArgb != null) {
+        val c = Color(blockColorArgb)
+        val onPrimary = if (c.luminance() > 0.4f) Color.Black else Color.White
+        base.copy(
+            primary = c,
+            onPrimary = onPrimary,
+            primaryContainer = c.copy(alpha = 0.18f),
+            onPrimaryContainer = c
+        )
+    } else base
+    MaterialTheme(colorScheme = colorScheme, content = content)
 }

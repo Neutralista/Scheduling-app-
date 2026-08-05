@@ -1,0 +1,70 @@
+package com.waypoint.app.notification
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+
+object BlockNotificationHelper {
+
+    const val CHANNEL_ID = "waypoint_blocks"
+    private const val NOTIF_ID_BASE = 9000
+
+    fun createChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = context.getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Time Blocks",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Notifications when a named time block starts"
+        }
+        nm.createNotificationChannel(channel)
+    }
+
+    fun postBlockStartNotification(
+        context: Context,
+        blockId: String,
+        blockName: String,
+        scheduledEndMs: Long
+    ) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+
+        val proceedIntent = Intent(context, BlockStartReceiver::class.java).apply {
+            action = BlockStartReceiver.ACTION_PROCEED_BLOCK
+            putExtra(BlockStartReceiver.EXTRA_BLOCK_ID, blockId)
+            putExtra(BlockStartReceiver.EXTRA_BLOCK_NAME, blockName)
+            putExtra(BlockStartReceiver.EXTRA_SCHEDULED_END_MS, scheduledEndMs)
+        }
+        val proceedPi = PendingIntent.getBroadcast(
+            context,
+            blockId.hashCode() + 1,
+            proceedIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("$blockName starts now")
+            .setContentText("Tap Proceed to enter the time block")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .addAction(0, "Proceed", proceedPi)
+            .setContentIntent(proceedPi)
+            .build()
+
+        nm.notify(notifId(blockId), notif)
+    }
+
+    fun cancelBlockStartNotification(context: Context, blockId: String) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.cancel(notifId(blockId))
+    }
+
+    private fun notifId(blockId: String) = NOTIF_ID_BASE + (blockId.hashCode() and 0x7FFFFFFF) % 1000
+}

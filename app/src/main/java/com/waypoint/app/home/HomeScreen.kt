@@ -56,8 +56,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.cycle.CycleTracker
+import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
@@ -89,6 +91,7 @@ fun HomeScreen(
     alarms: AlarmSignals,
     cycleTracker: CycleTracker,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
+    blockSessionStore: BlockSessionStore,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -140,9 +143,9 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager)
+                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore)
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager)
-                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, onRefresh = { headerRefreshKey++ })
+                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, onRefresh = { headerRefreshKey++ })
                 3 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
@@ -260,14 +263,16 @@ private fun PlanTab(
     eventPlanner: EventPlannerRegistry,
     calendarSignals: CalendarSignals,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
-    taskManager: TaskManagerScript
+    taskManager: TaskManagerScript,
+    blockSessionStore: BlockSessionStore
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sleepStore = remember { SleepScheduleStore(context) }
     val bufferStore = remember { BufferRulesStore(context) }
     val calPrefsStore = remember { CalendarPrefsStore(context) }
-    val namedBlockStore = remember { com.waypoint.app.planner.NamedBlockStore(context) }
+    val namedBlockStore = remember { NamedBlockStore(context) }
+    val activeSession by blockSessionStore.sessionFlow.collectAsState()
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
@@ -500,6 +505,12 @@ private fun PlanTab(
             date = selectedDate,
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f),
+            sessionWindow = if (selectedDate == today) activeSession?.let { it.startedAtMs to it.scheduledEndMs } else null,
+            activeBlockId = activeSession?.blockId,
+            onBlockStart = { blockId, endMs ->
+                val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
+                blockSessionStore.startSession(block, endMs, selectedDate)
+            },
             onCalendarEventClick = { selectedCalEvent = it },
             onPlannerEventClick = { selectedPlannerEvent = it },
             onCalEventsChanged = { planTabCalEvents = it }

@@ -60,7 +60,7 @@ private val LABEL_WIDTH = 44.dp
 
 /** Converts a relative-minute value to a Y offset within the timeline. */
 private fun minToY(minutes: Int, hourHeight: Dp): Dp =
-    hourHeight * ((minutes - START_HOUR * 60).coerceIn(0, TOTAL_HOURS * 60) / 60f)
+    hourHeight * (minutes.coerceAtLeast(0) / 60f)
 
 /** Returns minutes elapsed since the 4 AM view-start anchor. Negative = before the window. */
 private fun minutesFromViewStart(viewStartMs: Long): Int =
@@ -91,18 +91,27 @@ fun DayTimelineView(
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
+    sessionWindow: Pair<Long, Long>? = null,
+    activeBlockId: String? = null,
+    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null
 ) {
-    val viewStartMs = remember(date) {
-        date.atTime(VIEW_START_HOUR, 0)
+    val isToday = date == LocalDate.now()
+    val viewStartMs = remember(date, sessionWindow) {
+        sessionWindow?.first ?: date.atTime(VIEW_START_HOUR, 0)
             .atZone(ZoneId.systemDefault())
             .toInstant().toEpochMilli()
     }
-    val viewEndMs = viewStartMs + TOTAL_HOURS * 3600_000L
+    val viewEndMs = remember(viewStartMs, sessionWindow) {
+        sessionWindow?.second ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
+    }
+    val totalMinutes = remember(viewStartMs, viewEndMs) {
+        ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
+    }
+    val totalHours = remember(totalMinutes) { (totalMinutes + 59) / 60 }
     val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
-    val isToday = date == LocalDate.now()
 
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
@@ -237,12 +246,14 @@ fun DayTimelineView(
     val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont = MaterialTheme.colorScheme.onTertiaryContainer
 
-    val totalH = hourHeight * TOTAL_HOURS
+    val totalH = hourHeight * totalHours
 
     Box(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
             Row(Modifier.fillMaxWidth().height(totalH)) {
                 HourLabelsColumn(
+                    viewStartMs = viewStartMs,
+                    totalHours = totalHours,
                     hourHeight = hourHeight,
                     showQuarterLabels = showQuarterLabels,
                     showMinuteLines = showMinuteLines,
@@ -252,6 +263,8 @@ fun DayTimelineView(
                     modifier = Modifier.weight(1f),
                     viewStartMs = viewStartMs,
                     viewEndMs = viewEndMs,
+                    totalHours = totalHours,
+                    totalMinutes = totalMinutes,
                     hourHeight = hourHeight,
                     showMinuteLines = showMinuteLines,
                     plan = plan,
@@ -261,6 +274,9 @@ fun DayTimelineView(
                     nextDayBlockInstances = nextDayBlockInstances,
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
+                    isToday = isToday,
+                    activeBlockId = activeBlockId,
+                    onBlockStart = onBlockStart,
                     outline = outline,
                     onSV = onSV,
                     secCont = secCont,
@@ -300,23 +316,28 @@ fun DayTimelineView(
 
 @Composable
 private fun HourLabelsColumn(
+    viewStartMs: Long,
+    totalHours: Int,
     hourHeight: Dp,
     showQuarterLabels: Boolean,
     showMinuteLines: Boolean,
     onSV: Color
 ) {
     Box(Modifier.width(LABEL_WIDTH).fillMaxHeight()) {
-        for (h in START_HOUR..END_HOUR) {
-            val yOff = (hourHeight * (h - START_HOUR) - 8.dp).coerceAtLeast(2.dp)
+        for (h in 0..totalHours) {
+            val yOff = (hourHeight * h - 8.dp).coerceAtLeast(2.dp)
+            val wallHour = Calendar.getInstance().apply {
+                timeInMillis = viewStartMs + h * 3600_000L
+            }.get(Calendar.HOUR_OF_DAY)
             Text(
-                text = "%02d:00".format((VIEW_START_HOUR + h) % 24),
+                text = "%02d:00".format(wallHour),
                 modifier = Modifier.yOffset(yOff),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                 color = onSV.copy(alpha = 0.38f)
             )
-            if (showQuarterLabels && h < END_HOUR) {
+            if (showQuarterLabels && h < totalHours) {
                 for (m in listOf(15, 30, 45)) {
-                    val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                    val minYOff = (hourHeight * h + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
                     Text(
                         text = ":%02d".format(m),
                         modifier = Modifier.yOffset(minYOff).padding(start = 4.dp),
@@ -325,9 +346,9 @@ private fun HourLabelsColumn(
                     )
                 }
             }
-            if (showMinuteLines && h < END_HOUR) {
+            if (showMinuteLines && h < totalHours) {
                 for (m in 5..55 step 5) {
-                    val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                    val minYOff = (hourHeight * h + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
                     val alpha = if (m % 15 == 0) 0.45f else 0.30f
                     Text(
                         text = ":%02d".format(m),
@@ -348,6 +369,8 @@ private fun TimelineBody(
     modifier: Modifier = Modifier,
     viewStartMs: Long,
     viewEndMs: Long,
+    totalHours: Int,
+    totalMinutes: Int,
     hourHeight: Dp,
     showMinuteLines: Boolean,
     plan: DayPlan,
@@ -357,6 +380,9 @@ private fun TimelineBody(
     nextDayBlockInstances: List<NamedBlockInstance>,
     nowMin: Int,
     isNowVisible: Boolean,
+    isToday: Boolean,
+    activeBlockId: String?,
+    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     outline: Color,
     onSV: Color,
     secCont: Color,
@@ -366,7 +392,7 @@ private fun TimelineBody(
     onCalendarEventClick: ((CalendarEvent) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?
 ) {
-    val viewTotalMin = TOTAL_HOURS * 60
+    val viewTotalMin = totalMinutes
 
     // Merge today's events with next-day events inside the 4AM-4AM window
     val mergedScheduled = run {
@@ -420,7 +446,7 @@ private fun TimelineBody(
     }
 
     Box(modifier.fillMaxHeight().clipToBounds()) {
-        GridLines(hourHeight = hourHeight, showMinuteLines = showMinuteLines, outline = outline)
+        GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
 
         // Free time windows
         freeWindows.forEach { (startMin, endMin) ->
@@ -429,7 +455,7 @@ private fun TimelineBody(
 
         // Calendar event blocks (skip Sleep — handled by planner)
         calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
-            CalendarEventBlock(evt, viewStartMs, hourHeight, onCalendarEventClick)
+            CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
         }
 
         // Planner event blocks
@@ -446,6 +472,9 @@ private fun TimelineBody(
                 blockInstances = blockInstances,
                 nextDayBlockInstances = nextDayBlockInstances,
                 defaultColorPair = colorPair,
+                isToday = isToday,
+                activeBlockId = activeBlockId,
+                onBlockStart = onBlockStart,
                 onPlannerEventClick = onPlannerEventClick
             )
         }
@@ -454,12 +483,13 @@ private fun TimelineBody(
         AlarmMarkersSection(
             mergedScheduled = mergedScheduled,
             viewStartMs = viewStartMs,
+            totalMinutes = totalMinutes,
             hourHeight = hourHeight
         )
 
         // Current-time indicator
         if (isNowVisible) {
-            val clampedNow = nowMin.coerceIn(0, TOTAL_HOURS * 60)
+            val clampedNow = nowMin.coerceIn(0, totalMinutes)
             val nowY = minToY(clampedNow, hourHeight)
             val redC = Color(0xFFE53935)
             Canvas(Modifier.yOffset(nowY - 4.dp).fillMaxWidth().height(8.dp)) {
@@ -474,13 +504,13 @@ private fun TimelineBody(
 // ── Per-element composables ────────────────────────────────────────────────────
 
 @Composable
-private fun GridLines(hourHeight: Dp, showMinuteLines: Boolean, outline: Color) {
+private fun GridLines(hourHeight: Dp, totalHours: Int, showMinuteLines: Boolean, outline: Color) {
     Canvas(Modifier.fillMaxSize()) {
-        for (h in 0..TOTAL_HOURS) {
+        for (h in 0..totalHours) {
             val y = h * hourHeight.toPx()
             drawLine(color = outline, start = Offset(0f, y), end = Offset(size.width, y),
                 strokeWidth = 0.5.dp.toPx())
-            if (h < TOTAL_HOURS) {
+            if (h < totalHours) {
                 if (showMinuteLines) {
                     for (m in 1..59) {
                         if (m % 15 == 0) continue
@@ -537,12 +567,13 @@ private fun FreeWindowBlock(startMin: Int, endMin: Int, hourHeight: Dp, onSV: Co
 private fun CalendarEventBlock(
     evt: CalendarEvent,
     viewStartMs: Long,
+    viewTotalMin: Int,
     hourHeight: Dp,
     onCalendarEventClick: ((CalendarEvent) -> Unit)?
 ) {
     val ceStartMin = msToMin(evt.startMillis, viewStartMs)
     val ceEndMin   = msToMin(evt.endMillis,   viewStartMs)
-    if (ceStartMin >= END_HOUR * 60 || ceEndMin <= START_HOUR * 60) return
+    if (ceStartMin >= viewTotalMin || ceEndMin <= 0) return
     val startY  = minToY(ceStartMin, hourHeight)
     val eventH  = (minToY(ceEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
     val calColor = if (evt.calendarColor != 0) Color(evt.calendarColor)
@@ -585,6 +616,9 @@ private fun PlannerEventBlock(
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
     defaultColorPair: Pair<Color, Color>?,
+    isToday: Boolean,
+    activeBlockId: String?,
+    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?
 ) {
     val isSleep       = se.event.category == EventCategory.SLEEP
@@ -620,6 +654,10 @@ private fun PlannerEventBlock(
         isBlock       -> Modifier.border(1.5.dp, blockAccent!!.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
         else          -> Modifier
     }
+
+    val rawBlockId = if (isBlock) se.event.id.removePrefix("__block__") else null
+    val showStartButton = isBlock && isToday && onBlockStart != null && rawBlockId != activeBlockId
+
     Box(
         Modifier
             .yOffset(startY + 1.dp)
@@ -647,6 +685,20 @@ private fun PlannerEventBlock(
                 )
             }
         }
+        if (showStartButton) {
+            Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) {
+                androidx.compose.material3.TextButton(
+                    onClick = { onBlockStart!!(rawBlockId!!, se.endMillis) },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        "▶ Start",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = fg
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -654,6 +706,7 @@ private fun PlannerEventBlock(
 private fun AlarmMarkersSection(
     mergedScheduled: List<ScheduledEvent>,
     viewStartMs: Long,
+    totalMinutes: Int,
     hourHeight: Dp
 ) {
     val sleepBlock = mergedScheduled.firstOrNull {
@@ -669,7 +722,7 @@ private fun AlarmMarkersSection(
     )
     alarmPoints.forEach { (alarmMs, label) ->
         val alarmMin = msToMin(alarmMs, viewStartMs)
-        if (alarmMin !in 0..(TOTAL_HOURS * 60)) return@forEach
+        if (alarmMin !in 0..totalMinutes) return@forEach
         val alarmY = minToY(alarmMin, hourHeight)
         Canvas(Modifier.yOffset(alarmY).fillMaxWidth().height(1.dp)) {
             drawLine(

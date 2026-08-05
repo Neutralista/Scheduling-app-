@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,8 +37,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,8 +54,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.planner.ActiveBlockSession
+import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepCheckReceiver
@@ -71,6 +77,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
@@ -82,6 +89,7 @@ fun TasksTab(
     registry: EventPlannerRegistry,
     taskManager: TaskManagerScript,
     calendarSignals: CalendarSignals? = null,
+    blockSessionStore: BlockSessionStore? = null,
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -126,6 +134,11 @@ fun TasksTab(
         }
     }
 
+    val namedBlockStore = remember { NamedBlockStore(context) }
+    val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
+    val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
+    val today = remember { LocalDate.now() }
+
     Column(Modifier.fillMaxSize()) {
         // ── Header bar: clock + day + Add button ──────────────────────────
         Row(
@@ -157,6 +170,36 @@ fun TasksTab(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         SleepTaskRow(registry = registry, context = context, onRefresh = { refreshKey++; onRefresh() })
+
+        // Block session cards
+        if (blockSessionStore != null) {
+            val sess = activeSession
+            if (sess != null) {
+                BlockSessionCard(
+                    session = sess,
+                    namedBlockStore = namedBlockStore,
+                    blockSessionStore = blockSessionStore
+                )
+            } else {
+                val todayBlocks = remember(refreshKey) { namedBlockStore.resolveForDate(today) }
+                todayBlocks.forEach { (block, sched) ->
+                    val startMs = today.atTime(sched.startHour, sched.startMinute)
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val endMs = if (sched.endHour >= 0) {
+                        val e = today.atTime(sched.endHour, sched.endMinute)
+                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        if (e > startMs) e else e + 24 * 3600_000L
+                    } else startMs + block.estimatedMinutes * 60_000L
+                    BlockStartCard(
+                        blockName = block.name,
+                        colorArgb = block.colorArgb,
+                        startMs = startMs,
+                        endMs = endMs,
+                        onStart = { blockSessionStore.startSession(block, endMs, today) }
+                    )
+                }
+            }
+        }
 
         val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty()
         if (!hasAny) {
@@ -313,6 +356,273 @@ fun TasksTab(
                 editTarget = null
             }
         )
+    }
+}
+
+// ── Block start card (no active session) ─────────────────────────────────────
+
+@Composable
+private fun BlockStartCard(
+    blockName: String,
+    colorArgb: Int?,
+    startMs: Long,
+    endMs: Long,
+    onStart: () -> Unit
+) {
+    val accentColor = colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val timeFmt = "%02d:%02d".format(
+        Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.HOUR_OF_DAY),
+        Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.MINUTE)
+    ) + " – " + "%02d:%02d".format(
+        Calendar.getInstance().apply { timeInMillis = endMs }.get(Calendar.HOUR_OF_DAY),
+        Calendar.getInstance().apply { timeInMillis = endMs }.get(Calendar.MINUTE)
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .width(4.dp)
+                .height(48.dp)
+                .background(accentColor, RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp))
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = blockName,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = timeFmt,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+        )
+        Spacer(Modifier.width(8.dp))
+        TextButton(onClick = onStart) { Text("▶ Start") }
+    }
+}
+
+// ── Block session card (active session) ───────────────────────────────────────
+
+@Composable
+private fun BlockSessionCard(
+    session: ActiveBlockSession,
+    namedBlockStore: NamedBlockStore,
+    blockSessionStore: BlockSessionStore
+) {
+    val context = LocalContext.current
+    val accentColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val today = remember { LocalDate.now() }
+
+    var completionMode by remember { mutableStateOf(false) }
+
+    val activeTasks = remember(session.blockId) {
+        namedBlockStore.resolveActiveTasks(session.blockId, today)
+    }
+
+    val checkState = remember(activeTasks) {
+        mutableStateMapOf<String, Boolean>().also { map ->
+            activeTasks.forEach { map[it.id] = false }
+        }
+    }
+
+    // Compute next occurrence (within 7 days)
+    val nextOccurrenceDate = remember(session.blockId) {
+        (1..7).map { today.plusDays(it.toLong()) }
+            .firstOrNull { namedBlockStore.resolveForDate(it).any { (b, _) -> b.id == session.blockId } }
+    }
+
+    val startedStr = "%02d:%02d".format(
+        Calendar.getInstance().apply { timeInMillis = session.startedAtMs }.get(Calendar.HOUR_OF_DAY),
+        Calendar.getInstance().apply { timeInMillis = session.startedAtMs }.get(Calendar.MINUTE)
+    )
+    val endStr = "%02d:%02d".format(
+        Calendar.getInstance().apply { timeInMillis = session.scheduledEndMs }.get(Calendar.HOUR_OF_DAY),
+        Calendar.getInstance().apply { timeInMillis = session.scheduledEndMs }.get(Calendar.MINUTE)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .height(56.dp)
+                    .background(accentColor, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                Text(
+                    text = session.blockName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (completionMode) "Plan for next occurrence"
+                           else "started $startedStr · ends $endStr",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+            if (!completionMode) {
+                TextButton(onClick = { completionMode = true }) {
+                    Text("End Block", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                }
+            }
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+
+        if (!completionMode) {
+            // Active mode: show today's tasks as informational checklist
+            val sectionLabel = "Set tasks for today"
+            Text(
+                text = sectionLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = accentColor.copy(alpha = 0.8f),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            if (activeTasks.isEmpty()) {
+                Text(
+                    "No tasks configured for this block",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            } else {
+                activeTasks.forEach { task ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { checkState[task.id] = !(checkState[task.id] ?: false) }
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val checked = checkState[task.id] == true
+                        RoundCheckbox(checked = checked, onClick = { checkState[task.id] = !checked })
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (checked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${task.durationMinutes}m",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+        } else {
+            // Completion mode: plan tasks for next occurrence
+            val nextDate = nextOccurrenceDate
+            if (nextDate == null) {
+                Text(
+                    "No upcoming occurrence found",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { completionMode = false }) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { blockSessionStore.endSession() }) {
+                        Text("Exit timeblock")
+                    }
+                }
+            } else {
+                val dateFmt = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())
+                Text(
+                    text = "Set tasks for ${nextDate.format(dateFmt)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accentColor.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                val allBlockTasks = remember(session.blockId) { namedBlockStore.loadTasksForBlock(session.blockId) }
+                val nextActivation = remember(session.blockId, nextDate) { namedBlockStore.getActivation(session.blockId, nextDate) }
+                val nextToggleState = remember(nextActivation) {
+                    mutableStateMapOf<String, Boolean>().also { map ->
+                        allBlockTasks.forEach { task ->
+                            map[task.id] = task.isAlways || task.id in nextActivation.activeTaskIds
+                        }
+                    }
+                }
+                allBlockTasks.forEach { task ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .then(if (!task.isAlways) Modifier.clickable {
+                                nextToggleState[task.id] = !(nextToggleState[task.id] ?: false)
+                            } else Modifier)
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val checked = nextToggleState[task.id] == true
+                        RoundCheckbox(
+                            checked = checked,
+                            onClick = if (!task.isAlways) ({ nextToggleState[task.id] = !checked }) else null
+                        )
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (task.isAlways) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${task.durationMinutes}m" + if (task.isAlways) " · always" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { completionMode = false }) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = {
+                        // Save situational task activations for next date
+                        allBlockTasks.filter { !it.isAlways }.forEach { task ->
+                            val shouldBeActive = nextToggleState[task.id] == true
+                            val isCurrentlyActive = task.id in nextActivation.activeTaskIds
+                            if (shouldBeActive != isCurrentlyActive) {
+                                namedBlockStore.toggleSituational(session.blockId, nextDate, task.id)
+                            }
+                        }
+                        blockSessionStore.endSession()
+                    }) {
+                        Text("Save & exit timeblock", color = accentColor)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
     }
 }
 

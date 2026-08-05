@@ -130,6 +130,15 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".notification.BlockStartReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.waypoint.app.BLOCK_START" />
+                <action android:name="com.waypoint.app.PROCEED_BLOCK" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".notification.AlarmRingActivity"
             android:exported="false"

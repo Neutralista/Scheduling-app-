@@ -21,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 app.env.sleepStore.syncToRegistry(app.env.eventPlanner)
                 UserAlarmScheduler.scheduleAll(context, app.env.alarms.getAll())
+                app.scheduleBlockAlarms(context)
             } finally {
                 pendingResult.finish()
             }
