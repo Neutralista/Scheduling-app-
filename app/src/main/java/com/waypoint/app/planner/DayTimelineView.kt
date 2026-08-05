@@ -133,7 +133,8 @@ fun DayTimelineView(
     val zoomFactors = listOf(1f, 2.5f, 5f)
     val zoomLabels  = listOf("1×", "2.5×", "5×")
     val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
-    val showMinuteLines = zoomIndex == 2
+    val showQuarterLabels = zoomIndex == 1
+    val showMinuteLines   = zoomIndex == 2
     // Anchor minute captured just before a zoom change so the same time stays in view.
     var anchorMinute by remember { mutableIntStateOf(-1) }
 
@@ -238,6 +239,17 @@ fun DayTimelineView(
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = onSV.copy(alpha = 0.38f)
                     )
+                    if (showQuarterLabels && h < END_HOUR) {
+                        for (m in listOf(15, 30, 45)) {
+                            val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                            Text(
+                                text = ":%02d".format(m),
+                                modifier = Modifier.yOffset(minYOff).padding(start = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = onSV.copy(alpha = 0.38f)
+                            )
+                        }
+                    }
                     if (showMinuteLines && h < END_HOUR) {
                         for (m in 5..55 step 5) {
                             val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
@@ -277,18 +289,18 @@ fun DayTimelineView(
                                     if (m % 15 == 0) continue  // quarter-hour drawn below
                                     val my = y + m * hh.toPx() / 60f
                                     drawLine(
-                                        color = outlineC.copy(alpha = 0.45f),
+                                        color = outlineC.copy(alpha = 0.28f),
                                         start = Offset(0f, my), end = Offset(size.width, my),
-                                        strokeWidth = 0.5.dp.toPx()
+                                        strokeWidth = 0.4.dp.toPx()
                                     )
                                 }
                             }
                             for (q in 1..3) {
                                 val qy = y + q * hh.toPx() / 4f
                                 drawLine(
-                                    color = outlineC.copy(alpha = 0.35f),
+                                    color = outlineC.copy(alpha = 0.55f),
                                     start = Offset(0f, qy), end = Offset(size.width, qy),
-                                    strokeWidth = 0.3.dp.toPx()
+                                    strokeWidth = 0.45.dp.toPx()
                                 )
                             }
                         }
