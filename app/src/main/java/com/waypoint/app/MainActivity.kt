@@ -59,25 +59,23 @@ class MainActivity : ComponentActivity() {
         val initialTab = intent?.getIntExtra("tab", 0) ?: 0
         val triggerScriptId = intent?.getStringExtra("triggerScriptAction").orEmpty()
 
+        if (app.startupCrash == null && triggerScriptId.isNotEmpty()) {
+            lifecycleScope.launch {
+                viewModel.initialLoadComplete.first { it }
+                viewModel.triggerScriptAction(triggerScriptId)
+            }
+        }
+
         setContent {
             WaypointTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    var initComplete by remember { mutableStateOf(false) }
+                    // Skip the debug screen entirely when init succeeded
+                    var initComplete by remember { mutableStateOf(app.startupCrash == null) }
 
                     if (!initComplete) {
                         DebugLaunchScreen(
                             initSteps = app.initSteps,
-                            startupCrash = app.startupCrash,
-                            onReady = {
-                                // Only fire script trigger once init is confirmed good
-                                if (triggerScriptId.isNotEmpty()) {
-                                    lifecycleScope.launch {
-                                        viewModel.initialLoadComplete.first { it }
-                                        viewModel.triggerScriptAction(triggerScriptId)
-                                    }
-                                }
-                                initComplete = true
-                            }
+                            startupCrash = app.startupCrash
                         )
                     } else {
                         val statesById by viewModel.statesById.collectAsState()

@@ -26,7 +26,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,15 +42,9 @@ import java.io.File
 @Composable
 fun DebugLaunchScreen(
     initSteps: List<InitStep>,
-    startupCrash: Throwable?,
-    onReady: () -> Unit
+    startupCrash: Throwable?
 ) {
     val context = LocalContext.current
-
-    // Auto-proceed if everything initialized fine
-    LaunchedEffect(startupCrash) {
-        if (startupCrash == null) onReady()
-    }
 
     Column(
         modifier = Modifier
