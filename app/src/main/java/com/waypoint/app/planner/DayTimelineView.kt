@@ -34,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -126,10 +127,12 @@ fun DayTimelineView(
     var calEventBlocks by remember(date, refreshKey) { mutableStateOf<Map<Long, Pair<Long, Long>>>(emptyMap()) }
     // Calendar events that the user marked as "reserves time" — fed into the planner as fixed blocks
     var reservingBlocks by remember(date, refreshKey) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("waypoint_timeline", android.content.Context.MODE_PRIVATE) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
-    var zoomIndex by remember { mutableIntStateOf(0) }
+    var zoomIndex by remember { mutableIntStateOf(prefs.getInt("zoom_index", 1)) }
     val zoomFactors = listOf(1f, 2.5f, 5f)
     val zoomLabels  = listOf("1×", "2.5×", "5×")
     val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
@@ -147,8 +150,9 @@ fun DayTimelineView(
         scrollState.animateScrollTo(scrollPx)
     }
 
-    // After zoom change, restore the same top-of-viewport time
+    // After zoom change, persist the selection and restore the same top-of-viewport time
     LaunchedEffect(zoomIndex) {
+        prefs.edit().putInt("zoom_index", zoomIndex).apply()
         if (anchorMinute >= 0) {
             val scrollPx = with(density) {
                 (anchorMinute.coerceAtLeast(0) / 60f * hourHeight.toPx()).toInt()
