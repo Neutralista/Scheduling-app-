@@ -11,6 +11,13 @@ class CycleTracker(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("waypoint_cycle_tracker", Context.MODE_PRIVATE)
 
+    /**
+     * Called every time a new cycle opens — both automatic and manual.
+     * Wire this up (e.g. in Application.onCreate) to reset per-cycle state such as
+     * task completion marks.
+     */
+    var onNewCycle: (() -> Unit)? = null
+
     companion object {
         private const val TAG = "CycleTracker"
         private const val KEY_LAST_ACTIVE = "last_active_ms"
@@ -49,8 +56,17 @@ class CycleTracker(private val context: Context) {
                 }
             }
             else -> {
-                // Still in the same awake period — nothing to do
-                AppLogger.i(TAG, "recordActive: continuing cycle ${current.id}")
+                // No sleep onset was recorded. If the cycle has been open long enough
+                // that a genuine sleep must have occurred (detection alarm probably missed),
+                // close it anyway so cycles don't stay open indefinitely.
+                val openMs = now - current.wakeMillis
+                if (openMs >= MIN_NEW_CYCLE_GAP_MS) {
+                    AppLogger.i(TAG, "recordActive: no sleep start but cycle open ${openMs / 3600_000}h — closing as fallback")
+                    store.save(current.copy(nextWakeMillis = now))
+                    openCycle(now)
+                } else {
+                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id}")
+                }
             }
         }
 
@@ -120,6 +136,7 @@ class CycleTracker(private val context: Context) {
         )
         store.save(cycle)
         AppLogger.i(TAG, "openCycle: id=${cycle.id} date=${cycle.dateLabel}")
+        onNewCycle?.invoke()
         return cycle
     }
 }

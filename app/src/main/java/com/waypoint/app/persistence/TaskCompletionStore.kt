@@ -30,4 +30,9 @@ class TaskCompletionStore(context: Context) {
     }
 
     fun getDoneIds(): Set<String> = loadDoneIds()
+
+    /** Clear all done marks immediately (e.g. on a new wake cycle within the same day). */
+    fun clearAll() {
+        prefs.edit().putString("date", todayStr()).putStringSet("done_ids", emptySet()).apply()
+    }
 }

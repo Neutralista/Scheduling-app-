@@ -44,6 +44,10 @@ class WaypointApplication : Application() {
             scriptStore = ScriptStore(applicationContext)
             env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
             cycleTracker = CycleTracker(applicationContext)
+            cycleTracker.onNewCycle = {
+                // Reset per-cycle state so the new wake period starts clean.
+                env.taskManager.completions.clearAll()
+            }
 
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
