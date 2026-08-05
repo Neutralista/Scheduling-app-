@@ -440,12 +440,16 @@ private fun TimelineBody(
         out
     }
 
-    // In session mode: keep the active block tile visible (it provides the colored highlight
-    // across the full window including past time), just filter events to the block window.
+    // In session mode: remove the active block tile (drawn as background fill instead) and
+    // restrict other events to the block window.
     val visibleScheduled = if (inSession) {
         val winStart = blockWindowStart ?: viewStartMs
         val winEnd   = blockWindowEnd   ?: viewEndMs
-        mergedScheduled.filter { se -> se.startMillis < winEnd && se.endMillis > winStart }
+        mergedScheduled.filter { se ->
+            if (se.event.category == EventCategory.BLOCK &&
+                se.event.id.removePrefix("__block__") == activeBlockId) return@filter false
+            se.startMillis < winEnd && se.endMillis > winStart
+        }
     } else mergedScheduled
 
     // Calendar events filtered to block window when in session (padding zone stays empty)
@@ -493,19 +497,28 @@ private fun TimelineBody(
     }
 
     Box(modifier.fillMaxHeight().clipToBounds()) {
-        // Block window background tint — drawn first so it sits beneath the grid
+        // Block window background: colored fill + thick boundary lines at start/end.
+        // Drawn first so it sits beneath the grid and events.
         if (inSession && blockWindowStart != null && blockWindowEnd != null) {
+            val blockColor = blockInstances.find { it.block.id == activeBlockId }
+                ?.block?.colorArgb?.let { Color(it) }
+                ?: MaterialTheme.colorScheme.primary
             val bStartMin = msToMin(blockWindowStart, viewStartMs).coerceAtLeast(0)
             val bEndMin   = msToMin(blockWindowEnd,   viewStartMs).coerceAtMost(viewTotalMin)
             val bStartY   = minToY(bStartMin, hourHeight)
             val bEndY     = minToY(bEndMin,   hourHeight)
+            val fillH     = (bEndY - bStartY).coerceAtLeast(0.dp)
             Box(
                 Modifier
                     .yOffset(bStartY)
                     .fillMaxWidth()
-                    .height((bEndY - bStartY).coerceAtLeast(0.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f))
+                    .height(fillH)
+                    .background(blockColor.copy(alpha = 0.12f))
             )
+            Canvas(Modifier.fillMaxWidth().yOffset(bStartY).height(fillH)) {
+                drawLine(blockColor, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 3.dp.toPx())
+                drawLine(blockColor, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 3.dp.toPx())
+            }
         }
 
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
