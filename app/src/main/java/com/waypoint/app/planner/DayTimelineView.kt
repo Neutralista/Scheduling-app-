@@ -99,25 +99,8 @@ fun DayTimelineView(
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
-    // Actual block start/end — used for background tint region and event filtering
-    val blockWindowStart = sessionWindow?.first
-    val blockWindowEnd   = sessionWindow?.second
-    // View is padded ±2 h around the block so the user sees context outside it
-    val sessionPadMs = 2 * 3600_000L
-    val viewStartMs = remember(date, sessionWindow) {
-        sessionWindow?.let { it.first - sessionPadMs }
-            ?: date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    }
-    val viewEndMs = remember(viewStartMs, sessionWindow) {
-        sessionWindow?.let { it.second + sessionPadMs }
-            ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
-    }
-    val totalMinutes = remember(viewStartMs, viewEndMs) {
-        ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
-    }
-    val totalHours = remember(totalMinutes) { (totalMinutes + 59) / 60 }
-    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
+    // Compute blockInstances first so we can resolve the scheduled block start for session mode
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
@@ -131,6 +114,27 @@ fun DayTimelineView(
                 namedBlockStore.resolveActiveTasks(block.id, date))
         } ?: emptyList()
     }
+
+    // In session mode use the block's SCHEDULED start (from blockInstances) so the full
+    // block history is visible from 09:00 even if the user tapped Start at 22:00.
+    val scheduledBlockStart: Long? = if (sessionWindow != null && activeBlockId != null)
+        blockInstances.find { it.block.id == activeBlockId }?.startMs else null
+    val blockWindowStart: Long? = if (sessionWindow != null) scheduledBlockStart ?: sessionWindow.first else null
+    val blockWindowEnd:   Long? = sessionWindow?.second
+
+    // View spans exactly the block window in session mode; standard 4 AM–4 AM otherwise.
+    val viewStartMs = remember(date, blockWindowStart) {
+        blockWindowStart
+            ?: date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }
+    val viewEndMs = remember(viewStartMs, blockWindowEnd) {
+        blockWindowEnd ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
+    }
+    val totalMinutes = remember(viewStartMs, viewEndMs) {
+        ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
+    }
+    val totalHours = remember(totalMinutes) { (totalMinutes + 59) / 60 }
+    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
     val nextDayBlockInstances = remember(date, refreshKey) {
         val nextDate = date.plusDays(1)
         namedBlockStore?.resolveForDate(nextDate)?.map { (block, sched) ->
@@ -177,12 +181,19 @@ fun DayTimelineView(
         }
     }
 
-    LaunchedEffect(date) {
-        val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
-        val scrollPx = with(density) {
-            scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
-        }.toInt()
-        scrollState.animateScrollTo(scrollPx)
+    val inSession = sessionWindow != null
+    LaunchedEffect(date, inSession) {
+        if (inSession) {
+            // Session mode: start at the top of the block so the user can scroll through
+            // the full history from block start to end — like a cycle timeline.
+            scrollState.scrollTo(0)
+        } else {
+            val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
+            val scrollPx = with(density) {
+                scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
+            }.toInt()
+            scrollState.animateScrollTo(scrollPx)
+        }
     }
 
     LaunchedEffect(zoomIndex) {
