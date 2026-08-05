@@ -181,7 +181,25 @@ fun SettingsTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(10.dp))
-        Button(onClick = { showLogs = true }) { Text("View Logs") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { showLogs = true }) { Text("View Logs") }
+            OutlinedButton(onClick = {
+                val logFile = java.io.File(context.filesDir, "waypoint_last_session.log")
+                if (logFile.exists()) {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        logFile
+                    )
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
+                }
+            }) { Text("Share Crash Log") }
+        }
 
         Spacer(Modifier.height(32.dp))
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

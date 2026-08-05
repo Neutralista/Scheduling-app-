@@ -39,6 +39,14 @@ class WaypointApplication : Application() {
             android.util.Log.e("WaypointApp", "AppLogger.init failed", e)
         }
 
+        val defaultExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                AppLogger.e("CRASH", "Uncaught exception on thread '${thread.name}'", throwable)
+            } catch (_: Throwable) {}
+            defaultExceptionHandler?.uncaughtException(thread, throwable)
+        }
+
         try {
             scriptStateStore = ScriptStateStore(applicationContext)
             scriptStore = ScriptStore(applicationContext)

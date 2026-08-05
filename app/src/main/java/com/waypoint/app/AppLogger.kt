@@ -71,7 +71,7 @@ object AppLogger {
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         val msg = if (throwable != null)
-            "$message: ${throwable.javaClass.simpleName}: ${throwable.message}"
+            "$message\n${throwable.stackTraceToString()}"
         else message
         log(LogLevel.E, tag, msg)
     }
@@ -111,6 +111,12 @@ object AppLogger {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private fun log(level: LogLevel, tag: String, message: String) {
+        // Mirror to logcat so adb logcat shows app logs
+        when (level) {
+            LogLevel.I -> android.util.Log.i(tag, message)
+            LogLevel.W -> android.util.Log.w(tag, message)
+            LogLevel.E -> android.util.Log.e(tag, message)
+        }
         val entry = LogEntry(System.currentTimeMillis(), level, tag, message)
         val snapshot: List<LogEntry>
         synchronized(lock) {
