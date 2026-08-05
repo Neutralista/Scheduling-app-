@@ -79,47 +79,27 @@ class SleepScheduleStore(private val context: Context) {
         val newBedMs = now + 30 * 60_000L
 
         val today = LocalDate.now()
-        val targetWakeMs = newBedMs + s.targetSleepMinutes * 60_000L
 
         var adjustedBedMs = newBedMs
-        var adjustedWakeMs = targetWakeMs
 
         val plan = registry.planForDate(today)
         val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
-        val minSleepMs = 60 * 60_000L
 
-        val bedBeforePush = adjustedBedMs
+        // Only bed slides — if an event overlaps the intended bed time, push bed later.
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
             if (se.startMillis <= adjustedBedMs && se.endMillis > adjustedBedMs) {
-                adjustedBedMs = minOf(se.endMillis + 15 * 60_000L, adjustedWakeMs)
+                adjustedBedMs = se.endMillis + 15 * 60_000L
             }
         }
         for ((evStart, evEnd) in calEvents) {
             if (evStart <= adjustedBedMs && evEnd > adjustedBedMs) {
-                adjustedBedMs = minOf(evEnd + 15 * 60_000L, adjustedWakeMs)
+                adjustedBedMs = evEnd + 15 * 60_000L
             }
         }
-        if (adjustedBedMs > bedBeforePush) {
-            val newTarget = adjustedBedMs + s.targetSleepMinutes * 60_000L
-            if (newTarget > adjustedWakeMs) adjustedWakeMs = newTarget
-        }
-        val wakeBeforePull = adjustedWakeMs
-        for (se in plan.scheduled) {
-            if (se.event.category == EventCategory.SLEEP) continue
-            if (se.startMillis > adjustedBedMs && se.startMillis < adjustedWakeMs) {
-                adjustedWakeMs = maxOf(se.startMillis - 15 * 60_000L, adjustedBedMs + minSleepMs)
-            }
-        }
-        for ((evStart, _) in calEvents) {
-            if (evStart > adjustedBedMs && evStart < adjustedWakeMs) {
-                adjustedWakeMs = maxOf(evStart - 15 * 60_000L, adjustedBedMs + minSleepMs)
-            }
-        }
-        if (adjustedWakeMs < wakeBeforePull) {
-            val targetBedMs = adjustedWakeMs - s.targetSleepMinutes * 60_000L
-            if (targetBedMs < adjustedBedMs) adjustedBedMs = maxOf(targetBedMs, newBedMs)
-        }
+
+        // Wake is computed from the final bed position to preserve target sleep duration.
+        val adjustedWakeMs = adjustedBedMs + s.targetSleepMinutes * 60_000L
 
         SleepAlarmScheduler.cancelLateNudge(context)
         SleepAlarmScheduler.scheduleAlarms(context, adjustedBedMs, adjustedWakeMs)
@@ -277,11 +257,10 @@ class SleepScheduleStore(private val context: Context) {
             date.atTime(effectiveBed.hour, effectiveBed.minute)
                 .atZone(zone).toInstant().toEpochMilli()
 
-        var wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
+        val wakeEpochMs = date.plusDays(1).atTime(effectiveWake.hour, effectiveWake.minute)
             .atZone(zone).toInstant().toEpochMilli()
-        val minSleepMs = 60 * 60_000L
 
-        val bedBeforePush = bedEpochMs
+        // Wake is concrete — only bed slides. Push bed later if an event overlaps it.
         for (se in plan.scheduled) {
             if (se.event.category == EventCategory.SLEEP) continue
             if (se.startMillis <= bedEpochMs && se.endMillis > bedEpochMs) {
@@ -294,32 +273,7 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
 
-        if (bedEpochMs > bedBeforePush) {
-            val targetWakeMs = bedEpochMs + s.targetSleepMinutes * 60_000L
-            if (targetWakeMs > wakeEpochMs) wakeEpochMs = targetWakeMs
-        }
-
-        val wakeBeforePull = wakeEpochMs
-        for (se in plan.scheduled) {
-            if (se.event.category == EventCategory.SLEEP) continue
-            if (se.startMillis > bedEpochMs && se.startMillis < wakeEpochMs) {
-                wakeEpochMs = maxOf(se.startMillis - 15 * 60_000L, bedEpochMs + minSleepMs)
-            }
-        }
-        for ((evStart, _) in calEvents) {
-            if (evStart > bedEpochMs && evStart < wakeEpochMs) {
-                wakeEpochMs = maxOf(evStart - 15 * 60_000L, bedEpochMs + minSleepMs)
-            }
-        }
-
-        if (wakeEpochMs < wakeBeforePull) {
-            val targetBedMs = wakeEpochMs - s.targetSleepMinutes * 60_000L
-            if (targetBedMs < bedEpochMs) bedEpochMs = targetBedMs
-        }
-
         effectiveBed = Calendar.getInstance().apply { timeInMillis = bedEpochMs }
-            .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
-        effectiveWake = Calendar.getInstance().apply { timeInMillis = wakeEpochMs }
             .let { ShiftTime(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
 
         return EffectiveSleepTimes(effectiveWake, effectiveBed, isConstrained = false)
