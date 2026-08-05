@@ -122,13 +122,14 @@ fun DayTimelineView(
     val blockWindowStart: Long? = if (sessionWindow != null) scheduledBlockStart ?: sessionWindow.first else null
     val blockWindowEnd:   Long? = sessionWindow?.second
 
-    // View spans exactly the block window in session mode; standard 4 AM–4 AM otherwise.
+    // View spans block window ± 2h padding in session mode; standard 4 AM–4 AM otherwise.
     val viewStartMs = remember(date, blockWindowStart) {
-        blockWindowStart
-            ?: date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        if (blockWindowStart != null) blockWindowStart - 2 * 3600_000L
+        else date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
     val viewEndMs = remember(viewStartMs, blockWindowEnd) {
-        blockWindowEnd ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
+        if (blockWindowEnd != null) blockWindowEnd + 2 * 3600_000L
+        else viewStartMs + TOTAL_HOURS * 3600_000L
     }
     val totalMinutes = remember(viewStartMs, viewEndMs) {
         ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
@@ -184,9 +185,10 @@ fun DayTimelineView(
     val inSession = sessionWindow != null
     LaunchedEffect(date, inSession) {
         if (inSession) {
-            // Session mode: start at the top of the block so the user can scroll through
-            // the full history from block start to end — like a cycle timeline.
-            scrollState.scrollTo(0)
+            // Session mode: scroll to block start (past the 2h padding) so the user sees
+            // the block from the beginning and can scroll up to see pre-block context.
+            val paddingPx = with(density) { 2f * hourHeight.toPx() }.toInt()
+            scrollState.scrollTo(paddingPx)
         } else {
             val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
             val scrollPx = with(density) {
