@@ -118,7 +118,7 @@ fun DayTimelineView(
     // In session mode use the block's SCHEDULED start (from blockInstances) so the full
     // block history is visible from 09:00 even if the user tapped Start at 22:00.
     val scheduledBlockStart: Long? = if (sessionWindow != null && activeBlockId != null)
-        blockInstances.find { it.block.id == activeBlockId }?.startMs else null
+        blockInstances.find { it.block.id == activeBlockId }?.scheduledStartMs else null
     val blockWindowStart: Long? = if (sessionWindow != null) scheduledBlockStart ?: sessionWindow.first else null
     val blockWindowEnd:   Long? = sessionWindow?.second
 
