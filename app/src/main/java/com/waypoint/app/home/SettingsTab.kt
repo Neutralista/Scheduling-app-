@@ -2,6 +2,7 @@ package com.waypoint.app.home
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -107,6 +108,13 @@ fun SettingsTab(
         )
 
         BatteryOptimizationIntegration()
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        FullScreenIntentIntegration()
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
@@ -427,6 +435,44 @@ private fun BatteryOptimizationIntegration() {
         onConnect = {
             launcher.launch(
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+            )
+        }
+    )
+}
+
+// ── Full-screen intent (Android 14+) ─────────────────────────────────────────
+
+@Composable
+private fun FullScreenIntentIntegration() {
+    val context = LocalContext.current
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        IntegrationRow(
+            title = "Lock-screen alarms",
+            description = "Alarms can show a full-screen activity on the lock screen",
+            granted = true,
+            onConnect = {}
+        )
+        return
+    }
+
+    val nm = remember { context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
+    var granted by remember { mutableStateOf(nm.canUseFullScreenIntent()) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { granted = nm.canUseFullScreenIntent() }
+
+    IntegrationRow(
+        title = "Lock-screen alarms",
+        description = "Required for wake and user alarms to show on the lock screen. Tap to open system settings.",
+        granted = granted,
+        connectLabel = "Open Settings",
+        onConnect = {
+            launcher.launch(
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENTS).apply {
                     data = Uri.parse("package:${context.packageName}")
                 }
             )
