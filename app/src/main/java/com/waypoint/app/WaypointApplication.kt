@@ -19,6 +19,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 class WaypointApplication : Application() {
 
+    /** Non-null if WaypointApplication.onCreate() threw before completing. */
+    var startupCrash: Throwable? = null
+        private set
+
     lateinit var env: RealScriptEnvironment
         private set
     lateinit var scriptStateStore: ScriptStateStore
@@ -84,9 +88,10 @@ class WaypointApplication : Application() {
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
         } catch (e: Throwable) {
-            android.util.Log.e("WaypointApp", "onCreate crashed at: ${e.javaClass.name}: ${e.message}", e)
-            try { AppLogger.e("App", "onCreate crashed: ${e.javaClass.name}: ${e.message}", e) } catch (_: Throwable) {}
-            throw e
+            android.util.Log.e("WaypointApp", "onCreate crashed: ${e.javaClass.name}: ${e.message}", e)
+            try { AppLogger.e("App", "onCreate crashed", e) } catch (_: Throwable) {}
+            startupCrash = e
+            // Do NOT rethrow — let MainActivity show a crash recovery UI instead.
         }
     }
 }
