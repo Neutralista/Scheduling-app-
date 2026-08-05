@@ -13,8 +13,8 @@ android {
         applicationId = "com.waypoint.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 101
-        versionName = "0.11.45"
+        versionCode = 102
+        versionName = "0.11.46"
     }
 
     buildFeatures {
