@@ -479,8 +479,9 @@ private fun PlanTab(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val session = activeSession
             val dayLabel = when {
-                selectedDate == today && activeSession != null -> "Today · ${activeSession.blockName}"
+                selectedDate == today && session != null -> "Today · ${session.blockName}"
                 selectedDate == today              -> "Today · ${selectedDate.format(dayHeaderFmt)}"
                 selectedDate == today.minusDays(1) -> "Yesterday · ${selectedDate.format(dayHeaderFmt)}"
                 selectedDate == today.plusDays(1)  -> "Tomorrow · ${selectedDate.format(dayHeaderFmt)}"
