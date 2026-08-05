@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -128,13 +129,30 @@ fun DayTimelineView(
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
+    var zoomIndex by remember { mutableIntStateOf(0) }
+    val zoomFactors = listOf(1f, 2.5f, 5f)
+    val zoomLabels  = listOf("1×", "2.5×", "5×")
+    val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
+    // Anchor minute captured just before a zoom change so the same time stays in view.
+    var anchorMinute by remember { mutableIntStateOf(-1) }
+
     // Scroll to a sensible position when the date changes
     LaunchedEffect(date) {
         val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
         val scrollPx = with(density) {
-            scrollMin.coerceAtLeast(0) / 60f * HOUR_HEIGHT.toPx()
+            scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
         }.toInt()
         scrollState.animateScrollTo(scrollPx)
+    }
+
+    // After zoom change, restore the same top-of-viewport time
+    LaunchedEffect(zoomIndex) {
+        if (anchorMinute >= 0) {
+            val scrollPx = with(density) {
+                (anchorMinute.coerceAtLeast(0) / 60f * hourHeight.toPx()).toInt()
+            }
+            scrollState.scrollTo(scrollPx)
+        }
     }
 
     // Calendar fetch: runs immediately, then every minute; also re-runs on refreshKey change.
@@ -190,6 +208,7 @@ fun DayTimelineView(
     }
 
     val primary    = MaterialTheme.colorScheme.primary
+    val surface    = MaterialTheme.colorScheme.surface
     val outline    = MaterialTheme.colorScheme.outlineVariant
     val onSV       = MaterialTheme.colorScheme.onSurfaceVariant
     val secCont    = MaterialTheme.colorScheme.secondaryContainer
@@ -198,18 +217,20 @@ fun DayTimelineView(
     val onTerCont  = MaterialTheme.colorScheme.onTertiaryContainer
 
     fun minToY(minutes: Int): Dp =
-        HOUR_HEIGHT * ((minutes - START_HOUR * 60).coerceIn(0, TOTAL_HOURS * 60) / 60f)
+        hourHeight * ((minutes - START_HOUR * 60).coerceIn(0, TOTAL_HOURS * 60) / 60f)
 
-    val totalH = HOUR_HEIGHT * TOTAL_HOURS
+    val totalH = hourHeight * TOTAL_HOURS
 
-    // Vertical scroll container — fills whatever the parent gives (weight(1f))
-    Box(modifier.fillMaxWidth().verticalScroll(scrollState)) {
+    // Outer container — fills parent (modifier carries weight(1f) from PlanTab)
+    Box(modifier.fillMaxWidth()) {
+        // Vertical scroll container
+        Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
         Row(Modifier.fillMaxWidth().height(totalH)) {
 
             // ── Hour labels column ─────────────────────────────────────────────
             Box(Modifier.width(LABEL_WIDTH).fillMaxHeight()) {
                 for (h in START_HOUR..END_HOUR) {
-                    val yOff = (HOUR_HEIGHT * (h - START_HOUR) - 8.dp).coerceAtLeast(2.dp)
+                    val yOff = (hourHeight * (h - START_HOUR) - 8.dp).coerceAtLeast(2.dp)
                     Text(
                         text = "%02d:00".format((VIEW_START_HOUR + h) % 24),
                         modifier = Modifier.yOffset(yOff),
@@ -228,9 +249,10 @@ fun DayTimelineView(
             ) {
                 // Hour and quarter-hour grid lines
                 val outlineC = outline
+                val hh = hourHeight
                 Canvas(Modifier.fillMaxSize()) {
                     for (h in 0..TOTAL_HOURS) {
-                        val y = h * HOUR_HEIGHT.toPx()
+                        val y = h * hh.toPx()
                         drawLine(
                             color = outlineC,
                             start = Offset(0f, y), end = Offset(size.width, y),
@@ -238,7 +260,7 @@ fun DayTimelineView(
                         )
                         if (h < TOTAL_HOURS) {
                             for (q in 1..3) {
-                                val qy = y + q * HOUR_HEIGHT.toPx() / 4f
+                                val qy = y + q * hh.toPx() / 4f
                                 drawLine(
                                     color = outlineC.copy(alpha = 0.35f),
                                     start = Offset(0f, qy), end = Offset(size.width, qy),
@@ -528,7 +550,30 @@ fun DayTimelineView(
                 }
             }
         }
-    }
+        } // end inner scroll Box
+
+        // Zoom level pill — fixed overlay, does not scroll with the timeline
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 4.dp, end = 6.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(surface.copy(alpha = 0.88f))
+                .border(1.dp, outline, RoundedCornerShape(6.dp))
+                .clickable {
+                    val topMinute = (scrollState.value / with(density) { hourHeight.toPx() } * 60).toInt()
+                    anchorMinute = topMinute
+                    zoomIndex = (zoomIndex + 1) % zoomFactors.size
+                }
+                .padding(horizontal = 9.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = zoomLabels[zoomIndex],
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = onSV
+            )
+        }
+    } // end outer Box
 }
 
 /** Positions a child at an absolute y offset within its parent Box via layout. */
