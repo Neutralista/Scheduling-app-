@@ -19,6 +19,7 @@ class BlockStartReceiver : BroadcastReceiver() {
         const val EXTRA_COLOR_ARGB      = "colorArgb"
         const val EXTRA_HAS_COLOR       = "hasColor"
         const val EXTRA_SCHEDULED_END_MS = "scheduledEndMs"
+        private const val TAG           = "BlockStartReceiver"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -61,7 +62,5 @@ class BlockStartReceiver : BroadcastReceiver() {
         AppLogger.i(TAG, "Proceed: started session for $blockId, launching Tasks tab")
     }
 
-    private companion object {
-        const val TAG = "BlockStartReceiver"
-    }
+
 }
