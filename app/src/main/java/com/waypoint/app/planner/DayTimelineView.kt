@@ -328,7 +328,7 @@ private fun HourLabelsColumn(
             if (showMinuteLines && h < END_HOUR) {
                 for (m in 5..55 step 5) {
                     val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
-                    val alpha = if (m % 15 == 0) 0.34f else 0.22f
+                    val alpha = if (m % 15 == 0) 0.45f else 0.30f
                     Text(
                         text = ":%02d".format(m),
                         modifier = Modifier.yOffset(minYOff).padding(start = 4.dp),
@@ -485,14 +485,14 @@ private fun GridLines(hourHeight: Dp, showMinuteLines: Boolean, outline: Color) 
                     for (m in 1..59) {
                         if (m % 15 == 0) continue
                         val my = y + m * hourHeight.toPx() / 60f
-                        drawLine(color = outline.copy(alpha = 0.28f),
+                        drawLine(color = outline.copy(alpha = 0.38f),
                             start = Offset(0f, my), end = Offset(size.width, my),
                             strokeWidth = 0.4.dp.toPx())
                     }
                 }
                 for (q in 1..3) {
                     val qy = y + q * hourHeight.toPx() / 4f
-                    drawLine(color = outline.copy(alpha = 0.55f),
+                    drawLine(color = outline.copy(alpha = 0.65f),
                         start = Offset(0f, qy), end = Offset(size.width, qy),
                         strokeWidth = 0.45.dp.toPx())
                 }
