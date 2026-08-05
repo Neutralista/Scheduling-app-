@@ -254,13 +254,14 @@ fun DayTimelineView(
         }
     }
 
-    val outline   = MaterialTheme.colorScheme.outlineVariant
-    val surface   = MaterialTheme.colorScheme.surface
-    val onSV      = MaterialTheme.colorScheme.onSurfaceVariant
-    val secCont   = MaterialTheme.colorScheme.secondaryContainer
-    val terCont   = MaterialTheme.colorScheme.tertiaryContainer
-    val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
-    val onTerCont = MaterialTheme.colorScheme.onTertiaryContainer
+    val outline        = MaterialTheme.colorScheme.outlineVariant
+    val surface        = MaterialTheme.colorScheme.surface
+    val onSV           = MaterialTheme.colorScheme.onSurfaceVariant
+    val secCont        = MaterialTheme.colorScheme.secondaryContainer
+    val terCont        = MaterialTheme.colorScheme.tertiaryContainer
+    val onSecCont      = MaterialTheme.colorScheme.onSecondaryContainer
+    val onTerCont      = MaterialTheme.colorScheme.onTertiaryContainer
+    val indicatorColor = if (sessionWindow != null) MaterialTheme.colorScheme.primary else Color(0xFFE53935)
 
     val totalH = hourHeight * totalHours
 
@@ -302,6 +303,7 @@ fun DayTimelineView(
                     terCont = terCont,
                     onSecCont = onSecCont,
                     onTerCont = onTerCont,
+                    indicatorColor = indicatorColor,
                     onCalendarEventClick = onCalendarEventClick,
                     onPlannerEventClick = onPlannerEventClick
                 )
@@ -411,6 +413,7 @@ private fun TimelineBody(
     terCont: Color,
     onSecCont: Color,
     onTerCont: Color,
+    indicatorColor: Color,
     onCalendarEventClick: ((CalendarEvent) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?
 ) {
@@ -551,11 +554,22 @@ private fun TimelineBody(
         if (isNowVisible) {
             val clampedNow = nowMin.coerceIn(0, totalMinutes)
             val nowY = minToY(clampedNow, hourHeight)
-            val redC = Color(0xFFE53935)
+            val nowLabel = remember(nowMin) {
+                java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(viewStartMs + clampedNow * 60_000L))
+            }
+            Text(
+                text = nowLabel,
+                color = indicatorColor,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                modifier = Modifier
+                    .yOffset(nowY - 20.dp)
+                    .padding(start = 2.dp)
+            )
             Canvas(Modifier.yOffset(nowY - 4.dp).fillMaxWidth().height(8.dp)) {
                 val cy = size.height / 2f
-                drawCircle(redC, 4.dp.toPx(), Offset(0f, cy))
-                drawLine(redC, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
+                drawCircle(indicatorColor, 4.dp.toPx(), Offset(0f, cy))
+                drawLine(indicatorColor, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
             }
         }
     }
