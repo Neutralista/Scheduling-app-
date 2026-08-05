@@ -130,7 +130,7 @@ private fun TaskHistoryContent(taskManager: TaskManagerScript, refreshKey: Int) 
                 title = title,
                 execution = exec,
                 onDelete = {
-                    taskManager.executions.clear(exec.taskId)
+                    taskManager.executions.clear(exec.taskId, exec.startMillis)
                     localKey++
                 }
             )

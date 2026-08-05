@@ -146,7 +146,7 @@ class SleepScheduleStore(private val context: Context) {
         var prevNightDate: LocalDate? = null
         var prevNightEffective: EffectiveSleepTimes? = null
 
-        for (dayOffset in -1..7) {
+        for (dayOffset in -7..7) {
             val date = today.plusDays(dayOffset.toLong())
 
             if (dayOffset < 0) {

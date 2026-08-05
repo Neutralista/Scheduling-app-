@@ -48,11 +48,12 @@ class SleepCheckReceiver : BroadcastReceiver() {
             }
         }
 
-        // Auto-logged a completed sleep session → write to calendar asynchronously
+        // Auto-logged a completed sleep session → write to calendar and refresh registry.
         if (wasLogged && isInteractive) {
             // Bridge: user is awake and sleep is fully logged — open a new cycle now rather
             // than waiting for ACTION_USER_PRESENT (which may not fire if phone stays unlocked).
-            (context.applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
+            val app = context.applicationContext as? WaypointApplication
+            app?.cycleTracker?.recordActive()
 
             val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
@@ -61,6 +62,9 @@ class SleepCheckReceiver : BroadcastReceiver() {
                     if (entry != null) {
                         SleepCalendarSync.write(context, logStore, entry.bedMillis, entry.wakeMillis, null)
                     }
+                    // Refresh the planner registry so the logged sleep block appears in the
+                    // timeline immediately without the user needing to reopen the app.
+                    app?.env?.sleepStore?.syncToRegistry(app.env.eventPlanner)
                 } finally {
                     pendingResult.finish()
                 }
