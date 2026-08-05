@@ -286,8 +286,9 @@ private fun PlanTab(
     var calendarExpanded by remember { mutableStateOf(false) }
     var displayMonth by remember { mutableStateOf(YearMonth.now()) }
     var eventDays by remember { mutableStateOf(emptySet<LocalDate>()) }
-    var showAddEvent by remember { mutableStateOf(false) }
-    var showAddTask  by remember { mutableStateOf(false) }
+    var showAddEvent     by remember { mutableStateOf(false) }
+    var showAddTask      by remember { mutableStateOf(false) }
+    var showAddBlockTask by remember { mutableStateOf(false) }
     val hasCalPermission = remember { calendarSignals.hasPermission() }
 
     // Timeline tap / detail state
@@ -494,7 +495,9 @@ private fun PlanTab(
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            TextButton(onClick = { showAddTask  = true }) { Text("+ Task")  }
+            TextButton(onClick = {
+                if (activeSession != null) showAddBlockTask = true else showAddTask = true
+            }) { Text("+ Task") }
             TextButton(onClick = { showAddEvent = true }) { Text("+ Event") }
         }
 
@@ -588,6 +591,24 @@ private fun PlanTab(
                 showAddTask = false
             }
         )
+    }
+
+    // ── Add block task from Plan tab header (session mode) ────────────────────
+    if (showAddBlockTask) {
+        val session = activeSession
+        if (session != null) {
+            AddTaskSheet(
+                forBlock = session.blockId,
+                onDismiss = { showAddBlockTask = false },
+                onSaveBlockTask = { blockTask ->
+                    namedBlockStore.saveTask(blockTask)
+                    calRefreshKey++
+                    showAddBlockTask = false
+                }
+            )
+        } else {
+            showAddBlockTask = false
+        }
     }
 
     // ── Edit task via AddTaskSheet ────────────────────────────────────────────

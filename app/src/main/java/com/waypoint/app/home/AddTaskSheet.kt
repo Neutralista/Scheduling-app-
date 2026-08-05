@@ -44,6 +44,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.BlockTask
+import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
@@ -81,9 +83,14 @@ fun AddTaskSheet(
     initial: TaskRequest? = null,
     availableTasks: List<TaskRequest> = emptyList(),
     calendarEvents: List<CalendarEvent> = emptyList(),
+    // Block-task mode: when set, the sheet saves a BlockTask instead of a floating TaskRequest.
+    forBlock: String? = null,
+    initialBlockTask: BlockTask? = null,
     onDismiss: () -> Unit,
-    onSave: (TaskRequest) -> Unit
+    onSave: (TaskRequest) -> Unit = {},
+    onSaveBlockTask: ((BlockTask) -> Unit)? = null
 ) {
+    val isBlockMode = forBlock != null
     // ── Parse initial conditions ─────────────────────────────────────────────
     val initConditions = initial?.conditions ?: emptyList()
     val initTw = initConditions.firstOrNull { it.type == "timeWindow" }
@@ -161,6 +168,10 @@ fun AddTaskSheet(
         initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
     ) }
 
+    // Block-task-mode state
+    var blockPlacement by remember { mutableStateOf(initialBlockTask?.placement ?: BlockTaskPlacement.DURING) }
+    var blockIsAlways  by remember { mutableStateOf(initialBlockTask?.isAlways  ?: true) }
+
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also { it.addAll(initial?.triggers ?: emptyList()) } }
     var showAddChain by remember { mutableStateOf(false) }
@@ -207,6 +218,23 @@ fun AddTaskSheet(
         val resolvedDuration = if (customDuration) customDurText.toIntOrNull() ?: 0 else durationMinutes
         customDurError = customDuration && resolvedDuration <= 0
         if (titleError || customDurError) return
+        val resolvedBuffer = if (customBuffer) customBufText.toIntOrNull() ?: 0 else bufferMinutes
+
+        if (isBlockMode && forBlock != null && onSaveBlockTask != null) {
+            onSaveBlockTask(
+                BlockTask(
+                    id              = initialBlockTask?.id ?: UUID.randomUUID().toString(),
+                    blockId         = forBlock,
+                    title           = title.trim(),
+                    durationMinutes = resolvedDuration,
+                    placement       = blockPlacement,
+                    priority        = priority,
+                    bufferMinutes   = resolvedBuffer,
+                    isAlways        = blockIsAlways
+                )
+            )
+            return
+        }
 
         val conditions = buildList {
             when (dayRelation) {
@@ -236,8 +264,6 @@ fun AddTaskSheet(
                 add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId))
             }
         }
-
-        val resolvedBuffer = if (customBuffer) customBufText.toIntOrNull() ?: 0 else bufferMinutes
 
         onSave(
             TaskRequest(
@@ -276,7 +302,12 @@ fun AddTaskSheet(
                 ) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Text(
-                        text = if (initial == null) "Add Task" else "Edit Task",
+                        text = when {
+                            isBlockMode && initialBlockTask == null -> "Add Block Task"
+                            isBlockMode -> "Edit Block Task"
+                            initial == null -> "Add Task"
+                            else -> "Edit Task"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
@@ -358,7 +389,68 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Time of day
+                    // Block mode: Placement (replaces Time of day)
+                    if (isBlockMode) {
+                        FormSection(title = "Placement") {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = blockPlacement == BlockTaskPlacement.BEFORE,
+                                        onClick  = { blockPlacement = BlockTaskPlacement.BEFORE },
+                                        label    = { Text("Before block") }
+                                    )
+                                    FilterChip(
+                                        selected = blockPlacement == BlockTaskPlacement.DURING,
+                                        onClick  = { blockPlacement = BlockTaskPlacement.DURING },
+                                        label    = { Text("During block") }
+                                    )
+                                    FilterChip(
+                                        selected = blockPlacement == BlockTaskPlacement.AFTER,
+                                        onClick  = { blockPlacement = BlockTaskPlacement.AFTER },
+                                        label    = { Text("After block") }
+                                    )
+                                }
+                                Text(
+                                    text = when (blockPlacement) {
+                                        BlockTaskPlacement.BEFORE -> "Scheduled in free time before the block starts"
+                                        BlockTaskPlacement.DURING -> "Scheduled inside the block window"
+                                        BlockTaskPlacement.AFTER  -> "Scheduled in free time after the block ends"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                )
+                            }
+                        }
+                        FormSection(title = "Frequency") {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        if (blockIsAlways) "Every occurrence" else "Situational",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        if (blockIsAlways)
+                                            "Scheduled automatically each time the block runs"
+                                        else
+                                            "Must be activated manually for each occurrence",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Switch(checked = blockIsAlways, onCheckedChange = { blockIsAlways = it })
+                            }
+                        }
+                    }
+
+                    // Time of day (floating tasks only)
+                    if (!isBlockMode)
                     FormSection(title = "Time of day") {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             FlowRow(
@@ -399,7 +491,8 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Constraints
+                    // Constraints (floating tasks only)
+                    if (!isBlockMode)
                     FormSection(title = "Constraints") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
@@ -781,7 +874,8 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Options
+                    // Options (floating tasks only)
+                    if (!isBlockMode)
                     FormSection(title = "Options") {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -806,7 +900,8 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Chains
+                    // Chains (floating tasks only)
+                    if (!isBlockMode)
                     FormSection(title = "Chains") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (chainTargets.isEmpty()) {
