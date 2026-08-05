@@ -201,6 +201,8 @@ fun TasksTab(
                                 taskManager.executions.startSubtask(se.event.id, sub.id)
                             }
                             applyTriggers(TriggerEvent.TASK_STARTED, se.event.id, allTasks, taskManager)
+                            // Pin the started task in the registry so it stops sliding
+                            taskManager.syncToRegistry()
                             refreshKey++
                             onRefresh()
                         },
