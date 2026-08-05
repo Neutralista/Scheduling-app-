@@ -249,6 +249,7 @@ fun DayTimelineView(
                     onSV = onSV
                 )
                 TimelineBody(
+                    modifier = Modifier.weight(1f),
                     viewStartMs = viewStartMs,
                     viewEndMs = viewEndMs,
                     hourHeight = hourHeight,
@@ -344,6 +345,7 @@ private fun HourLabelsColumn(
 
 @Composable
 private fun TimelineBody(
+    modifier: Modifier = Modifier,
     viewStartMs: Long,
     viewEndMs: Long,
     hourHeight: Dp,
@@ -417,7 +419,7 @@ private fun TimelineBody(
         windows
     }
 
-    Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+    Box(modifier.fillMaxHeight().clipToBounds()) {
         GridLines(hourHeight = hourHeight, showMinuteLines = showMinuteLines, outline = outline)
 
         // Free time windows
