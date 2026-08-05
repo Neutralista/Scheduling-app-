@@ -69,11 +69,16 @@ class TaskManagerScript(
                     ?.toInt() ?: req.durationMinutes
             } else req.durationMinutes
 
-            // If this task is currently running, pin it at its actual start time so
-            // the now-line can progress through it and downstream tasks don't slide.
-            val runningExec = executions.get(req.id)?.takeIf { it.isRunning }
-            val fixedStart  = runningExec?.startMillis
-            val fixedEnd    = fixedStart?.let { it + effectiveDuration * 60_000L }
+            // Pin running tasks at their start so the now-line progresses through them.
+            // Pin completed tasks at their actual logged start/end so they don't float.
+            val runningExec   = executions.get(req.id)?.takeIf { it.isRunning }
+            val completedExec = executions.get(req.id)?.takeIf { !it.isRunning && it.endMillis != null }
+            val fixedStart = runningExec?.startMillis ?: completedExec?.startMillis
+            val fixedEnd   = when {
+                runningExec   != null -> fixedStart!! + effectiveDuration * 60_000L
+                completedExec != null -> completedExec.endMillis
+                else                  -> null
+            }
 
             registry.register(
                 PlannerEvent(
