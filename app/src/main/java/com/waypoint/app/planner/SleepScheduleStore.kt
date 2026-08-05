@@ -25,8 +25,7 @@ data class SleepSchedule(
     val preferredBedTime: ShiftTime = ShiftTime(23, 0),
     val minMorningBufferMinutes: Int = 120,
     val minEveningBufferMinutes: Int = 120,
-    val enabled: Boolean = true,
-    val targetSleepMinutes: Int = 480
+    val enabled: Boolean = true
 )
 
 data class EffectiveSleepTimes(
@@ -62,7 +61,6 @@ class SleepScheduleStore(private val context: Context) {
     fun setPreferredWakeTime(time: ShiftTime) = save(load().copy(preferredWakeTime = time))
     fun setPreferredBedTime(time: ShiftTime) = save(load().copy(preferredBedTime = time))
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
-    fun setTargetSleepMinutes(minutes: Int) = save(load().copy(targetSleepMinutes = minutes.coerceIn(240, 720)))
     fun resetToDefaults() = save(SleepSchedule())
 
     /**

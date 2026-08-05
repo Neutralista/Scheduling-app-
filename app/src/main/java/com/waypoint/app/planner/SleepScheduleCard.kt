@@ -183,44 +183,6 @@ fun SleepScheduleCard(
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Target sleep",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = {
-                                if (schedule.targetSleepMinutes > 240) {
-                                    store.setTargetSleepMinutes(schedule.targetSleepMinutes - 30)
-                                    commit()
-                                }
-                            },
-                            enabled = schedule.targetSleepMinutes > 240
-                        ) { Text("−") }
-                        val th = schedule.targetSleepMinutes / 60
-                        val tm = schedule.targetSleepMinutes % 60
-                        Text(
-                            if (tm == 0) "${th}h" else "${th}h ${tm}m",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        TextButton(
-                            onClick = {
-                                if (schedule.targetSleepMinutes < 720) {
-                                    store.setTargetSleepMinutes(schedule.targetSleepMinutes + 30)
-                                    commit()
-                                }
-                            },
-                            enabled = schedule.targetSleepMinutes < 720
-                        ) { Text("+") }
-                    }
-                }
             }
         }
     }
