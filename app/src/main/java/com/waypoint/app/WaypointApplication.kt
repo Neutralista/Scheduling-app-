@@ -1,6 +1,9 @@
 package com.waypoint.app
 
 import android.app.Application
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
 import com.waypoint.app.background.CalendarSyncWorker
 import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.cycle.CycleTracker
@@ -16,6 +19,10 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.RealScriptEnvironment
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class WaypointApplication : Application() {
 
@@ -47,6 +54,9 @@ class WaypointApplication : Application() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 AppLogger.e("CRASH", "Uncaught exception on thread '${thread.name}'", throwable)
+            } catch (_: Throwable) {}
+            try {
+                writeCrashToDownloads(throwable)
             } catch (_: Throwable) {}
             defaultExceptionHandler?.uncaughtException(thread, throwable)
         }
@@ -93,5 +103,33 @@ class WaypointApplication : Application() {
             startupCrash = e
             // Do NOT rethrow — let MainActivity show a crash recovery UI instead.
         }
+    }
+
+    private fun writeCrashToDownloads(throwable: Throwable) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val report = buildString {
+            appendLine("Waypoint crash — $ts")
+            appendLine("Thread: ${Thread.currentThread().name}")
+            appendLine()
+            appendLine("=== Exception ===")
+            appendLine(throwable.stackTraceToString())
+            appendLine()
+            appendLine("=== App Log ===")
+            try {
+                appendLine(File(filesDir, "waypoint_current.log").readText())
+            } catch (e: Throwable) {
+                appendLine("(could not read log: ${e.message})")
+            }
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "waypoint_crash_$ts.txt")
+            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+        contentResolver.openOutputStream(uri)?.use { it.write(report.toByteArray()) }
+        val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+        contentResolver.update(uri, done, null, null)
     }
 }
