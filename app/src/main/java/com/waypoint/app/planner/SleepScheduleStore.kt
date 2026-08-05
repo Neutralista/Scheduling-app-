@@ -23,8 +23,6 @@ import kotlinx.serialization.json.Json
 data class SleepSchedule(
     val preferredWakeTime: ShiftTime = ShiftTime(7, 0),
     val preferredBedTime: ShiftTime = ShiftTime(23, 0),
-    val minMorningBufferMinutes: Int = 120,
-    val minEveningBufferMinutes: Int = 120,
     val enabled: Boolean = true
 )
 
