@@ -99,13 +99,18 @@ fun DayTimelineView(
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
+    // Actual block start/end — used for background tint region and event filtering
+    val blockWindowStart = sessionWindow?.first
+    val blockWindowEnd   = sessionWindow?.second
+    // View is padded ±2 h around the block so the user sees context outside it
+    val sessionPadMs = 2 * 3600_000L
     val viewStartMs = remember(date, sessionWindow) {
-        sessionWindow?.first ?: date.atTime(VIEW_START_HOUR, 0)
-            .atZone(ZoneId.systemDefault())
-            .toInstant().toEpochMilli()
+        sessionWindow?.let { it.first - sessionPadMs }
+            ?: date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
     val viewEndMs = remember(viewStartMs, sessionWindow) {
-        sessionWindow?.second ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
+        sessionWindow?.let { it.second + sessionPadMs }
+            ?: (viewStartMs + TOTAL_HOURS * 3600_000L)
     }
     val totalMinutes = remember(viewStartMs, viewEndMs) {
         ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
@@ -276,6 +281,8 @@ fun DayTimelineView(
                     isNowVisible = isNowVisible,
                     isToday = isToday,
                     inSession = sessionWindow != null,
+                    blockWindowStart = blockWindowStart,
+                    blockWindowEnd = blockWindowEnd,
                     activeBlockId = activeBlockId,
                     onBlockStart = onBlockStart,
                     outline = outline,
@@ -383,6 +390,8 @@ private fun TimelineBody(
     isNowVisible: Boolean,
     isToday: Boolean,
     inSession: Boolean,
+    blockWindowStart: Long?,
+    blockWindowEnd: Long?,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     outline: Color,
@@ -415,14 +424,27 @@ private fun TimelineBody(
         out
     }
 
-    // In session mode: hide the active block tile and anything outside the window
+    // In session mode: hide the active block tile and events outside the actual block window
     val visibleScheduled = if (inSession) {
+        val winStart = blockWindowStart ?: viewStartMs
+        val winEnd   = blockWindowEnd   ?: viewEndMs
         mergedScheduled.filter { se ->
             if (se.event.category == EventCategory.BLOCK &&
                 se.event.id.removePrefix("__block__") == activeBlockId) return@filter false
-            se.startMillis < viewEndMs && se.endMillis > viewStartMs
+            se.startMillis < winEnd && se.endMillis > winStart
         }
     } else mergedScheduled
+
+    // Calendar events filtered to block window when in session (padding zone stays empty)
+    val visibleCalEvents = if (inSession && blockWindowStart != null && blockWindowEnd != null) {
+        calEvents.filter { it.endMillis > blockWindowStart && it.startMillis < blockWindowEnd }
+    } else calEvents
+
+    // Free window range: restricted to the actual block window in session mode
+    val freeRangeStart = if (inSession && blockWindowStart != null)
+        msToMin(blockWindowStart, viewStartMs).coerceAtLeast(0) else 0
+    val freeRangeEnd = if (inSession && blockWindowEnd != null)
+        msToMin(blockWindowEnd, viewStartMs).coerceAtMost(viewTotalMin) else viewTotalMin
 
     // Compute free time windows (gaps ≥ 15 min between occupied ranges)
     val freeWindows = run {
@@ -432,7 +454,7 @@ private fun TimelineBody(
             val e = msToMin(se.endMillis,   viewStartMs)
             if (e > s) raw += s to e
         }
-        calEvents.filter { !it.allDay }.forEach { evt ->
+        visibleCalEvents.filter { !it.allDay }.forEach { evt ->
             val s = msToMin(evt.startMillis, viewStartMs)
             val e = msToMin(evt.endMillis,   viewStartMs)
             if (e > s) raw += s to e
@@ -446,21 +468,33 @@ private fun TimelineBody(
             else merged += s to e
         }
         val windows = mutableListOf<Pair<Int, Int>>()
-        var cursor = 0
+        var cursor = freeRangeStart
         for ((occStart, occEnd) in merged) {
-            val gapEnd = occStart.coerceAtMost(viewTotalMin)
+            if (occStart >= freeRangeEnd) break
+            val gapEnd = occStart.coerceIn(freeRangeStart, freeRangeEnd)
             if (gapEnd > cursor && gapEnd - cursor >= 15) windows += cursor to gapEnd
             if (occEnd > cursor) cursor = occEnd
         }
-        if (viewTotalMin > cursor && viewTotalMin - cursor >= 15) windows += cursor to viewTotalMin
+        if (freeRangeEnd > cursor && freeRangeEnd - cursor >= 15) windows += cursor to freeRangeEnd
         windows
     }
 
-    val sessionBgMod = if (inSession)
-        Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f))
-    else Modifier
+    Box(modifier.fillMaxHeight().clipToBounds()) {
+        // Block window background tint — drawn first so it sits beneath the grid
+        if (inSession && blockWindowStart != null && blockWindowEnd != null) {
+            val bStartMin = msToMin(blockWindowStart, viewStartMs).coerceAtLeast(0)
+            val bEndMin   = msToMin(blockWindowEnd,   viewStartMs).coerceAtMost(viewTotalMin)
+            val bStartY   = minToY(bStartMin, hourHeight)
+            val bEndY     = minToY(bEndMin,   hourHeight)
+            Box(
+                Modifier
+                    .yOffset(bStartY)
+                    .fillMaxWidth()
+                    .height((bEndY - bStartY).coerceAtLeast(0.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f))
+            )
+        }
 
-    Box(modifier.fillMaxHeight().clipToBounds().then(sessionBgMod)) {
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
 
         // Free time windows
@@ -469,7 +503,7 @@ private fun TimelineBody(
         }
 
         // Calendar event blocks (skip Sleep — handled by planner)
-        calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
+        visibleCalEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
             CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
         }
 
