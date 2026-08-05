@@ -61,69 +61,6 @@ class SleepScheduleStore(private val context: Context) {
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
     fun resetToDefaults() = save(SleepSchedule())
 
-    /**
-     * Pushes tonight's sleep window forward so bed = now + 30 min, maintaining the target
-     * sleep duration. Cancels any pending late nudges, reschedules alarms, and updates the
-     * planner registry for today. Returns the new (bedMs, wakeMs).
-     */
-    fun rescheduleBedToNow(
-        logStore: SleepLogStore,
-        registry: EventPlannerRegistry
-    ): Pair<Long, Long> {
-        val s = load()
-        val now = System.currentTimeMillis()
-        val newBedMs = now + 30 * 60_000L
-
-        val today = LocalDate.now()
-        val zone = ZoneId.systemDefault()
-
-        var adjustedBedMs = newBedMs
-
-        val plan = registry.planForDate(today)
-        val calEvents = calendarEventsForDate(today) + calendarEventsForDate(today.plusDays(1))
-
-        // Only bed slides — if an event overlaps the intended bed time, push bed later.
-        for (se in plan.scheduled) {
-            if (se.event.category == EventCategory.SLEEP) continue
-            if (se.startMillis <= adjustedBedMs && se.endMillis > adjustedBedMs) {
-                adjustedBedMs = se.endMillis + 15 * 60_000L
-            }
-        }
-        for ((evStart, evEnd) in calEvents) {
-            if (evStart <= adjustedBedMs && evEnd > adjustedBedMs) {
-                adjustedBedMs = evEnd + 15 * 60_000L
-            }
-        }
-
-        // Wake is anchored at the next occurrence of the preferred wake time after bed.
-        val prefWake = s.preferredWakeTime
-        val adjustedWakeMs = sequenceOf(today, today.plusDays(1), today.plusDays(2))
-            .map { d -> d.atTime(prefWake.hour, prefWake.minute).atZone(zone).toInstant().toEpochMilli() }
-            .first { it > adjustedBedMs }
-
-        SleepAlarmScheduler.cancelLateNudge(context)
-        SleepAlarmScheduler.scheduleAlarms(context, adjustedBedMs, adjustedWakeMs)
-        WakeAlarmScheduler.scheduleAlarms(context, adjustedWakeMs)
-        logStore.updateScheduledTimes(adjustedBedMs, adjustedWakeMs)
-        logStore.setRescheduledToday()
-        SleepNotificationHelper.showAlarmStatus(context, adjustedBedMs, adjustedWakeMs)
-        _scheduledTimes.value = adjustedBedMs to adjustedWakeMs
-
-        val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
-        val sleepNightDate = if (adjustedBedMs < noonMs) today.minusDays(1) else today
-        registry.register(PlannerEvent(
-            id = "sleep_$sleepNightDate",
-            title = "Sleep",
-            durationMinutes = ((adjustedWakeMs - adjustedBedMs) / 60_000L).toInt(),
-            priority = PlannerPriority.SLEEP,
-            category = EventCategory.SLEEP,
-            fixedStartMillis = adjustedBedMs,
-            fixedEndMillis = adjustedWakeMs
-        ))
-
-        return adjustedBedMs to adjustedWakeMs
-    }
-
     fun computeEffectiveTimes(registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
         val plan = registry.planForDate(today)
@@ -169,46 +106,6 @@ class SleepScheduleStore(private val context: Context) {
             val plan = registry.planForDate(date)
             val calEvents = calendarEventsForDate(date) + calendarEventsForDate(date.plusDays(1))
             val effective = computeEffectiveTimesForDate(date, plan, s, calEvents)
-
-            if (dayOffset == 0) {
-                val now = System.currentTimeMillis()
-                if (logStore.isRescheduledToday() && logStore.getSleepModeState() == SleepModeState.IDLE) {
-                    val storedBedMs = logStore.getScheduledBedMs()
-                    if (storedBedMs != null) {
-                        // Always re-anchor wake at the preferred wake time — ignore whatever was stored.
-                        val zone = ZoneId.systemDefault()
-                        val anchoredWakeMs = sequenceOf(today, today.plusDays(1), today.plusDays(2))
-                            .map { d -> d.atTime(s.preferredWakeTime.hour, s.preferredWakeTime.minute)
-                                .atZone(zone).toInstant().toEpochMilli() }
-                            .first { it > storedBedMs }
-                        if (anchoredWakeMs > now) {
-                            val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
-                            val eventDate = if (storedBedMs < noonMs) today.minusDays(1) else date
-                            registry.register(PlannerEvent(
-                                id = "sleep_$eventDate",
-                                title = "Sleep",
-                                durationMinutes = ((anchoredWakeMs - storedBedMs) / 60_000L).toInt(),
-                                priority = PlannerPriority.SLEEP,
-                                category = EventCategory.SLEEP,
-                                fixedStartMillis = storedBedMs,
-                                fixedEndMillis = anchoredWakeMs
-                            ))
-                            if (eventDate == today.minusDays(1)) {
-                                registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
-                            }
-                            _scheduledTimes.value = storedBedMs to anchoredWakeMs
-                            SleepAlarmScheduler.scheduleAlarms(context, storedBedMs, anchoredWakeMs)
-                            WakeAlarmScheduler.scheduleAlarms(context, anchoredWakeMs)
-                            if (logStore.getSleepModeState() == SleepModeState.IDLE) {
-                                logStore.updateScheduledTimes(storedBedMs, anchoredWakeMs)
-                            }
-                            SleepNotificationHelper.showAlarmStatus(context, storedBedMs, anchoredWakeMs)
-                            AppLogger.i("SleepSync", "syncToRegistry: preserving manual reschedule bedMs=$storedBedMs wakeMs=$anchoredWakeMs (eventDate=$eventDate)")
-                            continue
-                        }
-                    }
-                }
-            }
 
             registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
 

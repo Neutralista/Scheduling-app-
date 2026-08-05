@@ -10,7 +10,6 @@ object SleepAlarmScheduler {
 
     private const val RC_PRE_SLEEP  = 8010
     private const val RC_BEDTIME    = 8011
-    private const val RC_LATE_NUDGE = 8012
 
     fun scheduleAlarms(context: Context, bedMs: Long, wakeMs: Long) {
         cancelAlarms(context)
@@ -21,18 +20,9 @@ object SleepAlarmScheduler {
         if (bedMs > now)      scheduleExact(context, bedMs, buildPi(context, RC_BEDTIME, SleepAlarmReceiver.ACTION_BEDTIME))
     }
 
-    fun scheduleLateNudge(context: Context, triggerMs: Long) {
-        scheduleExact(context, triggerMs, buildPi(context, RC_LATE_NUDGE, SleepAlarmReceiver.ACTION_LATE_NUDGE))
-    }
-
-    fun cancelLateNudge(context: Context) {
-        cancel(context, RC_LATE_NUDGE, SleepAlarmReceiver.ACTION_LATE_NUDGE)
-    }
-
     fun cancelAlarms(context: Context) {
         cancel(context, RC_PRE_SLEEP,  SleepAlarmReceiver.ACTION_PRE_SLEEP)
         cancel(context, RC_BEDTIME,    SleepAlarmReceiver.ACTION_BEDTIME)
-        cancelLateNudge(context)
     }
 
     private fun scheduleExact(context: Context, triggerMs: Long, pi: PendingIntent) {

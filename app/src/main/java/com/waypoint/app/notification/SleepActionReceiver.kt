@@ -15,7 +15,6 @@ class SleepActionReceiver : BroadcastReceiver() {
             val prevState = logStore.getSleepModeState()
             logStore.enterSleepMode()
             AppLogger.i(TAG, "enterSleepMode: prevState=$prevState → MONITORING")
-            SleepAlarmScheduler.cancelLateNudge(context)
             SleepCheckReceiver.scheduleNextCheck(context)
             AppLogger.i(TAG, "scheduleNextCheck: done")
         }

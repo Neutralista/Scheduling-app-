@@ -32,7 +32,6 @@ class SleepLogStore(context: Context) {
         const val KEY_LAST_NUDGE      = "last_nudge"
         const val KEY_SCHED_BED       = "scheduled_bed_ms"
         const val KEY_SCHED_WAKE      = "scheduled_wake_ms"
-        const val KEY_RESCHEDULE_DATE = "reschedule_date"
     }
 
     // ─── Sleep Mode State ──────────────────────────────────────────────────────
@@ -62,14 +61,6 @@ class SleepLogStore(context: Context) {
     fun updateScheduledTimes(bedMs: Long, wakeMs: Long) {
         prefs.edit().putLong(KEY_SCHED_BED, bedMs).putLong(KEY_SCHED_WAKE, wakeMs).apply()
     }
-
-    fun setRescheduledToday() {
-        prefs.edit().putString(KEY_RESCHEDULE_DATE, LocalDate.now().toString()).apply()
-    }
-
-    /** True if the user manually delayed today's sleep window (auto-expires at midnight). */
-    fun isRescheduledToday(): Boolean =
-        prefs.getString(KEY_RESCHEDULE_DATE, null) == LocalDate.now().toString()
 
     fun enterSleepMode() {
         val now = System.currentTimeMillis()
