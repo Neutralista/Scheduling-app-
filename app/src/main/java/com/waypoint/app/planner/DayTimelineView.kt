@@ -132,7 +132,7 @@ fun DayTimelineView(
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
-    var zoomIndex by remember { mutableIntStateOf(prefs.getInt("zoom_index", 1)) }
+    var zoomIndex by remember { mutableIntStateOf(1) }   // 2.5× default; overridden below if saved
     val zoomFactors = listOf(1f, 2.5f, 5f)
     val zoomLabels  = listOf("1×", "2.5×", "5×")
     val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
@@ -140,6 +140,13 @@ fun DayTimelineView(
     val showMinuteLines   = zoomIndex == 2
     // Anchor minute captured just before a zoom change so the same time stays in view.
     var anchorMinute by remember { mutableIntStateOf(-1) }
+
+    // Load persisted zoom preference after first composition (deferred to avoid crash on layout)
+    LaunchedEffect(Unit) {
+        if (prefs.contains("zoom_index")) {
+            zoomIndex = prefs.getInt("zoom_index", 1)
+        }
+    }
 
     // Scroll to a sensible position when the date changes
     LaunchedEffect(date) {
