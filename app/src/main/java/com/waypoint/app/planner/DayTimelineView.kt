@@ -133,6 +133,7 @@ fun DayTimelineView(
     val zoomFactors = listOf(1f, 2.5f, 5f)
     val zoomLabels  = listOf("1×", "2.5×", "5×")
     val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
+    val showMinuteLines = zoomIndex == 2
     // Anchor minute captured just before a zoom change so the same time stays in view.
     var anchorMinute by remember { mutableIntStateOf(-1) }
 
@@ -237,6 +238,18 @@ fun DayTimelineView(
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = onSV.copy(alpha = 0.38f)
                     )
+                    if (showMinuteLines && h < END_HOUR) {
+                        for (m in 5..55 step 5) {
+                            val minYOff = (hourHeight * (h - START_HOUR) + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                            val alpha = if (m % 15 == 0) 0.34f else 0.22f
+                            Text(
+                                text = ":%02d".format(m),
+                                modifier = Modifier.yOffset(minYOff).padding(start = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = onSV.copy(alpha = alpha)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -250,7 +263,6 @@ fun DayTimelineView(
                 // Hour and quarter-hour grid lines
                 val outlineC = outline
                 val hh = hourHeight
-                val showMinuteLines = zoomIndex == 2
                 Canvas(Modifier.fillMaxSize()) {
                     for (h in 0..TOTAL_HOURS) {
                         val y = h * hh.toPx()
