@@ -92,7 +92,7 @@ fun AddTaskSheet(
 ) {
     val isBlockMode = forBlock != null
     // ── Parse initial conditions ─────────────────────────────────────────────
-    val initConditions = initial?.conditions ?: emptyList()
+    val initConditions = initial?.conditions ?: initialBlockTask?.conditions ?: emptyList()
     val initTw = initConditions.firstOrNull { it.type == "timeWindow" }
 
     // ── Form state ───────────────────────────────────────────────────────────
@@ -150,19 +150,21 @@ fun AddTaskSheet(
     }
 
     // ── Routine & buffer state ───────────────────────────────────────────────
-    var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: false) }
-    val subtasks = remember { mutableStateListOf<SubtaskDef>().also { it.addAll(initial?.subtasks ?: emptyList()) } }
+    var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: initialBlockTask?.isRoutine ?: false) }
+    val subtasks = remember { mutableStateListOf<SubtaskDef>().also {
+        it.addAll(initial?.subtasks ?: initialBlockTask?.subtasks ?: emptyList())
+    } }
     var newSubtaskTitle by remember { mutableStateOf("") }
     var newSubtaskDurText by remember { mutableStateOf("15") }
 
     val bufferPresets = listOf(0, 5, 10, 15, 30)
     val bufferLabels  = listOf("None", "5m", "10m", "15m", "30m")
-    val initBuffer = initial?.bufferMinutes ?: 0
+    val initBuffer = initial?.bufferMinutes ?: initialBlockTask?.bufferMinutes ?: 0
     var bufferMinutes by remember { mutableIntStateOf(if (initBuffer in bufferPresets) initBuffer else 0) }
     var customBuffer  by remember { mutableStateOf(initBuffer !in bufferPresets && initBuffer > 0) }
     var customBufText by remember { mutableStateOf(if (initBuffer !in bufferPresets && initBuffer > 0) initBuffer.toString() else "") }
 
-    var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: false) }
+    var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: initialBlockTask?.useMeasuredDuration ?: false) }
     // Migrate old scheduleLate=true tasks that pre-date the zone field
     var zone by remember { mutableStateOf(
         initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
@@ -173,7 +175,9 @@ fun AddTaskSheet(
     var blockIsAlways  by remember { mutableStateOf(initialBlockTask?.isAlways  ?: true) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
-    val triggers = remember { mutableStateListOf<TaskTrigger>().also { it.addAll(initial?.triggers ?: emptyList()) } }
+    val triggers = remember { mutableStateListOf<TaskTrigger>().also {
+        it.addAll(initial?.triggers ?: initialBlockTask?.triggers ?: emptyList())
+    } }
     var showAddChain by remember { mutableStateOf(false) }
     var chainEvent by remember { mutableStateOf(TriggerEvent.TASK_COMPLETED) }
     var chainTargetId by remember { mutableStateOf<String?>(null) }
@@ -221,16 +225,41 @@ fun AddTaskSheet(
         val resolvedBuffer = if (customBuffer) customBufText.toIntOrNull() ?: 0 else bufferMinutes
 
         if (isBlockMode && forBlock != null && onSaveBlockTask != null) {
+            val blockConditions = buildList {
+                when (dayRelation) {
+                    DayRelation.SAME_DAY_AS    -> if (dayRelationTaskIds.isNotEmpty())
+                        add(TaskConditionSpec("sameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+                    DayRelation.NOT_SAME_DAY_AS -> if (dayRelationTaskIds.isNotEmpty())
+                        add(TaskConditionSpec("notSameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+                    DayRelation.ANY            -> Unit
+                }
+                if (afterTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
+                if (beforeTaskIds.isNotEmpty())
+                    add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
+                if (afterTime != null || beforeTime != null)
+                    add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
+                if (selectedDays.isNotEmpty())
+                    add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
+                afterCalEventIds.forEach { evtId -> add(TaskConditionSpec("afterCalEvent", calendarEventId = evtId)) }
+                beforeCalEventIds.forEach { evtId -> add(TaskConditionSpec("beforeCalEvent", calendarEventId = evtId)) }
+                duringCalEventId?.let { evtId -> add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId)) }
+            }
             onSaveBlockTask(
                 BlockTask(
-                    id              = initialBlockTask?.id ?: UUID.randomUUID().toString(),
-                    blockId         = forBlock,
-                    title           = title.trim(),
-                    durationMinutes = resolvedDuration,
-                    placement       = blockPlacement,
-                    priority        = priority,
-                    bufferMinutes   = resolvedBuffer,
-                    isAlways        = blockIsAlways
+                    id                  = initialBlockTask?.id ?: UUID.randomUUID().toString(),
+                    blockId             = forBlock,
+                    title               = title.trim(),
+                    durationMinutes     = resolvedDuration,
+                    placement           = blockPlacement,
+                    priority            = priority,
+                    bufferMinutes       = resolvedBuffer,
+                    isAlways            = blockIsAlways,
+                    conditions          = blockConditions,
+                    useMeasuredDuration = useMeasuredDuration,
+                    triggers            = triggers.toList(),
+                    isRoutine           = isRoutine,
+                    subtasks            = subtasks.toList()
                 )
             )
             return
@@ -491,8 +520,7 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Constraints (floating tasks only)
-                    if (!isBlockMode)
+                    // Constraints
                     FormSection(title = "Constraints") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
@@ -874,8 +902,7 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Options (floating tasks only)
-                    if (!isBlockMode)
+                    // Options
                     FormSection(title = "Options") {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -900,8 +927,7 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Chains (floating tasks only)
-                    if (!isBlockMode)
+                    // Chains
                     FormSection(title = "Chains") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (chainTargets.isEmpty()) {

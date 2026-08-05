@@ -55,7 +55,12 @@ data class BlockTask(
     val placement: BlockTaskPlacement,
     val priority: Int = 5,
     val bufferMinutes: Int = 0,
-    val isAlways: Boolean = true
+    val isAlways: Boolean = true,
+    val conditions: List<TaskConditionSpec> = emptyList(),
+    val useMeasuredDuration: Boolean = false,
+    val triggers: List<TaskTrigger> = emptyList(),
+    val isRoutine: Boolean = false,
+    val subtasks: List<SubtaskDef> = emptyList()
 )
 
 /**
