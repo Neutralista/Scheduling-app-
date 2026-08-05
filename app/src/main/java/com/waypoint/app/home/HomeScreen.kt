@@ -146,7 +146,8 @@ fun HomeScreen(
                 3 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,
-                    onStateChange = onStateChange
+                    onStateChange = onStateChange,
+                    taskManager = taskManager
                 )
                 4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
                 5 -> SettingsTab(

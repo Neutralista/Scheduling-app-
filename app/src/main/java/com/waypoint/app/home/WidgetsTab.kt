@@ -43,8 +43,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
+import com.waypoint.app.script.TaskManagerScript
 
 private val DAY_ABBREVS = mapOf(1 to "Mo", 2 to "Tu", 3 to "We", 4 to "Th", 5 to "Fr", 6 to "Sa", 7 to "Su")
 
@@ -52,7 +54,8 @@ private val DAY_ABBREVS = mapOf(1 to "Mo", 2 to "Tu", 3 to "We", 4 to "Th", 5 to
 fun WidgetsTab(
     widgets: List<AppScript>,
     statesById: Map<String, ScriptState>,
-    onStateChange: (scriptId: String, newState: ScriptState) -> Unit
+    onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
+    taskManager: TaskManagerScript
 ) {
     val context = LocalContext.current
     val namedBlockStore = remember { NamedBlockStore(context) }
@@ -60,6 +63,11 @@ fun WidgetsTab(
     val allBlocks by remember(blockRefreshKey) { mutableStateOf(namedBlockStore.loadAllBlocks()) }
     var showAddBlock by remember { mutableStateOf(false) }
     var editBlock by remember { mutableStateOf<NamedBlock?>(null) }
+
+    var taskRefreshKey by remember { mutableIntStateOf(0) }
+    val allTasks by remember(taskRefreshKey) { mutableStateOf(taskManager.getAllTasks()) }
+    var showAddTask by remember { mutableStateOf(false) }
+    var editTask by remember { mutableStateOf<TaskRequest?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -108,7 +116,49 @@ fun WidgetsTab(
             }
         }
 
-        item(key = "divider") {
+        item(key = "divider1") {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        // ── Task Queue section ───────────────────────────────────────────────
+        item(key = "tasks_header") {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Task Queue",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { showAddTask = true }) { Text("+ Add") }
+            }
+        }
+
+        if (allTasks.isEmpty()) {
+            item(key = "tasks_empty") {
+                Text(
+                    "No tasks queued. Tap + Add to create one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+        } else {
+            items(allTasks, key = { "task_${it.id}" }) { task ->
+                TaskRow(
+                    task = task,
+                    onEdit = { editTask = task },
+                    onDelete = {
+                        taskManager.retractTask(task.id)
+                        taskRefreshKey++
+                    }
+                )
+            }
+        }
+
+        item(key = "divider2") {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
@@ -154,6 +204,76 @@ fun WidgetsTab(
                 editBlock = null
             }
         )
+    }
+
+    if (showAddTask || editTask != null) {
+        AddTaskSheet(
+            initial = editTask,
+            availableTasks = allTasks,
+            onDismiss = { showAddTask = false; editTask = null },
+            onSave = { req ->
+                taskManager.submitTask(req)
+                taskRefreshKey++
+                showAddTask = false
+                editTask = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun TaskRow(
+    task: TaskRequest,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val priorityColor = when {
+        task.priority >= 9 -> Color(0xFFE53935)
+        task.priority >= 7 -> Color(0xFFFF7043)
+        task.priority >= 4 -> Color(0xFFFFA726)
+        else               -> Color(0xFF78909C)
+    }
+    val durLabel = when {
+        task.durationMinutes < 60 -> "${task.durationMinutes}m"
+        task.durationMinutes % 60 == 0 -> "${task.durationMinutes / 60}h"
+        else -> "${task.durationMinutes / 60}h ${task.durationMinutes % 60}m"
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(14.dp)
+                .clip(CircleShape)
+                .background(priorityColor)
+        )
+        Text(
+            text = task.title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 10.dp)
+        )
+        Text(
+            text = durLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 4.dp)
+        )
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Edit, "Edit task", modifier = Modifier.size(18.dp))
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Delete, "Delete task", modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error)
+        }
     }
 }
 
