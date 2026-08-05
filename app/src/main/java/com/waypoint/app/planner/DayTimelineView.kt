@@ -438,15 +438,12 @@ private fun TimelineBody(
         out
     }
 
-    // In session mode: hide the active block tile and events outside the actual block window
+    // In session mode: keep the active block tile visible (it provides the colored highlight
+    // across the full window including past time), just filter events to the block window.
     val visibleScheduled = if (inSession) {
         val winStart = blockWindowStart ?: viewStartMs
         val winEnd   = blockWindowEnd   ?: viewEndMs
-        mergedScheduled.filter { se ->
-            if (se.event.category == EventCategory.BLOCK &&
-                se.event.id.removePrefix("__block__") == activeBlockId) return@filter false
-            se.startMillis < winEnd && se.endMillis > winStart
-        }
+        mergedScheduled.filter { se -> se.startMillis < winEnd && se.endMillis > winStart }
     } else mergedScheduled
 
     // Calendar events filtered to block window when in session (padding zone stays empty)
