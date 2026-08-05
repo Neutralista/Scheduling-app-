@@ -275,6 +275,7 @@ fun DayTimelineView(
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     isToday = isToday,
+                    inSession = sessionWindow != null,
                     activeBlockId = activeBlockId,
                     onBlockStart = onBlockStart,
                     outline = outline,
@@ -381,6 +382,7 @@ private fun TimelineBody(
     nowMin: Int,
     isNowVisible: Boolean,
     isToday: Boolean,
+    inSession: Boolean,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     outline: Color,
@@ -413,10 +415,19 @@ private fun TimelineBody(
         out
     }
 
+    // In session mode: hide the active block tile and anything outside the window
+    val visibleScheduled = if (inSession) {
+        mergedScheduled.filter { se ->
+            if (se.event.category == EventCategory.BLOCK &&
+                se.event.id.removePrefix("__block__") == activeBlockId) return@filter false
+            se.startMillis < viewEndMs && se.endMillis > viewStartMs
+        }
+    } else mergedScheduled
+
     // Compute free time windows (gaps ≥ 15 min between occupied ranges)
     val freeWindows = run {
         val raw = mutableListOf<Pair<Int, Int>>()
-        mergedScheduled.forEach { se ->
+        visibleScheduled.forEach { se ->
             val s = msToMin(se.startMillis, viewStartMs)
             val e = msToMin(se.endMillis,   viewStartMs)
             if (e > s) raw += s to e
@@ -445,7 +456,11 @@ private fun TimelineBody(
         windows
     }
 
-    Box(modifier.fillMaxHeight().clipToBounds()) {
+    val sessionBgMod = if (inSession)
+        Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f))
+    else Modifier
+
+    Box(modifier.fillMaxHeight().clipToBounds().then(sessionBgMod)) {
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
 
         // Free time windows
@@ -461,7 +476,7 @@ private fun TimelineBody(
         // Planner event blocks
         val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
         var habitIdx = 0
-        mergedScheduled.forEach { se ->
+        visibleScheduled.forEach { se ->
             val colorPair = if (se.event.category == EventCategory.SLEEP ||
                                 se.event.category == EventCategory.BLOCK) null
                             else eventColors[habitIdx++ % eventColors.size]
@@ -481,7 +496,7 @@ private fun TimelineBody(
 
         // Alarm markers for planned sleep
         AlarmMarkersSection(
-            mergedScheduled = mergedScheduled,
+            mergedScheduled = visibleScheduled,
             viewStartMs = viewStartMs,
             totalMinutes = totalMinutes,
             hourHeight = hourHeight

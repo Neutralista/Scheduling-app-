@@ -479,11 +479,12 @@ private fun PlanTab(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val dayLabel = when (selectedDate) {
-                today              -> "Today · ${selectedDate.format(dayHeaderFmt)}"
-                today.minusDays(1) -> "Yesterday · ${selectedDate.format(dayHeaderFmt)}"
-                today.plusDays(1)  -> "Tomorrow · ${selectedDate.format(dayHeaderFmt)}"
-                else               -> selectedDate.format(dayHeaderFmt)
+            val dayLabel = when {
+                selectedDate == today && activeSession != null -> "Today · ${activeSession.blockName}"
+                selectedDate == today              -> "Today · ${selectedDate.format(dayHeaderFmt)}"
+                selectedDate == today.minusDays(1) -> "Yesterday · ${selectedDate.format(dayHeaderFmt)}"
+                selectedDate == today.plusDays(1)  -> "Tomorrow · ${selectedDate.format(dayHeaderFmt)}"
+                else                               -> selectedDate.format(dayHeaderFmt)
             }
             Text(
                 text = dayLabel,
