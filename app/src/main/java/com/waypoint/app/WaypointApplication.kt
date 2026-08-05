@@ -44,6 +44,7 @@ class WaypointApplication : Application() {
             scriptStore = ScriptStore(applicationContext)
             env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
             cycleTracker = CycleTracker(applicationContext)
+            env.taskManager.completions.getCycleId = { cycleTracker.store.loadCurrent()?.id ?: "" }
             cycleTracker.onNewCycle = {
                 // Reset per-cycle state so the new wake period starts clean.
                 env.taskManager.completions.clearAll()

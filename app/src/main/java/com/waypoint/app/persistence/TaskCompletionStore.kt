@@ -1,17 +1,18 @@
 package com.waypoint.app.persistence
 
 import android.content.Context
-import java.time.LocalDate
 
-/** Tracks which task IDs are marked done for the current calendar day. Auto-resets at midnight. */
+/** Tracks which task IDs are marked done for the current wake cycle. Resets when the cycle ID changes. */
 class TaskCompletionStore(context: Context) {
     private val prefs = context.getSharedPreferences("waypoint_task_completions", Context.MODE_PRIVATE)
 
-    private fun todayStr(): String = LocalDate.now().toString()
+    /** Injected after construction; returns the current cycle's ID (empty string = no cycle). */
+    var getCycleId: () -> String = { "" }
 
     private fun loadDoneIds(): Set<String> {
-        if (prefs.getString("date", null) != todayStr()) {
-            prefs.edit().clear().putString("date", todayStr()).apply()
+        val cycleId = getCycleId()
+        if (prefs.getString("cycle_id", null) != cycleId) {
+            prefs.edit().clear().putString("cycle_id", cycleId).apply()
             return emptySet()
         }
         return prefs.getStringSet("done_ids", emptySet()) ?: emptySet()
@@ -20,19 +21,21 @@ class TaskCompletionStore(context: Context) {
     fun isDone(id: String): Boolean = id in loadDoneIds()
 
     fun markDone(id: String) {
+        val cycleId = getCycleId()
         val done = loadDoneIds().toMutableSet().apply { add(id) }
-        prefs.edit().putString("date", todayStr()).putStringSet("done_ids", done).apply()
+        prefs.edit().putString("cycle_id", cycleId).putStringSet("done_ids", done).apply()
     }
 
     fun unmarkDone(id: String) {
+        val cycleId = getCycleId()
         val done = loadDoneIds().toMutableSet().apply { remove(id) }
-        prefs.edit().putString("date", todayStr()).putStringSet("done_ids", done).apply()
+        prefs.edit().putString("cycle_id", cycleId).putStringSet("done_ids", done).apply()
     }
 
     fun getDoneIds(): Set<String> = loadDoneIds()
 
-    /** Clear all done marks immediately (e.g. on a new wake cycle within the same day). */
+    /** Clear all done marks immediately (called when a new cycle opens). */
     fun clearAll() {
-        prefs.edit().putString("date", todayStr()).putStringSet("done_ids", emptySet()).apply()
+        prefs.edit().clear().apply()
     }
 }
