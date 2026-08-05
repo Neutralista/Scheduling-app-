@@ -114,7 +114,7 @@ fun NamedBlockSheet(
 
     // Per-date overrides for next 14 days
     val today = remember { LocalDate.now() }
-    val next14 = remember { (1..14).map { today.plusDays(it.toLong()) } }
+    val next14 = remember { (0..13).map { today.plusDays(it.toLong()) } }
     val dateFmt = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd") }
     // Map dateStr -> (enabled, hour, minute); null = use recurring default
     val dateOverrides = remember {
@@ -193,7 +193,10 @@ fun NamedBlockSheet(
                 HorizontalDivider()
 
                 Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
