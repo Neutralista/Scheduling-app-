@@ -277,6 +277,8 @@ class EventPlannerRegistry {
                 .mapNotNull { calendarEventBlocks[it.eventId]?.first }.minOrNull()
             val calMustStartAfter = event.conditions.filterIsInstance<EventCondition.AfterCalEvent>()
                 .mapNotNull { calendarEventBlocks[it.eventId]?.second }.maxOrNull()
+            val beforeBlock = event.conditions.filterIsInstance<EventCondition.BeforeBlock>().firstOrNull()
+            val afterBlock  = event.conditions.filterIsInstance<EventCondition.AfterBlock>().firstOrNull()
             val blockMustEndBefore = beforeBlock?.let { cond ->
                 namedBlockInstances.find { it.block.id == cond.blockId }?.scheduledStartMs
             }
@@ -345,10 +347,6 @@ class EventPlannerRegistry {
                 if (!placed) blocked += BlockedEvent(event, "No available time in block window")
                 continue
             }
-
-            // BeforeBlock / AfterBlock: convert to mustEndBefore / mustStartAfter bounds
-            val beforeBlock = event.conditions.filterIsInstance<EventCondition.BeforeBlock>().firstOrNull()
-            val afterBlock  = event.conditions.filterIsInstance<EventCondition.AfterBlock>().firstOrNull()
 
             // DuringCalEvent: constrained to a specific calendar event's reserved slot
             val duringCalEvent = event.conditions.filterIsInstance<EventCondition.DuringCalEvent>().firstOrNull()
