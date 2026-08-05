@@ -472,7 +472,7 @@ private fun FullScreenIntentIntegration() {
         connectLabel = "Open Settings",
         onConnect = {
             launcher.launch(
-                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENTS).apply {
+                Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENTS").apply {
                     data = Uri.parse("package:${context.packageName}")
                 }
             )
