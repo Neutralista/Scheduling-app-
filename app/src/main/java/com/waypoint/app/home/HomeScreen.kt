@@ -92,6 +92,7 @@ fun HomeScreen(
     cycleTracker: CycleTracker,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     blockSessionStore: BlockSessionStore,
+    blockSessionLogStore: com.waypoint.app.planner.BlockSessionLogStore? = null,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -144,7 +145,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore)
-                1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager)
+                1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, onRefresh = { headerRefreshKey++ })
                 3 -> WidgetsTab(
                     widgets = widgets,

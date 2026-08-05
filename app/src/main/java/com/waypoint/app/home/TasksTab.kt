@@ -178,7 +178,8 @@ fun TasksTab(
                 BlockSessionCard(
                     session = sess,
                     namedBlockStore = namedBlockStore,
-                    blockSessionStore = blockSessionStore
+                    blockSessionStore = blockSessionStore,
+                    taskManager = taskManager
                 )
             } else {
                 val todayBlocks = remember(refreshKey) { namedBlockStore.resolveForDate(today) }
@@ -414,7 +415,8 @@ private fun BlockStartCard(
 private fun BlockSessionCard(
     session: ActiveBlockSession,
     namedBlockStore: NamedBlockStore,
-    blockSessionStore: BlockSessionStore
+    blockSessionStore: BlockSessionStore,
+    taskManager: TaskManagerScript
 ) {
     val context = LocalContext.current
     val accentColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
@@ -426,9 +428,19 @@ private fun BlockSessionCard(
         namedBlockStore.resolveActiveTasks(session.blockId, today)
     }
 
+    val doneIds = remember { taskManager.completions.getDoneIds() }
     val checkState = remember(activeTasks) {
         mutableStateMapOf<String, Boolean>().also { map ->
-            activeTasks.forEach { map[it.id] = false }
+            activeTasks.forEach { task -> map[task.id] = task.id in doneIds }
+        }
+    }
+
+    // Countdown: remaining time, updated every minute
+    var remainingMs by remember { mutableStateOf(session.scheduledEndMs - System.currentTimeMillis()) }
+    LaunchedEffect(session.scheduledEndMs) {
+        while (true) {
+            delay(60_000L)
+            remainingMs = session.scheduledEndMs - System.currentTimeMillis()
         }
     }
 
@@ -446,6 +458,17 @@ private fun BlockSessionCard(
         Calendar.getInstance().apply { timeInMillis = session.scheduledEndMs }.get(Calendar.HOUR_OF_DAY),
         Calendar.getInstance().apply { timeInMillis = session.scheduledEndMs }.get(Calendar.MINUTE)
     )
+    val countdownStr = run {
+        val totalMins = (remainingMs / 60_000L).toInt().coerceAtLeast(0)
+        val h = totalMins / 60
+        val m = totalMins % 60
+        when {
+            h > 0 && m > 0 -> "ends in ${h}h ${m}m"
+            h > 0           -> "ends in ${h}h"
+            m > 0           -> "ends in ${m}m"
+            else            -> "ending now"
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -473,14 +496,17 @@ private fun BlockSessionCard(
                 )
                 Text(
                     text = if (completionMode) "Plan for next occurrence"
-                           else "started $startedStr · ends $endStr",
+                           else "started $startedStr · $countdownStr",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
             if (!completionMode) {
+                TextButton(onClick = { blockSessionStore.extendSession(30 * 60_000L) }) {
+                    Text("+ 30m", style = MaterialTheme.typography.labelSmall)
+                }
                 TextButton(onClick = { completionMode = true }) {
-                    Text("End Block", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                    Text("End", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
                 }
             }
         }
@@ -511,13 +537,23 @@ private fun BlockSessionCard(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { checkState[task.id] = !(checkState[task.id] ?: false) }
+                            .clickable {
+                                val wasChecked = checkState[task.id] == true
+                                checkState[task.id] = !wasChecked
+                                if (!wasChecked) taskManager.markDone(task.id)
+                                else taskManager.unmarkDone(task.id)
+                            }
                             .padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         val checked = checkState[task.id] == true
-                        RoundCheckbox(checked = checked, onClick = { checkState[task.id] = !checked })
+                        RoundCheckbox(checked = checked, onClick = {
+                            val wasChecked = checkState[task.id] == true
+                            checkState[task.id] = !wasChecked
+                            if (!wasChecked) taskManager.markDone(task.id)
+                            else taskManager.unmarkDone(task.id)
+                        })
                         Text(
                             text = task.title,
                             style = MaterialTheme.typography.bodySmall,
@@ -549,7 +585,12 @@ private fun BlockSessionCard(
                 ) {
                     TextButton(onClick = { completionMode = false }) { Text("Cancel") }
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { blockSessionStore.endSession() }) {
+                    TextButton(onClick = {
+                        blockSessionStore.endSession(
+                            tasksCompleted = checkState.values.count { it },
+                            tasksTotal = activeTasks.size
+                        )
+                    }) {
                         Text("Exit timeblock")
                     }
                 }
@@ -615,7 +656,10 @@ private fun BlockSessionCard(
                                 namedBlockStore.toggleSituational(session.blockId, nextDate, task.id)
                             }
                         }
-                        blockSessionStore.endSession()
+                        blockSessionStore.endSession(
+                            tasksCompleted = checkState.values.count { it },
+                            tasksTotal = activeTasks.size
+                        )
                     }) {
                         Text("Save & exit timeblock", color = accentColor)
                     }

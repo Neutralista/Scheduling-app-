@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                             cycleTracker = app.cycleTracker,
                             sleepTimesFlow = app.env.sleepStore.scheduledTimesFlow,
                             blockSessionStore = app.env.blockSessionStore,
+                            blockSessionLogStore = app.env.blockSessionLogStore,
                             scripts = scripts,
                             statesById = statesById,
                             onStateChange = viewModel::onStateChange,

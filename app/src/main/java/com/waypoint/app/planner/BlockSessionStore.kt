@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import android.content.Context
 import android.content.SharedPreferences
 import com.waypoint.app.AppLogger
+import com.waypoint.app.notification.BlockNotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -19,10 +20,11 @@ data class ActiveBlockSession(
     val date: String  // "yyyy-MM-dd"
 )
 
-class BlockSessionStore(context: Context) {
+class BlockSessionStore(context: Context, private val logStore: BlockSessionLogStore? = null) {
 
+    private val appContext: Context = context.applicationContext
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("wp_block_session", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("wp_block_session", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
     val sessionFlow = MutableStateFlow<ActiveBlockSession?>(loadCurrent())
@@ -46,13 +48,37 @@ class BlockSessionStore(context: Context) {
         )
         prefs.edit().putString("active", json.encodeToString(session)).apply()
         sessionFlow.value = session
+        BlockNotificationHelper.postSessionLiveNotification(appContext, session)
         AppLogger.i(TAG, "startSession: blockId=${block.id} name=${block.name}")
     }
 
-    fun endSession() {
+    fun endSession(tasksCompleted: Int = 0, tasksTotal: Int = 0) {
+        val current = loadFromPrefs()
         prefs.edit().remove("active").apply()
         sessionFlow.value = null
+        BlockNotificationHelper.cancelSessionLiveNotification(appContext)
+        if (current != null && logStore != null) {
+            logStore.addEntry(BlockSessionLog(
+                blockId = current.blockId,
+                blockName = current.blockName,
+                colorArgb = current.colorArgb,
+                date = current.date,
+                startedAtMs = current.startedAtMs,
+                endedAtMs = System.currentTimeMillis(),
+                tasksCompleted = tasksCompleted,
+                tasksTotal = tasksTotal
+            ))
+        }
         AppLogger.i(TAG, "endSession")
+    }
+
+    fun extendSession(extraMs: Long) {
+        val current = loadFromPrefs() ?: return
+        val updated = current.copy(scheduledEndMs = current.scheduledEndMs + extraMs)
+        prefs.edit().putString("active", json.encodeToString(updated)).apply()
+        sessionFlow.value = updated
+        BlockNotificationHelper.postSessionLiveNotification(appContext, updated)
+        AppLogger.i(TAG, "extendSession: +${extraMs / 60_000L}m → ends at ${updated.scheduledEndMs}")
     }
 
     fun loadCurrent(): ActiveBlockSession? {

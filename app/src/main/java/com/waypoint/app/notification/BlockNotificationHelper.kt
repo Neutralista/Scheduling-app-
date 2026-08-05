@@ -6,25 +6,34 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.waypoint.app.planner.ActiveBlockSession
 
 object BlockNotificationHelper {
 
     const val CHANNEL_ID = "waypoint_blocks"
+    const val SESSION_CHANNEL_ID = "waypoint_session"
     private const val NOTIF_ID_BASE = 9000
+    private const val SESSION_NOTIF_ID = 9500
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Time Blocks",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Notifications when a named time block starts"
+        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+            nm.createNotificationChannel(NotificationChannel(
+                CHANNEL_ID,
+                "Time Blocks",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = "Notifications when a named time block starts" })
         }
-        nm.createNotificationChannel(channel)
+        if (nm.getNotificationChannel(SESSION_CHANNEL_ID) == null) {
+            nm.createNotificationChannel(NotificationChannel(
+                SESSION_CHANNEL_ID,
+                "Active Block Session",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "Persistent countdown while a time block is active" })
+        }
     }
 
     fun postBlockStartNotification(
@@ -64,6 +73,31 @@ object BlockNotificationHelper {
     fun cancelBlockStartNotification(context: Context, blockId: String) {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.cancel(notifId(blockId))
+    }
+
+    fun postSessionLiveNotification(context: Context, session: ActiveBlockSession) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val endOffsetMs = session.scheduledEndMs - System.currentTimeMillis()
+        val chronometerBase = SystemClock.elapsedRealtime() + endOffsetMs
+
+        val notif = NotificationCompat.Builder(context, SESSION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(session.blockName)
+            .setContentText("Block in progress")
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(chronometerBase)
+            .setShowWhen(true)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        nm.notify(SESSION_NOTIF_ID, notif)
+    }
+
+    fun cancelSessionLiveNotification(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.cancel(SESSION_NOTIF_ID)
     }
 
     private fun notifId(blockId: String) = NOTIF_ID_BASE + (blockId.hashCode() and 0x7FFFFFFF) % 1000

@@ -9,6 +9,7 @@ import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.persistence.TaskCompletionStore
+import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -52,7 +53,8 @@ class RealScriptEnvironment(
     override val streak: StreakStore = StreakStore(context)
     override val countdown: CountdownStore = CountdownStore(context)
     override val location: LocationSignals = RealLocationSignals(context)
-    val blockSessionStore: BlockSessionStore = BlockSessionStore(context)
+    val blockSessionLogStore: BlockSessionLogStore = BlockSessionLogStore(context)
+    val blockSessionStore: BlockSessionStore = BlockSessionStore(context, blockSessionLogStore)
 
     // Synchronous cache for JS inter-script reads
     private val stateCache = mutableMapOf<String, ScriptState>()

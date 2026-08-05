@@ -1,6 +1,7 @@
 package com.waypoint.app.home
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,8 +9,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +43,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.cycle.CycleTracker
 import com.waypoint.app.cycle.CyclesTab
+import com.waypoint.app.planner.BlockSessionLog
+import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.TaskExecution
@@ -46,12 +52,13 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.ui.components.TimePickerChip
 import java.util.Calendar
 
-private enum class HistoryCategory { TASKS, SLEEP, CYCLES }
+private enum class HistoryCategory { TASKS, SLEEP, CYCLES, BLOCKS }
 
 @Composable
 fun HistoryTab(
     cycleTracker: CycleTracker,
-    taskManager: TaskManagerScript
+    taskManager: TaskManagerScript,
+    blockSessionLogStore: BlockSessionLogStore? = null
 ) {
     val context = LocalContext.current
     var category by remember { mutableStateOf(HistoryCategory.CYCLES) }
@@ -74,6 +81,7 @@ fun HistoryTab(
                                 HistoryCategory.TASKS  -> "Tasks"
                                 HistoryCategory.SLEEP  -> "Sleep"
                                 HistoryCategory.CYCLES -> "Cycles"
+                                HistoryCategory.BLOCKS -> "Blocks"
                             },
                             style = MaterialTheme.typography.labelMedium
                         )
@@ -88,6 +96,7 @@ fun HistoryTab(
             HistoryCategory.TASKS  -> TaskHistoryContent(taskManager = taskManager, refreshKey = refreshKey)
             HistoryCategory.SLEEP  -> SleepHistoryContent(context = context, refreshKey = refreshKey)
             HistoryCategory.CYCLES -> CyclesTab(cycleTracker = cycleTracker)
+            HistoryCategory.BLOCKS -> BlockHistoryContent(logStore = blockSessionLogStore, refreshKey = refreshKey)
         }
     }
 }
@@ -344,6 +353,101 @@ private fun EditSleepEntrySheet(
                         onSave(newBed, newWake)
                     }) { Text("Save") }
                 }
+            }
+        }
+    }
+}
+
+// ── Block session history ─────────────────────────────────────────────────────
+
+@Composable
+private fun BlockHistoryContent(logStore: BlockSessionLogStore?, refreshKey: Int) {
+    if (logStore == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "Block session history unavailable",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(32.dp)
+            )
+        }
+        return
+    }
+
+    val entries = remember(refreshKey) { logStore.loadAll() }
+
+    if (entries.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "No block sessions yet.\n\nCompleted sessions appear here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(32.dp)
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        items(entries, key = { "${it.blockId}_${it.startedAtMs}" }) { log ->
+            BlockSessionLogRow(log = log)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        }
+    }
+}
+
+@Composable
+private fun BlockSessionLogRow(log: BlockSessionLog) {
+    val accentColor = log.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val durationMs = log.endedAtMs - log.startedAtMs
+    val durationMins = (durationMs / 60_000L).toInt()
+    val h = durationMins / 60
+    val m = durationMins % 60
+    val durText = if (h > 0 && m > 0) "${h}h ${m}m" else if (h > 0) "${h}h" else "${m}m"
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .width(4.dp)
+                .height(40.dp)
+                .background(accentColor, RoundedCornerShape(2.dp))
+        )
+        Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Text(
+                text = log.blockName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${log.date} · ${fmtMs(log.startedAtMs)} – ${fmtMs(log.endedAtMs)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = durText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (log.tasksTotal > 0) {
+                Text(
+                    text = "${log.tasksCompleted}/${log.tasksTotal} tasks",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
             }
         }
     }
