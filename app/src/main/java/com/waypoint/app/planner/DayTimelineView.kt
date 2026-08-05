@@ -265,9 +265,9 @@ fun DayTimelineView(
                                     if (m % 15 == 0) continue  // quarter-hour drawn below
                                     val my = y + m * hh.toPx() / 60f
                                     drawLine(
-                                        color = outlineC.copy(alpha = 0.18f),
+                                        color = outlineC.copy(alpha = 0.45f),
                                         start = Offset(0f, my), end = Offset(size.width, my),
-                                        strokeWidth = 0.2.dp.toPx()
+                                        strokeWidth = 0.5.dp.toPx()
                                     )
                                 }
                             }
