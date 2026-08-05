@@ -24,11 +24,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class InitStep(val name: String, val ok: Boolean, val error: Throwable? = null)
+
 class WaypointApplication : Application() {
 
     /** Non-null if WaypointApplication.onCreate() threw before completing. */
     var startupCrash: Throwable? = null
         private set
+
+    /** Ordered record of each init step — populated synchronously in onCreate(). */
+    val initSteps: MutableList<InitStep> = mutableListOf()
 
     lateinit var env: RealScriptEnvironment
         private set
@@ -46,8 +51,10 @@ class WaypointApplication : Application() {
 
         try {
             AppLogger.init(filesDir)
+            initSteps += InitStep("Logger", true)
         } catch (e: Throwable) {
             android.util.Log.e("WaypointApp", "AppLogger.init failed", e)
+            initSteps += InitStep("Logger", false, e)
         }
 
         val defaultExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -61,45 +68,57 @@ class WaypointApplication : Application() {
             defaultExceptionHandler?.uncaughtException(thread, throwable)
         }
 
+        var currentStep = "init"
         try {
+            currentStep = "Script state store"
             scriptStateStore = ScriptStateStore(applicationContext)
+            initSteps += InitStep(currentStep, true)
+
+            currentStep = "Script store"
             scriptStore = ScriptStore(applicationContext)
+            initSteps += InitStep(currentStep, true)
+
+            currentStep = "Script environment"
             env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
+            initSteps += InitStep(currentStep, true)
+
+            currentStep = "Cycle tracker"
             cycleTracker = CycleTracker(applicationContext)
             env.taskManager.completions.getCycleId = { cycleTracker.store.loadCurrent()?.id ?: "" }
-            cycleTracker.onNewCycle = {
-                // Reset per-cycle state so the new wake period starts clean.
-                env.taskManager.completions.clearAll()
-            }
+            cycleTracker.onNewCycle = { env.taskManager.completions.clearAll() }
+            initSteps += InitStep(currentStep, true)
 
+            currentStep = "Built-in scripts"
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
-
-            // Register built-in scripts — task manager first so it's ready for others
             ScriptRegistry.register(env.taskManager, env)
             ScriptRegistry.register(
                 SleepScheduleScript(env.sleepStore, env.eventPlanner, sleepRefresh, sleepLogStore),
                 env
             )
+            initSteps += InitStep(currentStep, true)
 
-            // Seed bundled scripts (assets/scripts/*.js) on first install
+            currentStep = "Bundled scripts"
             scriptStore.seedBundled()
-            // Remove deprecated bundled scripts
             scriptStore.delete("user.week_planner")
+            initSteps += InitStep(currentStep, true)
 
-            // Re-register any user scripts saved in a previous session
-            scriptStore.loadAll().forEach { module ->
-                ScriptRegistry.register(module, env)
-            }
+            currentStep = "User scripts"
+            scriptStore.loadAll().forEach { module -> ScriptRegistry.register(module, env) }
+            initSteps += InitStep(currentStep, true)
 
+            currentStep = "Notifications & workers"
             NotificationHelper.createScriptsChannel(this)
             SleepNotificationHelper.createChannels(this)
-            ReminderScheduler.cancel(this) // daily habit reminder disabled until habits feature is built
+            ReminderScheduler.cancel(this)
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
+            initSteps += InitStep(currentStep, true)
+
         } catch (e: Throwable) {
-            android.util.Log.e("WaypointApp", "onCreate crashed: ${e.javaClass.name}: ${e.message}", e)
-            try { AppLogger.e("App", "onCreate crashed", e) } catch (_: Throwable) {}
+            android.util.Log.e("WaypointApp", "onCreate crashed at '$currentStep': ${e.javaClass.name}: ${e.message}", e)
+            try { AppLogger.e("App", "onCreate crashed at '$currentStep'", e) } catch (_: Throwable) {}
+            initSteps += InitStep(currentStep, false, e)
             startupCrash = e
             // Do NOT rethrow — let MainActivity show a crash recovery UI instead.
         }
