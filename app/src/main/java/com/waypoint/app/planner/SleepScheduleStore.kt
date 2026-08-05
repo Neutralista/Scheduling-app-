@@ -79,6 +79,7 @@ class SleepScheduleStore(private val context: Context) {
         val newBedMs = now + 30 * 60_000L
 
         val today = LocalDate.now()
+        val zone = ZoneId.systemDefault()
 
         var adjustedBedMs = newBedMs
 
@@ -98,8 +99,11 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
 
-        // Wake is computed from the final bed position to preserve target sleep duration.
-        val adjustedWakeMs = adjustedBedMs + s.targetSleepMinutes * 60_000L
+        // Wake is anchored at the next occurrence of the preferred wake time after bed.
+        val prefWake = s.preferredWakeTime
+        val adjustedWakeMs = sequenceOf(today, today.plusDays(1), today.plusDays(2))
+            .map { d -> d.atTime(prefWake.hour, prefWake.minute).atZone(zone).toInstant().toEpochMilli() }
+            .first { it > adjustedBedMs }
 
         SleepAlarmScheduler.cancelLateNudge(context)
         SleepAlarmScheduler.scheduleAlarms(context, adjustedBedMs, adjustedWakeMs)
@@ -109,7 +113,6 @@ class SleepScheduleStore(private val context: Context) {
         SleepNotificationHelper.showAlarmStatus(context, adjustedBedMs, adjustedWakeMs)
         _scheduledTimes.value = adjustedBedMs to adjustedWakeMs
 
-        val zone = ZoneId.systemDefault()
         val noonMs = today.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
         val sleepNightDate = if (adjustedBedMs < noonMs) today.minusDays(1) else today
         registry.register(PlannerEvent(

@@ -82,8 +82,12 @@ class EventPlannerRegistry {
         }
 
         // ── Free blocks start at wake time (end of sleep), not midnight ───────
+        // Only consider sleep events that have already ended (past sleep gives today's wake time).
+        // Exclude future sleep events — they anchor the END of today's cycle, not the start.
         val cycleStartMs = scheduled
-            .filter { it.event.category == EventCategory.SLEEP && it.endMillis > dayStartMs }
+            .filter { it.event.category == EventCategory.SLEEP
+                   && it.endMillis > dayStartMs
+                   && (nowMs == null || it.endMillis <= nowMs) }
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
         // Tonight's sleep event — the first sleep window that begins after this morning's wake.
@@ -434,44 +438,6 @@ class EventPlannerRegistry {
             }
 
             if (!placed) blocked += BlockedEvent(event, "No available time slot")
-        }
-
-        // ── Urgent tasks above SLEEP priority may displace sleep windows ───────
-        val urgentUnplaced = blocked.filter { b -> b.event.priority > PlannerPriority.SLEEP }
-        if (urgentUnplaced.isNotEmpty()) {
-            blocked.removeAll { b -> b.event.priority > PlannerPriority.SLEEP }
-            for (entry in urgentUnplaced.sortedByDescending { it.event.priority }) {
-                val event = entry.event
-                val durationMs = event.durationMinutes * 60_000L
-                // Include post-midnight sleep events that didn't make it into scheduled
-                // (because their fixedStartMillis > dayEndMs for the current date).
-                val scheduledSleepIds = scheduled.filter { it.event.category == EventCategory.SLEEP }
-                    .map { it.event.id }.toSet()
-                val sleepSlots = (scheduled.filter { it.event.category == EventCategory.SLEEP } +
-                    _events.filter { e ->
-                        e.category == EventCategory.SLEEP &&
-                        e.fixedStartMillis != null && e.fixedEndMillis != null &&
-                        e.fixedStartMillis!! > cycleStartMs &&
-                        e.id !in scheduledSleepIds
-                    }.map { e -> ScheduledEvent(e, e.fixedStartMillis!!, e.fixedEndMillis!!) }
-                ).sortedBy { it.startMillis }
-                var placed = false
-                for (sleepSlot in sleepSlots) {
-                    val available = sleepSlot.endMillis - sleepSlot.startMillis
-                    if (available < durationMs) continue
-                    val taskStart = sleepSlot.startMillis
-                    val taskEnd   = taskStart + durationMs
-                    scheduled.removeIf { it.event.id == sleepSlot.event.id }
-                    scheduled += ScheduledEvent(event, taskStart, taskEnd)
-                    val remainingSleep = sleepSlot.endMillis - taskEnd
-                    if (remainingSleep >= 30 * 60_000L) {
-                        scheduled += ScheduledEvent(sleepSlot.event, taskEnd, sleepSlot.endMillis)
-                    }
-                    placed = true
-                    break
-                }
-                if (!placed) blocked += BlockedEvent(event, "No available time slot")
-            }
         }
 
         // ── Post-pass: expand named block bounds to wrap BEFORE/AFTER tasks ────
