@@ -10,7 +10,6 @@ import android.os.PowerManager
 import com.waypoint.app.AppLogger
 import com.waypoint.app.WaypointApplication
 import com.waypoint.app.notification.SleepNotificationHelper
-import com.waypoint.app.notification.WakeAlarmScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,11 +35,9 @@ class SleepCheckReceiver : BroadcastReceiver() {
             scheduleNextCheck(context)
         }
 
-        // Sleep onset detected (MONITORING → SLEEPING): try to extend wake if sleep came early
+        // Sleep onset detected (MONITORING → SLEEPING): feed the authoritative sleep-start
+        // estimate into the cycle tracker. Wake alarm is intentionally left at its anchored time.
         if (wasLogged && !isInteractive) {
-            AppLogger.i(TAG, "onReceive: sleep onset detected, checking if wake can be pushed")
-            adjustWakeForSleepOnset(context, logStore)
-            // Bridge: feed the authoritative sleep-start estimate into the cycle tracker
             val sleepStartMs = logStore.getSleepStartMillis()
             if (sleepStartMs != null) {
                 (context.applicationContext as? WaypointApplication)
@@ -70,53 +67,6 @@ class SleepCheckReceiver : BroadcastReceiver() {
                 }
             }
         }
-    }
-
-    private fun adjustWakeForSleepOnset(context: Context, logStore: SleepLogStore) {
-        val sleepStartMs = logStore.getSleepStartMillis() ?: run {
-            AppLogger.w(TAG, "adjustWake: sleepStartMs null")
-            return
-        }
-        val currentWakeMs = logStore.getScheduledWakeMs() ?: run {
-            AppLogger.w(TAG, "adjustWake: scheduledWakeMs null, cannot adjust")
-            return
-        }
-
-        val sleepStore = SleepScheduleStore(context)
-        val s = sleepStore.load()
-        val idealWakeMs = sleepStartMs + s.targetSleepMinutes * 60_000L
-        val now = System.currentTimeMillis()
-
-        AppLogger.i(TAG, "adjustWake: sleepStart=$sleepStartMs targetMin=${s.targetSleepMinutes} " +
-                "idealWake=$idealWakeMs currentWake=$currentWakeMs")
-
-        // Skip if ideal wake is already past or less than 30 min away — alarm would be useless
-        if (idealWakeMs <= now + 30 * 60_000L) {
-            AppLogger.i(TAG, "adjustWake: ideal wake too close or in the past, skipping")
-            return
-        }
-
-        val ceilingMs: Long = Long.MAX_VALUE
-
-        val newWakeMs = minOf(idealWakeMs, ceilingMs)
-
-        // If we'd be moving wake later but the shift ceiling blocks it below current, no benefit
-        if (idealWakeMs > currentWakeMs && newWakeMs <= currentWakeMs) {
-            AppLogger.i(TAG, "adjustWake: ceiling=$ceilingMs caps later adjustment below current, skipping")
-            return
-        }
-
-        if (newWakeMs == currentWakeMs) {
-            AppLogger.i(TAG, "adjustWake: no change needed")
-            return
-        }
-
-        val direction = if (newWakeMs > currentWakeMs) "later" else "earlier"
-        AppLogger.i(TAG, "adjustWake: rescheduling wake $direction: $currentWakeMs → $newWakeMs (ceiling=$ceilingMs)")
-        WakeAlarmScheduler.scheduleAlarms(context, newWakeMs)
-        val bedMs = logStore.getScheduledBedMs() ?: (sleepStartMs - s.targetSleepMinutes * 60_000L)
-        logStore.updateScheduledTimes(bedMs, newWakeMs)
-        SleepNotificationHelper.showAlarmStatus(context, bedMs, newWakeMs)
     }
 
     companion object {
