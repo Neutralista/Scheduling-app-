@@ -266,6 +266,7 @@ private fun PlanTab(
     val sleepStore = remember { SleepScheduleStore(context) }
     val bufferStore = remember { BufferRulesStore(context) }
     val calPrefsStore = remember { CalendarPrefsStore(context) }
+    val namedBlockStore = remember { com.waypoint.app.planner.NamedBlockStore(context) }
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
@@ -494,6 +495,7 @@ private fun PlanTab(
             registry = eventPlanner,
             calendarSignals = calendarSignals,
             calendarPrefsStore = calPrefsStore,
+            namedBlockStore = namedBlockStore,
             date = selectedDate,
             refreshKey = calRefreshKey,
             modifier = Modifier.weight(1f),

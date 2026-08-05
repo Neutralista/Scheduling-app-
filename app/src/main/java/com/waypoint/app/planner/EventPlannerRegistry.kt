@@ -30,10 +30,12 @@ class EventPlannerRegistry {
         shiftStartMs: Long? = null,
         shiftEndMs: Long? = null,
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
-        reservingBlocks: List<Pair<Long, Long>> = emptyList()
+        reservingBlocks: List<Pair<Long, Long>> = emptyList(),
+        namedBlockInstances: List<NamedBlockInstance> = emptyList()
     ): DayPlan = planForDate(
         LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, calendarEventBlocks, reservingBlocks,
-        nowMs = System.currentTimeMillis()
+        nowMs = System.currentTimeMillis(),
+        namedBlockInstances = namedBlockInstances
     )
 
     fun planForDate(
@@ -43,7 +45,8 @@ class EventPlannerRegistry {
         shiftEndMs: Long? = null,
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
         reservingBlocks: List<Pair<Long, Long>> = emptyList(),
-        nowMs: Long? = null
+        nowMs: Long? = null,
+        namedBlockInstances: List<NamedBlockInstance> = emptyList()
     ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -114,6 +117,51 @@ class EventPlannerRegistry {
                    && it.event.id != tonightSleepEvent?.id }
             .map { it.startMillis to it.endMillis } + reservingBlocks
         val remaining = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervals).toMutableList()
+
+        // ── Named block instances ─────────────────────────────────────────────
+        // Each block is placed as a placeholder scheduled event at its scheduled start.
+        // Its tasks are injected into allSchedulable with synthesised conditions so the
+        // main greedy pass positions them relative to the block boundaries.
+        // After the pass we expand/contract each block's displayed extent.
+        val blockEventPrefix = "__block__"
+        for (inst in namedBlockInstances) {
+            val blockEventId = "$blockEventPrefix${inst.block.id}"
+            val blockPlannerEvent = PlannerEvent(
+                id = blockEventId,
+                title = inst.block.name,
+                durationMinutes = inst.block.estimatedMinutes,
+                priority = 8,
+                category = EventCategory.BLOCK,
+                fixedStartMillis = inst.scheduledStartMs,
+                fixedEndMillis = inst.estimatedEndMs
+            )
+            scheduled += ScheduledEvent(blockPlannerEvent, inst.scheduledStartMs, inst.estimatedEndMs)
+            // Block itself occupies time — add to fixedIntervals so regular tasks don't overlap
+            // (AfterBlock tasks will be scheduled after estimatedEndMs via condition)
+
+            for (task in inst.activeTasks) {
+                val taskCondition: EventCondition = when (task.placement) {
+                    BlockTaskPlacement.BEFORE -> EventCondition.BeforeBlock(inst.block.id)
+                    BlockTaskPlacement.DURING -> EventCondition.DuringBlock(inst.block.id)
+                    BlockTaskPlacement.AFTER  -> EventCondition.AfterBlock(inst.block.id)
+                }
+                allSchedulable += PlannerEvent(
+                    id = task.id,
+                    title = task.title,
+                    durationMinutes = task.durationMinutes,
+                    priority = task.priority,
+                    bufferMinutes = task.bufferMinutes,
+                    conditions = listOf(taskCondition),
+                    sourceWidgetId = blockEventId
+                )
+            }
+        }
+        // Re-build fixedIntervals to include block bodies (DuringBlock tasks will carve into them)
+        val blockFixedIntervals = namedBlockInstances.map { it.scheduledStartMs to it.estimatedEndMs }
+        val fixedIntervalsWithBlocks = fixedIntervals + blockFixedIntervals
+        val remainingWithBlocks = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervalsWithBlocks).toMutableList()
+        // Use remainingWithBlocks as the working set from here on
+        remaining.clear(); remaining.addAll(remainingWithBlocks)
 
         // ── Build dependency graph ────────────────────────────────────────────
         //
@@ -224,12 +272,21 @@ class EventPlannerRegistry {
 
             val mustStartAfter = listOfNotNull(explicitMustStartAfter, implicitMustStartAfter).maxOrNull()
 
-            // Merge BeforeCalEvent / AfterCalEvent bounds with task-based bounds
+            // Merge BeforeCalEvent / AfterCalEvent / BeforeBlock / AfterBlock bounds
             val calMustEndBefore  = event.conditions.filterIsInstance<EventCondition.BeforeCalEvent>()
                 .mapNotNull { calendarEventBlocks[it.eventId]?.first }.minOrNull()
             val calMustStartAfter = event.conditions.filterIsInstance<EventCondition.AfterCalEvent>()
                 .mapNotNull { calendarEventBlocks[it.eventId]?.second }.maxOrNull()
-            val effectiveMustEndBefore = listOfNotNull(mustEndBefore, calMustEndBefore).minOrNull()
+            val blockMustEndBefore = beforeBlock?.let { cond ->
+                namedBlockInstances.find { it.block.id == cond.blockId }?.scheduledStartMs
+            }
+            val blockMustStartAfter = afterBlock?.let { cond ->
+                namedBlockInstances.find { it.block.id == cond.blockId }?.estimatedEndMs
+            }
+            val effectiveMustEndBefore = listOfNotNull(
+                mustEndBefore, calMustEndBefore, blockMustEndBefore
+            ).minOrNull()
+            val effectiveMustStartAfterFromBlocks = listOfNotNull(calMustStartAfter, blockMustStartAfter).maxOrNull()
 
             // Zone: soft time-of-day anchor.
             // MORNING  → no extra lower bound (first-fit from wake, same as default)
@@ -249,7 +306,7 @@ class EventPlannerRegistry {
             }
 
             val effectiveMustStartAfter = listOfNotNull(
-                mustStartAfter, calMustStartAfter, zoneLowerBound
+                mustStartAfter, effectiveMustStartAfterFromBlocks, zoneLowerBound
             ).maxOrNull()
 
             // Last-fit when an upper-bound constraint exists, the event prefers to land
@@ -271,6 +328,27 @@ class EventPlannerRegistry {
                 if (!placed) blocked += BlockedEvent(event, "No available time in shift")
                 continue
             }
+
+            // DuringBlock: placed within the named block's estimated window
+            val duringBlock = event.conditions.filterIsInstance<EventCondition.DuringBlock>().firstOrNull()
+            if (duringBlock != null) {
+                val inst = namedBlockInstances.find { it.block.id == duringBlock.blockId }
+                if (inst == null) {
+                    blocked += BlockedEvent(event, "Named block not scheduled today"); continue
+                }
+                val fitStart = if (tw != null) maxOf(inst.scheduledStartMs, toMs(tw.startHour, tw.startMin)) else inst.scheduledStartMs
+                val fitEnd   = if (tw != null) minOf(inst.estimatedEndMs,   toMs(tw.endHour,   tw.endMin))   else inst.estimatedEndMs
+                if (fitEnd - fitStart >= durationMs) {
+                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    placed = true
+                }
+                if (!placed) blocked += BlockedEvent(event, "No available time in block window")
+                continue
+            }
+
+            // BeforeBlock / AfterBlock: convert to mustEndBefore / mustStartAfter bounds
+            val beforeBlock = event.conditions.filterIsInstance<EventCondition.BeforeBlock>().firstOrNull()
+            val afterBlock  = event.conditions.filterIsInstance<EventCondition.AfterBlock>().firstOrNull()
 
             // DuringCalEvent: constrained to a specific calendar event's reserved slot
             val duringCalEvent = event.conditions.filterIsInstance<EventCondition.DuringCalEvent>().firstOrNull()
@@ -395,6 +473,40 @@ class EventPlannerRegistry {
                     break
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time slot")
+            }
+        }
+
+        // ── Post-pass: expand named block bounds to wrap BEFORE/AFTER tasks ────
+        // BEFORE tasks that were placed before the block's scheduled start pull the
+        // displayed block start earlier (canStartEarly); AFTER tasks that overran push
+        // the displayed block end later (canRunLate).
+        for (inst in namedBlockInstances) {
+            val blockEventId = "$blockEventPrefix${inst.block.id}"
+            val beforeTaskIds = inst.activeTasks
+                .filter { it.placement == BlockTaskPlacement.BEFORE }.map { it.id }.toSet()
+            val afterTaskIds  = inst.activeTasks
+                .filter { it.placement == BlockTaskPlacement.AFTER  }.map { it.id }.toSet()
+
+            val earliestBeforeStart = if (inst.block.canStartEarly && beforeTaskIds.isNotEmpty())
+                scheduled.filter { it.event.id in beforeTaskIds }.minOfOrNull { it.startMillis }
+            else null
+            val latestAfterEnd = if (inst.block.canRunLate && afterTaskIds.isNotEmpty())
+                scheduled.filter { it.event.id in afterTaskIds }.maxOfOrNull { it.endMillis }
+            else null
+
+            if (earliestBeforeStart != null || latestAfterEnd != null) {
+                val newStart = earliestBeforeStart ?: inst.scheduledStartMs
+                val newEnd   = latestAfterEnd ?: inst.estimatedEndMs
+                scheduled.removeIf { it.event.id == blockEventId }
+                scheduled += ScheduledEvent(
+                    PlannerEvent(
+                        id = blockEventId, title = inst.block.name,
+                        durationMinutes = ((newEnd - newStart) / 60_000L).toInt(),
+                        priority = 8, category = EventCategory.BLOCK,
+                        fixedStartMillis = newStart, fixedEndMillis = newEnd
+                    ),
+                    newStart, newEnd
+                )
             }
         }
 

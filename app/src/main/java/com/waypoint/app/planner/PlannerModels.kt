@@ -13,7 +13,7 @@ object PlannerPriority {
 }
 
 /** Visual category — drives colour/rendering in the timeline, not scheduling. */
-enum class EventCategory { DEFAULT, SLEEP, BUFFER }
+enum class EventCategory { DEFAULT, SLEEP, BUFFER, BLOCK }
 
 /** Soft time-of-day zone for scheduling preference. */
 @Serializable
@@ -93,6 +93,15 @@ sealed class EventCondition {
 
     /** Must be placed within the reserved time slot of a specific calendar event */
     data class DuringCalEvent(val eventId: Long) : EventCondition()
+
+    /** Must finish before the named block starts (last-fit; pulls block start earlier on timeline) */
+    data class BeforeBlock(val blockId: String) : EventCondition()
+
+    /** Must be placed within the named block's estimated window */
+    data class DuringBlock(val blockId: String) : EventCondition()
+
+    /** Must start after the named block's estimated end (pushes block end later on timeline) */
+    data class AfterBlock(val blockId: String) : EventCondition()
 }
 
 data class ScheduledEvent(
@@ -103,7 +112,8 @@ data class ScheduledEvent(
 
 data class BlockedEvent(val event: PlannerEvent, val reason: String)
 
-data class TimeBlock(val startMillis: Long, val endMillis: Long) {
+/** Simple start/end interval used internally by the planner. */
+data class TimeSlot(val startMillis: Long, val endMillis: Long) {
     val durationMinutes: Int get() = ((endMillis - startMillis) / 60_000L).toInt()
 }
 

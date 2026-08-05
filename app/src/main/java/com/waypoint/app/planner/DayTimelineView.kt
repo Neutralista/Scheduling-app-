@@ -61,6 +61,7 @@ fun DayTimelineView(
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
     calendarPrefsStore: CalendarPrefsStore? = null,
+    namedBlockStore: NamedBlockStore? = null,
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
@@ -79,13 +80,34 @@ fun DayTimelineView(
     val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
 
     val isToday = date == LocalDate.now()
+
+    // Resolve named block instances for this date and the next (for cross-midnight rendering).
+    val blockInstances = remember(date, refreshKey) {
+        namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
+            val startMs = date.atTime(sched.startHour, sched.startMinute)
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            NamedBlockInstance(block, startMs, startMs + block.estimatedMinutes * 60_000L,
+                namedBlockStore.resolveActiveTasks(block.id, date))
+        } ?: emptyList()
+    }
+    val nextDayBlockInstances = remember(date, refreshKey) {
+        val nextDate = date.plusDays(1)
+        namedBlockStore?.resolveForDate(nextDate)?.map { (block, sched) ->
+            val startMs = nextDate.atTime(sched.startHour, sched.startMinute)
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            NamedBlockInstance(block, startMs, startMs + block.estimatedMinutes * 60_000L,
+                namedBlockStore.resolveActiveTasks(block.id, nextDate))
+        } ?: emptyList()
+    }
+
     var plan by remember(date, refreshKey) {
-        mutableStateOf(registry.planForDate(date, nowMs = if (isToday) System.currentTimeMillis() else null))
+        mutableStateOf(registry.planForDate(date, namedBlockInstances = blockInstances,
+            nowMs = if (isToday) System.currentTimeMillis() else null))
     }
     // Next-day plan provides the post-midnight half of cross-midnight events inside the 4AM-4AM window.
     // Tomorrow's plan is never trimmed to now — it should show the full intended schedule.
     var nextDayScheduled by remember(date, refreshKey) {
-        mutableStateOf(registry.planForDate(date.plusDays(1)).scheduled)
+        mutableStateOf(registry.planForDate(date.plusDays(1), namedBlockInstances = nextDayBlockInstances).scheduled)
     }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
@@ -126,8 +148,10 @@ fun DayTimelineView(
                     .map { it.startMillis to it.endMillis }
                 reservingBlocks = blocks
                 plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                    namedBlockInstances = blockInstances,
                     nowMs = if (isToday) System.currentTimeMillis() else null)
-                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
+                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks,
+                    reservingBlocks = blocks, namedBlockInstances = nextDayBlockInstances).scheduled
                 onCalEventsChanged?.invoke(combined)
             }
         }
@@ -147,8 +171,10 @@ fun DayTimelineView(
                 val allCalBlocks = calEventBlocks
                 val blocks = reservingBlocks
                 plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                    namedBlockInstances = blockInstances,
                     nowMs = if (isToday) System.currentTimeMillis() else null)
-                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks, reservingBlocks = blocks).scheduled
+                nextDayScheduled = registry.planForDate(date.plusDays(1), calendarEventBlocks = allCalBlocks,
+                    reservingBlocks = blocks, namedBlockInstances = nextDayBlockInstances).scheduled
             }
         }
     }
@@ -355,13 +381,21 @@ fun DayTimelineView(
                 mergedScheduled.forEach { se ->
                     val isSleep = se.event.category == EventCategory.SLEEP
                     val isLoggedSleep = isSleep && se.event.isLogged
+                    val isBlock = se.event.category == EventCategory.BLOCK
                     val seStartMin = msToMin(se.startMillis, viewStartMs)
                     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
                     val startY  = minToY(seStartMin)
                     val eventH  = (minToY(seEndMin) - startY - 2.dp).coerceAtLeast(24.dp)
+                    val blockAccent: Color? = if (isBlock) {
+                        val blockId = se.event.id.removePrefix("__block__")
+                        val stored = blockInstances.find { it.block.id == blockId }
+                            ?: nextDayBlockInstances.find { it.block.id == blockId }
+                        stored?.block?.colorArgb?.let { Color(it) } ?: Color(0xFF4DB6AC)
+                    } else null
                     val (bg, fg) = when {
                         isLoggedSleep -> sleepAccent.copy(alpha = 0.18f) to sleepAccent
                         isSleep       -> sleepAccent.copy(alpha = 0.07f) to sleepAccent.copy(alpha = 0.50f)
+                        isBlock       -> blockAccent!!.copy(alpha = 0.15f) to blockAccent
                         else          -> eventColors[habitIdx++ % eventColors.size]
                     }
                     val displayTitle = when {
@@ -383,6 +417,7 @@ fun DayTimelineView(
                                 when {
                                     isLoggedSleep -> Modifier.border(1.dp, sleepAccent.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
                                     isSleep       -> Modifier.border(1.dp, sleepAccent.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
+                                    isBlock       -> Modifier.border(1.5.dp, blockAccent!!.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
                                     else          -> Modifier
                                 }
                             )

@@ -14,7 +14,8 @@ data class TaskConditionSpec(
     val days: List<Int>? = null,
     val deadlineMillis: Long? = null,
     val referenceTaskIds: List<String>? = null,
-    val calendarEventId: Long? = null
+    val calendarEventId: Long? = null,
+    val blockId: String? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
@@ -39,6 +40,9 @@ data class TaskConditionSpec(
         "beforeCalEvent" -> calendarEventId?.let { EventCondition.BeforeCalEvent(it) }
         "afterCalEvent"  -> calendarEventId?.let { EventCondition.AfterCalEvent(it) }
         "duringCalEvent" -> calendarEventId?.let { EventCondition.DuringCalEvent(it) }
+        "beforeBlock"    -> blockId?.let { EventCondition.BeforeBlock(it) }
+        "duringBlock"    -> blockId?.let { EventCondition.DuringBlock(it) }
+        "afterBlock"     -> blockId?.let { EventCondition.AfterBlock(it) }
         else             -> null
     }
 }
