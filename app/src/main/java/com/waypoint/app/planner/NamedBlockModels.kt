@@ -21,7 +21,9 @@ data class NamedBlock(
     /** ISO day-of-week set for the recurring base: 1=Mon … 7=Sun. Empty = no recurring default. */
     val recurringDays: List<Int> = emptyList(),
     val defaultStartHour: Int = 9,
-    val defaultStartMinute: Int = 0
+    val defaultStartMinute: Int = 0,
+    val defaultEndHour: Int = -1,      // -1 = duration mode; ≥0 = time-range mode
+    val defaultEndMinute: Int = 0
 )
 
 /**
@@ -34,7 +36,9 @@ data class NamedBlockSchedule(
     val date: String,           // "yyyy-MM-dd"
     val enabled: Boolean = true,
     val startHour: Int = 9,
-    val startMinute: Int = 0
+    val startMinute: Int = 0,
+    val endHour: Int = -1,             // -1 = use block's estimatedMinutes; ≥0 = explicit end
+    val endMinute: Int = 0
 )
 
 /**

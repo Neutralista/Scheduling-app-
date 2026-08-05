@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -83,6 +84,12 @@ private val BLOCK_COLORS = listOf(
 
 private val DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+private data class DayOverride(
+    val enabled: Boolean,
+    val startH: Int, val startM: Int,
+    val endH: Int = -1, val endM: Int = 0
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NamedBlockSheet(
@@ -97,39 +104,55 @@ fun NamedBlockSheet(
     var nameError by remember { mutableStateOf(false) }
     var selectedColor by remember { mutableIntStateOf(initial?.colorArgb ?: BLOCK_COLORS.first()) }
 
+    // Duration mode state
     val durationPresets = listOf(30, 60, 90, 120, 180)
     val initialDur = initial?.estimatedMinutes ?: 60
     var selectedDuration by remember { mutableIntStateOf(if (initialDur in durationPresets) initialDur else 0) }
     var customDurationText by remember { mutableStateOf(if (initialDur !in durationPresets) initialDur.toString() else "") }
 
+    // Time-range mode toggle: true when block has an explicit end time
+    var useTimeRange by remember { mutableStateOf(initial != null && initial.defaultEndHour != -1) }
+
     var canStartEarly by remember { mutableStateOf(initial?.canStartEarly ?: true) }
     var canRunLate by remember { mutableStateOf(initial?.canRunLate ?: true) }
 
-    val recurringDays = remember { mutableStateListOf<Int>().also {
-        it.addAll(initial?.recurringDays ?: emptyList())
-    }}
+    val recurringDays = remember {
+        mutableStateListOf<Int>().also { it.addAll(initial?.recurringDays ?: emptyList()) }
+    }
     var defaultHour by remember { mutableIntStateOf(initial?.defaultStartHour ?: 9) }
     var defaultMinute by remember { mutableIntStateOf(initial?.defaultStartMinute ?: 0) }
-    var showDefaultTimePicker by remember { mutableStateOf(false) }
+    var showDefaultStartPicker by remember { mutableStateOf(false) }
 
-    // Per-date overrides for next 14 days
+    val initialEndHourValid = initial != null && initial.defaultEndHour != -1
+    var defaultEndHour by remember {
+        mutableIntStateOf(if (initialEndHourValid) initial!!.defaultEndHour else ((initial?.defaultStartHour ?: 9) + 1) % 24)
+    }
+    var defaultEndMinute by remember {
+        mutableIntStateOf(if (initialEndHourValid) initial!!.defaultEndMinute else 0)
+    }
+    var showDefaultEndPicker by remember { mutableStateOf(false) }
+
+    // Per-date overrides for the next 14 days starting today
     val today = remember { LocalDate.now() }
     val next14 = remember { (0..13).map { today.plusDays(it.toLong()) } }
     val dateFmt = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd") }
-    // Map dateStr -> (enabled, hour, minute); null = use recurring default
     val dateOverrides = remember {
-        mutableStateMapOf<String, Triple<Boolean, Int, Int>>().also { map ->
+        mutableStateMapOf<String, DayOverride>().also { map ->
             if (initial != null) {
                 next14.forEach { d ->
                     val stored = store.getSchedule(initial.id, d)
                     if (stored != null) {
-                        map[d.format(dateFmt)] = Triple(stored.enabled, stored.startHour, stored.startMinute)
+                        map[d.format(dateFmt)] = DayOverride(
+                            stored.enabled, stored.startHour, stored.startMinute,
+                            stored.endHour, stored.endMinute
+                        )
                     }
                 }
             }
         }
     }
-    var showDayTimePicker by remember { mutableStateOf<String?>(null) }
+    // Pair<dateKey, isStart>: true = start-time picker, false = end-time picker
+    var showDayTimePicker by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     // Tasks
     val tasks = remember {
@@ -146,6 +169,7 @@ fun NamedBlockSheet(
     ) {
         Surface(Modifier.fillMaxSize(), shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+
                 // Top bar
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -162,8 +186,15 @@ fun NamedBlockSheet(
                     TextButton(onClick = {
                         nameError = name.isBlank()
                         if (nameError) return@TextButton
-                        val dur = if (selectedDuration > 0) selectedDuration
+                        val dur = if (!useTimeRange) {
+                            if (selectedDuration > 0) selectedDuration
                             else customDurationText.toIntOrNull()?.takeIf { it > 0 } ?: 60
+                        } else {
+                            val startMins = defaultHour * 60 + defaultMinute
+                            val endMins = defaultEndHour * 60 + defaultEndMinute
+                            val diff = endMins - startMins
+                            if (diff > 0) diff else (diff + 24 * 60)
+                        }
                         val block = NamedBlock(
                             id = blockId,
                             name = name.trim(),
@@ -173,19 +204,24 @@ fun NamedBlockSheet(
                             canRunLate = canRunLate,
                             recurringDays = recurringDays.sorted(),
                             defaultStartHour = defaultHour,
-                            defaultStartMinute = defaultMinute
+                            defaultStartMinute = defaultMinute,
+                            defaultEndHour = if (useTimeRange) defaultEndHour else -1,
+                            defaultEndMinute = if (useTimeRange) defaultEndMinute else 0
                         )
                         store.saveBlock(block)
-                        // Save per-date overrides
                         next14.forEach { d ->
                             val key = d.format(dateFmt)
-                            val override = dateOverrides[key]
-                            if (override != null) {
-                                store.setSchedule(NamedBlockSchedule(blockId, key,
-                                    override.first, override.second, override.third))
+                            val ov = dateOverrides[key]
+                            if (ov != null) {
+                                store.setSchedule(NamedBlockSchedule(
+                                    blockId = blockId, date = key,
+                                    enabled = ov.enabled,
+                                    startHour = ov.startH, startMinute = ov.startM,
+                                    endHour = if (useTimeRange) ov.endH else -1,
+                                    endMinute = if (useTimeRange) ov.endM else 0
+                                ))
                             }
                         }
-                        // Save tasks
                         tasks.forEach { store.saveTask(it) }
                         onSaved()
                     }) { Text("Save") }
@@ -236,38 +272,55 @@ fun NamedBlockSheet(
                         }
                     }
 
-                    // Duration
+                    // Duration — estimate chips OR time-range pickers
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Estimated duration", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            durationPresets.forEach { min ->
-                                val lbl = when {
-                                    min < 60 -> "${min}m"
-                                    min % 60 == 0 -> "${min / 60}h"
-                                    else -> "${min / 60}h ${min % 60}m"
-                                }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Duration", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 FilterChip(
-                                    selected = selectedDuration == min,
-                                    onClick = { selectedDuration = min; customDurationText = "" },
-                                    label = { Text(lbl) }
+                                    selected = !useTimeRange,
+                                    onClick = { useTimeRange = false },
+                                    label = { Text("Estimate") }
+                                )
+                                FilterChip(
+                                    selected = useTimeRange,
+                                    onClick = { useTimeRange = true },
+                                    label = { Text("Time range") }
                                 )
                             }
-                            FilterChip(
-                                selected = selectedDuration == 0,
-                                onClick = { selectedDuration = 0 },
-                                label = { Text("Other") }
-                            )
                         }
-                        if (selectedDuration == 0) {
-                            OutlinedTextField(
-                                value = customDurationText,
-                                onValueChange = { customDurationText = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Minutes") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true
-                            )
+                        if (!useTimeRange) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                durationPresets.forEach { min ->
+                                    val lbl = when {
+                                        min < 60 -> "${min}m"
+                                        min % 60 == 0 -> "${min / 60}h"
+                                        else -> "${min / 60}h ${min % 60}m"
+                                    }
+                                    FilterChip(
+                                        selected = selectedDuration == min,
+                                        onClick = { selectedDuration = min; customDurationText = "" },
+                                        label = { Text(lbl) }
+                                    )
+                                }
+                                FilterChip(
+                                    selected = selectedDuration == 0,
+                                    onClick = { selectedDuration = 0 },
+                                    label = { Text("Other") }
+                                )
+                            }
+                            if (selectedDuration == 0) {
+                                OutlinedTextField(
+                                    value = customDurationText,
+                                    onValueChange = { customDurationText = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Minutes") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true
+                                )
+                            }
                         }
                     }
 
@@ -297,13 +350,13 @@ fun NamedBlockSheet(
                         }
                     }
 
-                    // Recurring days + default time
+                    // Recurring days + default start/end times
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Recurring schedule", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             DAY_LABELS.forEachIndexed { idx, lbl ->
-                                val dow = idx + 1 // 1=Mon..7=Sun
+                                val dow = idx + 1
                                 FilterChip(
                                     selected = dow in recurringDays,
                                     onClick = {
@@ -317,10 +370,21 @@ fun NamedBlockSheet(
                         if (recurringDays.isNotEmpty()) {
                             Row(verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Default start:", style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { showDefaultTimePicker = true }) {
+                                Text("Default start:",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                TextButton(onClick = { showDefaultStartPicker = true }) {
                                     Text("%02d:%02d".format(defaultHour, defaultMinute),
                                         style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            if (useTimeRange) {
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Default end:", style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = { showDefaultEndPicker = true }) {
+                                        Text("%02d:%02d".format(defaultEndHour, defaultEndMinute),
+                                            style = MaterialTheme.typography.bodyMedium)
+                                    }
                                 }
                             }
                         }
@@ -336,24 +400,31 @@ fun NamedBlockSheet(
                                     val key = date.format(dateFmt)
                                     val dow = date.dayOfWeek.value
                                     val isRecurring = dow in recurringDays
-                                    val override = dateOverrides[key]
-                                    // Determine effective state
-                                    val effectiveEnabled = override?.first ?: isRecurring
-                                    val effectiveHour = override?.second ?: defaultHour
-                                    val effectiveMinute = override?.third ?: defaultMinute
-                                    val isModified = override != null
+                                    val ov = dateOverrides[key]
+                                    val effectiveEnabled = ov?.enabled ?: isRecurring
+                                    val effectiveStartH = ov?.startH ?: defaultHour
+                                    val effectiveStartM = ov?.startM ?: defaultMinute
+                                    val effectiveEndH = ov?.endH?.takeIf { it != -1 } ?: defaultEndHour
+                                    val effectiveEndM = ov?.endM ?: defaultEndMinute
+                                    val isModified = ov != null
 
                                     DayScheduleCard(
                                         date = date,
                                         enabled = effectiveEnabled,
-                                        hour = effectiveHour,
-                                        minute = effectiveMinute,
+                                        hour = effectiveStartH,
+                                        minute = effectiveStartM,
+                                        endHour = if (useTimeRange) effectiveEndH else -1,
+                                        endMinute = effectiveEndM,
                                         isModified = isModified,
                                         onToggle = {
-                                            val newEnabled = !effectiveEnabled
-                                            dateOverrides[key] = Triple(newEnabled, effectiveHour, effectiveMinute)
+                                            dateOverrides[key] = DayOverride(
+                                                !effectiveEnabled,
+                                                effectiveStartH, effectiveStartM,
+                                                effectiveEndH, effectiveEndM
+                                            )
                                         },
-                                        onTimeTap = { showDayTimePicker = key }
+                                        onStartTimeTap = { showDayTimePicker = key to true },
+                                        onEndTimeTap = { showDayTimePicker = key to false }
                                     )
                                 }
                             }
@@ -367,8 +438,7 @@ fun NamedBlockSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f))
                             TextButton(onClick = { showAddTask = true }) {
-                                Icon(Icons.Default.Add, null,
-                                    modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text("Add task")
                             }
@@ -399,27 +469,44 @@ fun NamedBlockSheet(
         }
     }
 
-    // Default time picker dialog
-    if (showDefaultTimePicker) {
+    // Default start time picker
+    if (showDefaultStartPicker) {
         TimePickerDialog(
             initialHour = defaultHour,
             initialMinute = defaultMinute,
-            onDismiss = { showDefaultTimePicker = false },
-            onConfirm = { h, m -> defaultHour = h; defaultMinute = m; showDefaultTimePicker = false }
+            onDismiss = { showDefaultStartPicker = false },
+            onConfirm = { h, m -> defaultHour = h; defaultMinute = m; showDefaultStartPicker = false }
         )
     }
 
-    // Per-day time picker dialog
-    val dayPickerKey = showDayTimePicker
-    if (dayPickerKey != null) {
-        val cur = dateOverrides[dayPickerKey]
+    // Default end time picker (time-range mode only)
+    if (showDefaultEndPicker) {
         TimePickerDialog(
-            initialHour = cur?.second ?: defaultHour,
-            initialMinute = cur?.third ?: defaultMinute,
+            initialHour = defaultEndHour,
+            initialMinute = defaultEndMinute,
+            onDismiss = { showDefaultEndPicker = false },
+            onConfirm = { h, m -> defaultEndHour = h; defaultEndMinute = m; showDefaultEndPicker = false }
+        )
+    }
+
+    // Per-day time picker
+    val pickerTarget = showDayTimePicker
+    if (pickerTarget != null) {
+        val (dayKey, isStart) = pickerTarget
+        val cur = dateOverrides[dayKey]
+        val initH = if (isStart) cur?.startH ?: defaultHour
+                    else cur?.endH?.takeIf { it != -1 } ?: defaultEndHour
+        val initM = if (isStart) cur?.startM ?: defaultMinute
+                    else cur?.endM ?: defaultEndMinute
+        TimePickerDialog(
+            initialHour = initH,
+            initialMinute = initM,
             onDismiss = { showDayTimePicker = null },
             onConfirm = { h, m ->
-                val enabled = dateOverrides[dayPickerKey]?.first ?: true
-                dateOverrides[dayPickerKey] = Triple(enabled, h, m)
+                val base = dateOverrides[dayKey]
+                    ?: DayOverride(true, defaultHour, defaultMinute, defaultEndHour, defaultEndMinute)
+                dateOverrides[dayKey] = if (isStart) base.copy(startH = h, startM = m)
+                                        else base.copy(endH = h, endM = m)
                 showDayTimePicker = null
             }
         )
@@ -446,9 +533,12 @@ private fun DayScheduleCard(
     enabled: Boolean,
     hour: Int,
     minute: Int,
+    endHour: Int = -1,
+    endMinute: Int = 0,
     isModified: Boolean,
     onToggle: () -> Unit,
-    onTimeTap: () -> Unit
+    onStartTimeTap: () -> Unit,
+    onEndTimeTap: () -> Unit = {}
 ) {
     val dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
     val accent = MaterialTheme.colorScheme.primary
@@ -456,7 +546,7 @@ private fun DayScheduleCard(
 
     Column(
         Modifier
-            .width(68.dp)
+            .width(72.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (enabled) accent.copy(alpha = 0.10f) else surf.copy(alpha = 0.5f))
             .border(
@@ -467,7 +557,7 @@ private fun DayScheduleCard(
             )
             .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
             dayName,
@@ -483,12 +573,27 @@ private fun DayScheduleCard(
         )
         Switch(checked = enabled, onCheckedChange = { onToggle() })
         if (enabled) {
-            TextButton(onClick = onTimeTap) {
+            TextButton(
+                onClick = onStartTimeTap,
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+            ) {
                 Text(
                     "%02d:%02d".format(hour, minute),
                     style = MaterialTheme.typography.labelSmall,
                     color = accent
                 )
+            }
+            if (endHour != -1) {
+                TextButton(
+                    onClick = onEndTimeTap,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        "→%02d:%02d".format(endHour, endMinute),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accent.copy(alpha = 0.75f)
+                    )
+                }
             }
         }
     }
