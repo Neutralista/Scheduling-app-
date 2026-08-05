@@ -250,6 +250,7 @@ fun DayTimelineView(
                 // Hour and quarter-hour grid lines
                 val outlineC = outline
                 val hh = hourHeight
+                val showMinuteLines = zoomIndex == 2
                 Canvas(Modifier.fillMaxSize()) {
                     for (h in 0..TOTAL_HOURS) {
                         val y = h * hh.toPx()
@@ -259,6 +260,17 @@ fun DayTimelineView(
                             strokeWidth = 0.5.dp.toPx()
                         )
                         if (h < TOTAL_HOURS) {
+                            if (showMinuteLines) {
+                                for (m in 1..59) {
+                                    if (m % 15 == 0) continue  // quarter-hour drawn below
+                                    val my = y + m * hh.toPx() / 60f
+                                    drawLine(
+                                        color = outlineC.copy(alpha = 0.18f),
+                                        start = Offset(0f, my), end = Offset(size.width, my),
+                                        strokeWidth = 0.2.dp.toPx()
+                                    )
+                                }
+                            }
                             for (q in 1..3) {
                                 val qy = y + q * hh.toPx() / 4f
                                 drawLine(
