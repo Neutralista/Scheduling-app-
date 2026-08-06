@@ -159,6 +159,33 @@ scripts.set(scriptId, state)   // overwrites another script's state
 // Built-in IDs: BUILTIN.WORK_SCHEDULE, BUILTIN.SLEEP_SCHEDULE, BUILTIN.TASK_MANAGER
 ```
 
+## Design Brainstorm — Container / Routine Unification
+
+### Core observation
+Named blocks and routine tasks are the same concept at different levels of scheduling rigidity. A named block is a routine anchored to a time + recurring days. A routine is a named block with no time anchor. The block system is already the richer model — routines should become blocks without a clock, not a parallel system.
+
+### Unified container model
+- Make the time anchor optional on `NamedBlock`. When set → current block behavior. When null → floating routine, placed by the planner as a single unit.
+- Everything else (session model, task sheet, checklist UI, session card, placement/always/situational) already works and serves both without duplication.
+- Planner needs to know how to place an unanchored block the same way it places a floating task.
+
+### Nesting — one level deep, no deeper
+Full inception-style nesting (blocks all the way down) is architecturally possible but the mental model collapses for the user beyond 2 levels, and scheduling recursive containers is hard.
+
+**Decision: support one level of nesting with explicit phase semantics.**
+- A block can contain sub-blocks (phases).
+- A phase can contain tasks.
+- Phases cannot contain phases.
+- Example: Gym → Warmup phase / Workout phase / Cooldown phase, each with their own session entry, checklist, and timing. The outer block anchors the time; inner phases handle structure.
+
+### Sequential vs flexible task ordering
+- Current routine subtasks: purely sequential, dumb (just title + timer).
+- Block tasks: flexible, independently scheduled.
+- Goal: block tasks get an optional `sequence` field. When set, tasks execute in order within the phase/block window. When null, the planner schedules them flexibly by priority.
+
+### What this replaces
+The `isRoutine: Boolean` + `subtasks: List<SubtaskDef>` fields on `TaskRequest` are the legacy model. Long-term these get superseded by unanchored named blocks with ordered tasks.
+
 ## Branch
 
 Active development branch: `claude/app-build-issues-mknbj6`
