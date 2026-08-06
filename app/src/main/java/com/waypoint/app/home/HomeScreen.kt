@@ -25,15 +25,21 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -105,6 +111,7 @@ fun HomeScreen(
 ) {
     val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
@@ -117,10 +124,54 @@ fun HomeScreen(
     val tasksTotal = plannerScheduled.size
     val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
+    val tabLabels = listOf("Plan", "History", "Tasks", "Modules", "Alarms", "Settings")
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "WAYPOINT",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp
+                    ),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(horizontal = 28.dp)
+                )
+                Text(
+                    LocalDate.now().format(
+                        DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 28.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(Modifier.height(8.dp))
+                tabLabels.forEachIndexed { i, label ->
+                    NavigationDrawerItem(
+                        label = { Text(label) },
+                        selected = pagerState.currentPage == i,
+                        onClick = {
+                            scope.launch {
+                                drawerState.close()
+                                pagerState.animateScrollToPage(i)
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+            }
+        }
+    ) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
             tasksDone = tasksDone,
-            tasksTotal = tasksTotal
+            tasksTotal = tasksTotal,
+            onMenuClick = { scope.launch { drawerState.open() } }
         )
         ScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
@@ -168,6 +219,7 @@ fun HomeScreen(
             }
         }
     }
+    } // ModalNavigationDrawer
 }
 
 // ── App header ────────────────────────────────────────────────────────────────
@@ -175,7 +227,8 @@ fun HomeScreen(
 @Composable
 private fun AppHeader(
     tasksDone: Int,
-    tasksTotal: Int
+    tasksTotal: Int,
+    onMenuClick: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val bg = MaterialTheme.colorScheme.background
@@ -203,6 +256,13 @@ private fun AppHeader(
                 radius = 220.dp.toPx(),
                 center = Offset(size.width / 2f, -20.dp.toPx())
             )
+        }
+
+        IconButton(
+            onClick = onMenuClick,
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 4.dp, top = 4.dp)
+        ) {
+            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = primary.copy(alpha = 0.8f))
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
