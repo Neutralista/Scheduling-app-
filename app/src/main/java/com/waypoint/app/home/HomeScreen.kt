@@ -136,7 +136,7 @@ fun HomeScreen(
         AppHeader(
             tasksDone = tasksDone,
             tasksTotal = tasksTotal,
-            onMenuClick = { scope.launch { drawerState.open() } }
+            onMenuClick = { drawerOpen = true }
         )
         ScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
