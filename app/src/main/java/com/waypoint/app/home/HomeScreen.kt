@@ -20,6 +20,11 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
@@ -27,19 +32,17 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDrawerState
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -111,7 +114,7 @@ fun HomeScreen(
 ) {
     val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var drawerOpen by remember { mutableStateOf(false) }
     val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
@@ -126,47 +129,7 @@ fun HomeScreen(
 
     val tabLabels = listOf("Plan", "History", "Tasks", "Modules", "Alarms", "Settings")
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Spacer(Modifier.height(24.dp))
-                Text(
-                    "WAYPOINT",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(horizontal = 28.dp)
-                )
-                Text(
-                    LocalDate.now().format(
-                        DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(horizontal = 28.dp)
-                )
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(Modifier.height(8.dp))
-                tabLabels.forEachIndexed { i, label ->
-                    NavigationDrawerItem(
-                        label = { Text(label) },
-                        selected = pagerState.currentPage == i,
-                        onClick = {
-                            scope.launch {
-                                drawerState.close()
-                                pagerState.animateScrollToPage(i)
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
-                }
-            }
-        }
-    ) {
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
             tasksDone = tasksDone,
@@ -219,7 +182,71 @@ fun HomeScreen(
             }
         }
     }
-    } // ModalNavigationDrawer
+
+    // Scrim
+    AnimatedVisibility(visible = drawerOpen, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f))
+                .clickable { drawerOpen = false }
+        )
+    }
+
+    // Right-side drawer
+    AnimatedVisibility(
+        visible = drawerOpen,
+        enter = slideInHorizontally { it },
+        exit = slideOutHorizontally { it },
+        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+    ) {
+        Surface(
+            Modifier.fillMaxHeight().statusBarsPadding(),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp
+        ) {
+            Column(
+                Modifier
+                    .padding(vertical = 24.dp)
+                    .width(260.dp)
+            ) {
+                Text(
+                    "WAYPOINT",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp
+                    ),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(horizontal = 28.dp)
+                )
+                Text(
+                    LocalDate.now().format(
+                        DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 28.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(Modifier.height(8.dp))
+                tabLabels.forEachIndexed { i, label ->
+                    NavigationDrawerItem(
+                        label = { Text(label) },
+                        selected = pagerState.currentPage == i,
+                        onClick = {
+                            scope.launch {
+                                drawerOpen = false
+                                pagerState.animateScrollToPage(i)
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    } // Box
 }
 
 // ── App header ────────────────────────────────────────────────────────────────
@@ -260,7 +287,7 @@ private fun AppHeader(
 
         IconButton(
             onClick = onMenuClick,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 4.dp, top = 4.dp)
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 4.dp, top = 4.dp)
         ) {
             Icon(Icons.Default.Menu, contentDescription = "Menu", tint = primary.copy(alpha = 0.8f))
         }
