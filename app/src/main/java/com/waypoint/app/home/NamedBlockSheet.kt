@@ -561,13 +561,13 @@ fun NamedBlockSheet(
         )
     }
 
-    // Add / edit task sheet
+    // Add / edit task sheet — full wizard in block mode
     if (showAddTask || editingTask != null) {
-        BlockTaskSheet(
-            blockId = blockId,
-            initial = editingTask,
+        AddTaskSheet(
+            forBlock = blockId,
+            initialBlockTask = editingTask,
             onDismiss = { showAddTask = false; editingTask = null },
-            onSave = { saved ->
+            onSaveBlockTask = { saved ->
                 val idx = tasks.indexOfFirst { it.id == saved.id }
                 if (idx >= 0) tasks[idx] = saved else tasks.add(saved)
                 showAddTask = false; editingTask = null
