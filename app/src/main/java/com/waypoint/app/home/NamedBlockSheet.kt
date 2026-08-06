@@ -115,7 +115,9 @@ fun NamedBlockSheet(
     var customDurationText by remember { mutableStateOf(if (initialDur !in durationPresets) initialDur.toString() else "") }
 
     // Time-range mode toggle: true when block has an explicit end time
-    var useTimeRange by remember { mutableStateOf(initial != null && initial.defaultEndHour != -1) }
+    var useTimeRange by remember { mutableStateOf(initial != null && initial.defaultEndHour != -1 && initial.useTotalTaskDuration != true) }
+    // From-tasks mode: duration is recalculated from the task list on save
+    var useTotalTaskDuration by remember { mutableStateOf(initial?.useTotalTaskDuration ?: false) }
 
     var canStartEarly by remember { mutableStateOf(initial?.canStartEarly ?: true) }
     var canRunLate by remember { mutableStateOf(initial?.canRunLate ?: true) }
@@ -227,14 +229,16 @@ fun NamedBlockSheet(
                     TextButton(onClick = {
                         nameError = name.isBlank()
                         if (nameError) return@TextButton
-                        val dur = if (!useTimeRange) {
-                            if (selectedDuration > 0) selectedDuration
-                            else customDurationText.toIntOrNull()?.takeIf { it > 0 } ?: 60
-                        } else {
-                            val startMins = defaultHour * 60 + defaultMinute
-                            val endMins = defaultEndHour * 60 + defaultEndMinute
-                            val diff = endMins - startMins
-                            if (diff > 0) diff else (diff + 24 * 60)
+                        val dur = when {
+                            useTotalTaskDuration -> tasks.sumOf { it.durationMinutes }.takeIf { it > 0 } ?: 60
+                            !useTimeRange -> if (selectedDuration > 0) selectedDuration
+                                            else customDurationText.toIntOrNull()?.takeIf { it > 0 } ?: 60
+                            else -> {
+                                val startMins = defaultHour * 60 + defaultMinute
+                                val endMins = defaultEndHour * 60 + defaultEndMinute
+                                val diff = endMins - startMins
+                                if (diff > 0) diff else (diff + 24 * 60)
+                            }
                         }
                         val autoConditions: List<TaskConditionSpec> = if (schedulingMode == BlockSchedulingMode.AUTO) buildList {
                             when (autoDay) {
@@ -262,7 +266,8 @@ fun NamedBlockSheet(
                             defaultEndHour = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndHour else -1,
                             defaultEndMinute = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndMinute else 0,
                             isFloating = schedulingMode == BlockSchedulingMode.AUTO,
-                            floatingConditions = autoConditions
+                            floatingConditions = autoConditions,
+                            useTotalTaskDuration = useTotalTaskDuration
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -379,7 +384,7 @@ fun NamedBlockSheet(
                         }
                     }
 
-                    // Duration — estimate chips OR time-range pickers
+                    // Duration — estimate chips / time-range / from tasks
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Duration", style = MaterialTheme.typography.labelMedium,
@@ -387,18 +392,40 @@ fun NamedBlockSheet(
                                 modifier = Modifier.weight(1f))
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 FilterChip(
-                                    selected = !useTimeRange,
-                                    onClick = { useTimeRange = false },
+                                    selected = !useTimeRange && !useTotalTaskDuration,
+                                    onClick = { useTimeRange = false; useTotalTaskDuration = false },
                                     label = { Text("Estimate") }
                                 )
                                 FilterChip(
-                                    selected = useTimeRange,
-                                    onClick = { useTimeRange = true },
+                                    selected = useTimeRange && !useTotalTaskDuration,
+                                    onClick = { useTimeRange = true; useTotalTaskDuration = false },
                                     label = { Text("Time range") }
+                                )
+                                FilterChip(
+                                    selected = useTotalTaskDuration,
+                                    onClick = { useTotalTaskDuration = true; useTimeRange = false },
+                                    label = { Text("From tasks") }
                                 )
                             }
                         }
-                        if (!useTimeRange) {
+                        if (useTotalTaskDuration) {
+                            val taskTotal = tasks.sumOf { it.durationMinutes }
+                            val totalLabel = if (taskTotal < 60) "${taskTotal}m"
+                                            else "${taskTotal / 60}h ${taskTotal % 60}m".trimEnd()
+                            if (tasks.isEmpty()) {
+                                Text(
+                                    "No tasks yet — add tasks below and the block length will match their total.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Text(
+                                    "$totalLabel total · ${tasks.size} task${if (tasks.size == 1) "" else "s"}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        } else if (!useTimeRange) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 durationPresets.forEach { min ->
                                     val lbl = when {

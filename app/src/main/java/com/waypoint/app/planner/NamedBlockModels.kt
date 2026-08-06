@@ -31,7 +31,9 @@ data class NamedBlock(
     /** Day/time conditions that govern when a floating block is eligible to be scheduled. */
     val floatingConditions: List<TaskConditionSpec> = emptyList(),
     /** Relative priority among floating blocks (higher = placed first). */
-    val priority: Int = 5
+    val priority: Int = 5,
+    /** When true, estimatedMinutes is recomputed from the sum of block task durations on each save. */
+    val useTotalTaskDuration: Boolean = false
 )
 
 /**
