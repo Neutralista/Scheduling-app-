@@ -163,8 +163,18 @@ class EventPlannerRegistry {
                 placed = true
                 break
             }
-            // If not placed: block is silently skipped for this day
-            if (!placed) { /* no available slot — skip */ }
+            if (!placed) {
+                blocked += BlockedEvent(
+                    PlannerEvent(
+                        id = "__block__${inst.block.id}",
+                        title = inst.block.name,
+                        durationMinutes = inst.block.estimatedMinutes,
+                        priority = inst.block.priority,
+                        category = EventCategory.BLOCK
+                    ),
+                    "No available time slot for floating block"
+                )
+            }
         }
 
         // ── Named block instances ─────────────────────────────────────────────

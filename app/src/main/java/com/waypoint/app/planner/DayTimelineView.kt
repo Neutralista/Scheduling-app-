@@ -142,7 +142,9 @@ fun DayTimelineView(
         ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
     }
     val totalHours = remember(totalMinutes) { (totalMinutes + 59) / 60 }
-    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
+    var isNowVisible by remember(viewStartMs, viewEndMs) {
+        mutableStateOf(System.currentTimeMillis() in viewStartMs until viewEndMs)
+    }
     val nextDayBlockInstances = remember(date, refreshKey) {
         val nextDate = date.plusDays(1)
         namedBlockStore?.resolveForDate(nextDate)?.map { (block, sched) ->
@@ -257,21 +259,20 @@ fun DayTimelineView(
     }
 
     LaunchedEffect(viewStartMs) {
-        if (isNowVisible) {
-            while (true) {
-                delay(60_000L)
-                nowMin = minutesFromViewStart(viewStartMs)
-                val allCalBlocks = calEventBlocks
-                val blocks = reservingBlocks
-                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
-                    reservingBlocks = blocks, namedBlockInstances = blockInstances,
-                    floatingBlocks = floatingBlockInstances,
-                    nowMs = if (isToday) System.currentTimeMillis() else null)
-                nextDayScheduled = registry.planForDate(date.plusDays(1),
-                    calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                    namedBlockInstances = nextDayBlockInstances,
-                    floatingBlocks = nextDayFloatingInstances).scheduled
-            }
+        while (true) {
+            delay(60_000L)
+            isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
+            nowMin = minutesFromViewStart(viewStartMs)
+            val allCalBlocks = calEventBlocks
+            val blocks = reservingBlocks
+            plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
+                reservingBlocks = blocks, namedBlockInstances = blockInstances,
+                floatingBlocks = floatingBlockInstances,
+                nowMs = if (isToday) System.currentTimeMillis() else null)
+            nextDayScheduled = registry.planForDate(date.plusDays(1),
+                calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                namedBlockInstances = nextDayBlockInstances,
+                floatingBlocks = nextDayFloatingInstances).scheduled
         }
     }
 
