@@ -2,6 +2,8 @@ package com.waypoint.app.planner
 
 import kotlinx.serialization.Serializable
 
+// TaskConditionSpec is defined in TaskQueueStore.kt (same package)
+
 /** Placement of a task relative to its parent named block. */
 @Serializable
 enum class BlockTaskPlacement { BEFORE, DURING, AFTER }
@@ -23,7 +25,13 @@ data class NamedBlock(
     val defaultStartHour: Int = 9,
     val defaultStartMinute: Int = 0,
     val defaultEndHour: Int = -1,      // -1 = duration mode; ≥0 = time-range mode
-    val defaultEndMinute: Int = 0
+    val defaultEndMinute: Int = 0,
+    /** When true, the block is placed by the scheduler like a task (no fixed recurring schedule). */
+    val isFloating: Boolean = false,
+    /** Day/time conditions that govern when a floating block is eligible to be scheduled. */
+    val floatingConditions: List<TaskConditionSpec> = emptyList(),
+    /** Relative priority among floating blocks (higher = placed first). */
+    val priority: Int = 5
 )
 
 /**

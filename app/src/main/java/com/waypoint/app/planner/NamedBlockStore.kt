@@ -59,6 +59,7 @@ class NamedBlockStore(context: Context) {
         val dateStr = date.format(dateFmt)
         val dayOfWeek = date.dayOfWeek.value  // 1=Mon..7=Sun
         return loadAllBlocks().mapNotNull { block ->
+            if (block.isFloating) return@mapNotNull null  // floating blocks are placed by the planner
             // Per-date override takes precedence
             val override = schedules.getString("${block.id}|$dateStr", null)?.let {
                 try { json.decodeFromString<NamedBlockSchedule>(it) } catch (_: Exception) { null }

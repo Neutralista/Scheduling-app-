@@ -65,11 +65,15 @@ import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.TaskConditionSpec
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
+
+private enum class BlockSchedulingMode { FIXED, AUTO }
+private enum class BlockAutoDay { ANY, WORK_DAYS, DAYS_OFF }
 
 private val BLOCK_COLORS = listOf(
     0xFF4DB6AC.toInt(), // teal
@@ -154,6 +158,43 @@ fun NamedBlockSheet(
     // Pair<dateKey, isStart>: true = start-time picker, false = end-time picker
     var showDayTimePicker by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
+    // Scheduling mode
+    var schedulingMode by remember {
+        mutableStateOf(if (initial?.isFloating == true) BlockSchedulingMode.AUTO else BlockSchedulingMode.FIXED)
+    }
+
+    // Auto-place conditions (used when schedulingMode == AUTO)
+    var autoDay by remember {
+        mutableStateOf(when {
+            initial?.floatingConditions?.any { it.type == "workDayOnly" } == true -> BlockAutoDay.WORK_DAYS
+            initial?.floatingConditions?.any { it.type == "dayOffOnly" }  == true -> BlockAutoDay.DAYS_OFF
+            else -> BlockAutoDay.ANY
+        })
+    }
+    val autoDow = remember {
+        mutableStateListOf<Int>().also { list ->
+            initial?.floatingConditions?.firstOrNull { it.type == "daysOfWeek" }
+                ?.days?.let { list.addAll(it) }
+        }
+    }
+    val initAutoTw = initial?.floatingConditions?.firstOrNull { it.type == "timeWindow" }
+    var autoAfterEnabled by remember { mutableStateOf(initAutoTw?.start != null) }
+    var autoAfterHour by remember {
+        mutableIntStateOf(initAutoTw?.start?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 8)
+    }
+    var autoAfterMinute by remember {
+        mutableIntStateOf(initAutoTw?.start?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0)
+    }
+    var autoBeforeEnabled by remember { mutableStateOf(initAutoTw?.end != null) }
+    var autoBeforeHour by remember {
+        mutableIntStateOf(initAutoTw?.end?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 22)
+    }
+    var autoBeforeMinute by remember {
+        mutableIntStateOf(initAutoTw?.end?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0)
+    }
+    var showAutoAfterPicker by remember { mutableStateOf(false) }
+    var showAutoBeforePicker by remember { mutableStateOf(false) }
+
     // Tasks
     val tasks = remember {
         mutableStateListOf<BlockTask>().also { list ->
@@ -195,6 +236,19 @@ fun NamedBlockSheet(
                             val diff = endMins - startMins
                             if (diff > 0) diff else (diff + 24 * 60)
                         }
+                        val autoConditions: List<TaskConditionSpec> = if (schedulingMode == BlockSchedulingMode.AUTO) buildList {
+                            when (autoDay) {
+                                BlockAutoDay.WORK_DAYS -> add(TaskConditionSpec("workDayOnly"))
+                                BlockAutoDay.DAYS_OFF  -> add(TaskConditionSpec("dayOffOnly"))
+                                BlockAutoDay.ANY       -> Unit
+                            }
+                            if (autoDow.isNotEmpty()) add(TaskConditionSpec("daysOfWeek", days = autoDow.sorted()))
+                            if (autoAfterEnabled || autoBeforeEnabled) add(TaskConditionSpec(
+                                "timeWindow",
+                                start = if (autoAfterEnabled) "%02d:%02d".format(autoAfterHour, autoAfterMinute) else null,
+                                end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
+                            ))
+                        } else emptyList()
                         val block = NamedBlock(
                             id = blockId,
                             name = name.trim(),
@@ -202,24 +256,28 @@ fun NamedBlockSheet(
                             estimatedMinutes = dur,
                             canStartEarly = canStartEarly,
                             canRunLate = canRunLate,
-                            recurringDays = recurringDays.sorted(),
+                            recurringDays = if (schedulingMode == BlockSchedulingMode.FIXED) recurringDays.sorted() else emptyList(),
                             defaultStartHour = defaultHour,
                             defaultStartMinute = defaultMinute,
-                            defaultEndHour = if (useTimeRange) defaultEndHour else -1,
-                            defaultEndMinute = if (useTimeRange) defaultEndMinute else 0
+                            defaultEndHour = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndHour else -1,
+                            defaultEndMinute = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndMinute else 0,
+                            isFloating = schedulingMode == BlockSchedulingMode.AUTO,
+                            floatingConditions = autoConditions
                         )
                         store.saveBlock(block)
-                        next14.forEach { d ->
-                            val key = d.format(dateFmt)
-                            val ov = dateOverrides[key]
-                            if (ov != null) {
-                                store.setSchedule(NamedBlockSchedule(
-                                    blockId = blockId, date = key,
-                                    enabled = ov.enabled,
-                                    startHour = ov.startH, startMinute = ov.startM,
-                                    endHour = if (useTimeRange) ov.endH else -1,
-                                    endMinute = if (useTimeRange) ov.endM else 0
-                                ))
+                        if (schedulingMode == BlockSchedulingMode.FIXED) {
+                            next14.forEach { d ->
+                                val key = d.format(dateFmt)
+                                val ov = dateOverrides[key]
+                                if (ov != null) {
+                                    store.setSchedule(NamedBlockSchedule(
+                                        blockId = blockId, date = key,
+                                        enabled = ov.enabled,
+                                        startHour = ov.startH, startMinute = ov.startM,
+                                        endHour = if (useTimeRange) ov.endH else -1,
+                                        endMinute = if (useTimeRange) ov.endM else 0
+                                    ))
+                                }
                             }
                         }
                         tasks.forEach { store.saveTask(it) }
@@ -399,82 +457,169 @@ fun NamedBlockSheet(
                         }
                     }
 
-                    // Recurring days + default start/end times
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Recurring schedule", style = MaterialTheme.typography.labelMedium,
+                    // Scheduling mode
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Scheduling", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            DAY_LABELS.forEachIndexed { idx, lbl ->
-                                val dow = idx + 1
-                                FilterChip(
-                                    selected = dow in recurringDays,
-                                    onClick = {
-                                        if (dow in recurringDays) recurringDays.remove(dow)
-                                        else recurringDays.add(dow)
-                                    },
-                                    label = { Text(lbl) }
-                                )
-                            }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = schedulingMode == BlockSchedulingMode.FIXED,
+                                onClick = { schedulingMode = BlockSchedulingMode.FIXED },
+                                label = { Text("Fixed schedule") }
+                            )
+                            FilterChip(
+                                selected = schedulingMode == BlockSchedulingMode.AUTO,
+                                onClick = { schedulingMode = BlockSchedulingMode.AUTO },
+                                label = { Text("Auto-place") }
+                            )
                         }
-                        if (recurringDays.isNotEmpty()) {
-                            Row(verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Default start:",
-                                    style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { showDefaultStartPicker = true }) {
-                                    Text("%02d:%02d".format(defaultHour, defaultMinute),
-                                        style = MaterialTheme.typography.bodyMedium)
+
+                        if (schedulingMode == BlockSchedulingMode.FIXED) {
+                            // Recurring days + default start/end times
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    DAY_LABELS.forEachIndexed { idx, lbl ->
+                                        val dow = idx + 1
+                                        FilterChip(
+                                            selected = dow in recurringDays,
+                                            onClick = {
+                                                if (dow in recurringDays) recurringDays.remove(dow)
+                                                else recurringDays.add(dow)
+                                            },
+                                            label = { Text(lbl) }
+                                        )
+                                    }
                                 }
-                            }
-                            if (useTimeRange) {
-                                Row(verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Default end:", style = MaterialTheme.typography.bodyMedium)
-                                    TextButton(onClick = { showDefaultEndPicker = true }) {
-                                        Text("%02d:%02d".format(defaultEndHour, defaultEndMinute),
-                                            style = MaterialTheme.typography.bodyMedium)
+                                if (recurringDays.isNotEmpty()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Default start:", style = MaterialTheme.typography.bodyMedium)
+                                        TextButton(onClick = { showDefaultStartPicker = true }) {
+                                            Text("%02d:%02d".format(defaultHour, defaultMinute),
+                                                style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                    if (useTimeRange) {
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("Default end:", style = MaterialTheme.typography.bodyMedium)
+                                            TextButton(onClick = { showDefaultEndPicker = true }) {
+                                                Text("%02d:%02d".format(defaultEndHour, defaultEndMinute),
+                                                    style = MaterialTheme.typography.bodyMedium)
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
 
-                    // Next 14 days strip
-                    if (recurringDays.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Next 14 days", style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(next14) { date ->
-                                    val key = date.format(dateFmt)
-                                    val dow = date.dayOfWeek.value
-                                    val isRecurring = dow in recurringDays
-                                    val ov = dateOverrides[key]
-                                    val effectiveEnabled = ov?.enabled ?: isRecurring
-                                    val effectiveStartH = ov?.startH ?: defaultHour
-                                    val effectiveStartM = ov?.startM ?: defaultMinute
-                                    val effectiveEndH = ov?.endH?.takeIf { it != -1 } ?: defaultEndHour
-                                    val effectiveEndM = ov?.endM ?: defaultEndMinute
-                                    val isModified = ov != null
+                            // Next 14 days strip
+                            if (recurringDays.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Next 14 days", style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(next14) { date ->
+                                            val key = date.format(dateFmt)
+                                            val dow = date.dayOfWeek.value
+                                            val isRecurring = dow in recurringDays
+                                            val ov = dateOverrides[key]
+                                            val effectiveEnabled = ov?.enabled ?: isRecurring
+                                            val effectiveStartH = ov?.startH ?: defaultHour
+                                            val effectiveStartM = ov?.startM ?: defaultMinute
+                                            val effectiveEndH = ov?.endH?.takeIf { it != -1 } ?: defaultEndHour
+                                            val effectiveEndM = ov?.endM ?: defaultEndMinute
+                                            val isModified = ov != null
 
-                                    DayScheduleCard(
-                                        date = date,
-                                        enabled = effectiveEnabled,
-                                        hour = effectiveStartH,
-                                        minute = effectiveStartM,
-                                        endHour = if (useTimeRange) effectiveEndH else -1,
-                                        endMinute = effectiveEndM,
-                                        isModified = isModified,
-                                        onToggle = {
-                                            dateOverrides[key] = DayOverride(
-                                                !effectiveEnabled,
-                                                effectiveStartH, effectiveStartM,
-                                                effectiveEndH, effectiveEndM
+                                            DayScheduleCard(
+                                                date = date,
+                                                enabled = effectiveEnabled,
+                                                hour = effectiveStartH,
+                                                minute = effectiveStartM,
+                                                endHour = if (useTimeRange) effectiveEndH else -1,
+                                                endMinute = effectiveEndM,
+                                                isModified = isModified,
+                                                onToggle = {
+                                                    dateOverrides[key] = DayOverride(
+                                                        !effectiveEnabled,
+                                                        effectiveStartH, effectiveStartM,
+                                                        effectiveEndH, effectiveEndM
+                                                    )
+                                                },
+                                                onStartTimeTap = { showDayTimePicker = key to true },
+                                                onEndTimeTap = { showDayTimePicker = key to false }
                                             )
-                                        },
-                                        onStartTimeTap = { showDayTimePicker = key to true },
-                                        onEndTimeTap = { showDayTimePicker = key to false }
-                                    )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Auto-place conditions
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    "The scheduler will find an available slot each day based on these conditions.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                // Day type
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Day", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        FilterChip(selected = autoDay == BlockAutoDay.ANY,
+                                            onClick = { autoDay = BlockAutoDay.ANY },
+                                            label = { Text("Any day") })
+                                        FilterChip(selected = autoDay == BlockAutoDay.WORK_DAYS,
+                                            onClick = { autoDay = BlockAutoDay.WORK_DAYS },
+                                            label = { Text("Work days") })
+                                        FilterChip(selected = autoDay == BlockAutoDay.DAYS_OFF,
+                                            onClick = { autoDay = BlockAutoDay.DAYS_OFF },
+                                            label = { Text("Days off") })
+                                    }
+                                }
+
+                                // Days of week (optional)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Days of week (optional)", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        DAY_LABELS.forEachIndexed { idx, lbl ->
+                                            val dow = idx + 1
+                                            FilterChip(
+                                                selected = dow in autoDow,
+                                                onClick = {
+                                                    if (dow in autoDow) autoDow.remove(dow) else autoDow.add(dow)
+                                                },
+                                                label = { Text(lbl) }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Time window (optional)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Time window (optional)", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Switch(checked = autoAfterEnabled, onCheckedChange = { autoAfterEnabled = it })
+                                        Text("After", style = MaterialTheme.typography.bodyMedium)
+                                        if (autoAfterEnabled) {
+                                            TextButton(onClick = { showAutoAfterPicker = true }) {
+                                                Text("%02d:%02d".format(autoAfterHour, autoAfterMinute))
+                                            }
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Switch(checked = autoBeforeEnabled, onCheckedChange = { autoBeforeEnabled = it })
+                                        Text("Before", style = MaterialTheme.typography.bodyMedium)
+                                        if (autoBeforeEnabled) {
+                                            TextButton(onClick = { showAutoBeforePicker = true }) {
+                                                Text("%02d:%02d".format(autoBeforeHour, autoBeforeMinute))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -535,6 +680,26 @@ fun NamedBlockSheet(
             initialMinute = defaultEndMinute,
             onDismiss = { showDefaultEndPicker = false },
             onConfirm = { h, m -> defaultEndHour = h; defaultEndMinute = m; showDefaultEndPicker = false }
+        )
+    }
+
+    // Auto-place "After" time picker
+    if (showAutoAfterPicker) {
+        TimePickerDialog(
+            initialHour = autoAfterHour,
+            initialMinute = autoAfterMinute,
+            onDismiss = { showAutoAfterPicker = false },
+            onConfirm = { h, m -> autoAfterHour = h; autoAfterMinute = m; showAutoAfterPicker = false }
+        )
+    }
+
+    // Auto-place "Before" time picker
+    if (showAutoBeforePicker) {
+        TimePickerDialog(
+            initialHour = autoBeforeHour,
+            initialMinute = autoBeforeMinute,
+            onDismiss = { showAutoBeforePicker = false },
+            onConfirm = { h, m -> autoBeforeHour = h; autoBeforeMinute = m; showAutoBeforePicker = false }
         )
     }
 

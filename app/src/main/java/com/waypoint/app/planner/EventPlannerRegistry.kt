@@ -31,11 +31,13 @@ class EventPlannerRegistry {
         shiftEndMs: Long? = null,
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
         reservingBlocks: List<Pair<Long, Long>> = emptyList(),
-        namedBlockInstances: List<NamedBlockInstance> = emptyList()
+        namedBlockInstances: List<NamedBlockInstance> = emptyList(),
+        floatingBlocks: List<NamedBlockInstance> = emptyList()
     ): DayPlan = planForDate(
         LocalDate.now(), isWorkDay, shiftStartMs, shiftEndMs, calendarEventBlocks, reservingBlocks,
         nowMs = System.currentTimeMillis(),
-        namedBlockInstances = namedBlockInstances
+        namedBlockInstances = namedBlockInstances,
+        floatingBlocks = floatingBlocks
     )
 
     fun planForDate(
@@ -46,7 +48,8 @@ class EventPlannerRegistry {
         calendarEventBlocks: Map<Long, Pair<Long, Long>> = emptyMap(),
         reservingBlocks: List<Pair<Long, Long>> = emptyList(),
         nowMs: Long? = null,
-        namedBlockInstances: List<NamedBlockInstance> = emptyList()
+        namedBlockInstances: List<NamedBlockInstance> = emptyList(),
+        floatingBlocks: List<NamedBlockInstance> = emptyList()
     ): DayPlan {
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, date.year)
@@ -122,13 +125,56 @@ class EventPlannerRegistry {
             .map { it.startMillis to it.endMillis } + reservingBlocks
         val remaining = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervals).toMutableList()
 
+        // ── Floating named blocks ──────────────────────────────────────────────
+        // Blocks with isFloating=true have no fixed schedule; place them in available
+        // time using first-fit before tasks run, ordered by block priority descending.
+        val floatingResolved = mutableListOf<NamedBlockInstance>()
+        for (inst in floatingBlocks.sortedByDescending { it.block.priority }) {
+            val eligible = inst.block.floatingConditions.none { spec ->
+                when (spec.type) {
+                    "workDayOnly" -> !isWorkDay
+                    "dayOffOnly"  -> isWorkDay
+                    "daysOfWeek"  -> spec.days?.let { date.dayOfWeek.value !in it } ?: false
+                    else -> false
+                }
+            }
+            if (!eligible) continue
+            val durationMs = inst.block.estimatedMinutes * 60_000L
+            val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
+            var placed = false
+            for (i in remaining.indices) {
+                val (bStart, bEnd) = remaining[i]
+                val fitStart = if (tw?.start != null) {
+                    val p = tw.start!!.split(":"); val h = p[0].toIntOrNull() ?: 0; val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+                    maxOf(bStart, toMs(h, m))
+                } else bStart
+                val fitEnd = if (tw?.end != null) {
+                    val p = tw.end!!.split(":"); val h = p[0].toIntOrNull() ?: 23; val m = p.getOrNull(1)?.toIntOrNull() ?: 59
+                    minOf(bEnd, toMs(h, m))
+                } else bEnd
+                if (fitEnd - fitStart < durationMs) continue
+                floatingResolved += NamedBlockInstance(
+                    block = inst.block,
+                    scheduledStartMs = fitStart,
+                    estimatedEndMs = fitStart + durationMs,
+                    activeTasks = inst.activeTasks
+                )
+                remaining[i] = (fitStart + durationMs) to bEnd
+                placed = true
+                break
+            }
+            // If not placed: block is silently skipped for this day
+            if (!placed) { /* no available slot — skip */ }
+        }
+
         // ── Named block instances ─────────────────────────────────────────────
         // Each block is placed as a placeholder scheduled event at its scheduled start.
         // Its tasks are injected into allSchedulable with synthesised conditions so the
         // main greedy pass positions them relative to the block boundaries.
         // After the pass we expand/contract each block's displayed extent.
+        val allBlockInstances = namedBlockInstances + floatingResolved
         val blockEventPrefix = "__block__"
-        for (inst in namedBlockInstances) {
+        for (inst in allBlockInstances) {
             val blockEventId = "$blockEventPrefix${inst.block.id}"
             val blockPlannerEvent = PlannerEvent(
                 id = blockEventId,
@@ -161,7 +207,7 @@ class EventPlannerRegistry {
             }
         }
         // Re-build fixedIntervals to include block bodies (DuringBlock tasks will carve into them)
-        val blockFixedIntervals = namedBlockInstances.map { it.scheduledStartMs to it.estimatedEndMs }
+        val blockFixedIntervals = allBlockInstances.map { it.scheduledStartMs to it.estimatedEndMs }
         val fixedIntervalsWithBlocks = fixedIntervals + blockFixedIntervals
         val remainingWithBlocks = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervalsWithBlocks).toMutableList()
         // Use remainingWithBlocks as the working set from here on
@@ -444,7 +490,7 @@ class EventPlannerRegistry {
         // BEFORE tasks that were placed before the block's scheduled start pull the
         // displayed block start earlier (canStartEarly); AFTER tasks that overran push
         // the displayed block end later (canRunLate).
-        for (inst in namedBlockInstances) {
+        for (inst in allBlockInstances) {
             val blockEventId = "$blockEventPrefix${inst.block.id}"
             val beforeTaskIds = inst.activeTasks
                 .filter { it.placement == BlockTaskPlacement.BEFORE }.map { it.id }.toSet()

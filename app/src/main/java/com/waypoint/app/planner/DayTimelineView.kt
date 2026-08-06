@@ -114,6 +114,13 @@ fun DayTimelineView(
                 namedBlockStore.resolveActiveTasks(block.id, date))
         } ?: emptyList()
     }
+    // Floating blocks have no fixed schedule; the planner assigns them a slot.
+    // Pass with placeholder times (0L) — the planner fills in the real start/end.
+    val floatingBlockInstances = remember(date, refreshKey) {
+        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
+            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, date))
+        } ?: emptyList()
+    }
 
     // In session mode use the block's SCHEDULED start (from blockInstances) so the full
     // block history is visible from 09:00 even if the user tapped Start at 22:00.
@@ -150,13 +157,21 @@ fun DayTimelineView(
                 namedBlockStore.resolveActiveTasks(block.id, nextDate))
         } ?: emptyList()
     }
+    val nextDayFloatingInstances = remember(date, refreshKey) {
+        val nextDate = date.plusDays(1)
+        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
+            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, nextDate))
+        } ?: emptyList()
+    }
 
     var plan by remember(date, refreshKey) {
         mutableStateOf(registry.planForDate(date, namedBlockInstances = blockInstances,
+            floatingBlocks = floatingBlockInstances,
             nowMs = if (isToday) System.currentTimeMillis() else null))
     }
     var nextDayScheduled by remember(date, refreshKey) {
-        mutableStateOf(registry.planForDate(date.plusDays(1), namedBlockInstances = nextDayBlockInstances).scheduled)
+        mutableStateOf(registry.planForDate(date.plusDays(1), namedBlockInstances = nextDayBlockInstances,
+            floatingBlocks = nextDayFloatingInstances).scheduled)
     }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
     var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
@@ -228,10 +243,12 @@ fun DayTimelineView(
                 reservingBlocks = blocks
                 plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
                     reservingBlocks = blocks, namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingBlockInstances,
                     nowMs = if (isToday) System.currentTimeMillis() else null)
                 nextDayScheduled = registry.planForDate(date.plusDays(1),
                     calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                    namedBlockInstances = nextDayBlockInstances).scheduled
+                    namedBlockInstances = nextDayBlockInstances,
+                    floatingBlocks = nextDayFloatingInstances).scheduled
                 onCalEventsChanged?.invoke(combined)
             }
         }
@@ -248,10 +265,12 @@ fun DayTimelineView(
                 val blocks = reservingBlocks
                 plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
                     reservingBlocks = blocks, namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingBlockInstances,
                     nowMs = if (isToday) System.currentTimeMillis() else null)
                 nextDayScheduled = registry.planForDate(date.plusDays(1),
                     calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                    namedBlockInstances = nextDayBlockInstances).scheduled
+                    namedBlockInstances = nextDayBlockInstances,
+                    floatingBlocks = nextDayFloatingInstances).scheduled
             }
         }
     }
