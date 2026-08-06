@@ -274,6 +274,15 @@ class EventPlannerRegistry {
             blocked += BlockedEvent(it, "Cyclic dependency")
         }
 
+        // Per-block free slot lists for DuringBlock task placement (prevents overlap)
+        val blockFreeSlots: MutableMap<String, MutableList<Pair<Long, Long>>> = mutableMapOf()
+        for (inst in allBlockInstances) {
+            blockFreeSlots[inst.block.id] = mutableListOf(inst.scheduledStartMs to inst.estimatedEndMs)
+        }
+        // Free slot list for DuringShift task placement (prevents overlap)
+        val shiftFreeSlots: MutableList<Pair<Long, Long>> = if (shiftStartMs != null && shiftEndMs != null)
+            mutableListOf(shiftStartMs to shiftEndMs) else mutableListOf()
+
         // ── Single scheduling pass in dependency order ────────────────────────
         for (event in order) {
             val durationMs  = event.durationMinutes * 60_000L
@@ -330,10 +339,10 @@ class EventPlannerRegistry {
             val beforeBlock = event.conditions.filterIsInstance<EventCondition.BeforeBlock>().firstOrNull()
             val afterBlock  = event.conditions.filterIsInstance<EventCondition.AfterBlock>().firstOrNull()
             val blockMustEndBefore = beforeBlock?.let { cond ->
-                namedBlockInstances.find { it.block.id == cond.blockId }?.scheduledStartMs
+                allBlockInstances.find { it.block.id == cond.blockId }?.scheduledStartMs
             }
             val blockMustStartAfter = afterBlock?.let { cond ->
-                namedBlockInstances.find { it.block.id == cond.blockId }?.estimatedEndMs
+                allBlockInstances.find { it.block.id == cond.blockId }?.estimatedEndMs
             }
             val effectiveMustEndBefore = listOfNotNull(
                 mustEndBefore, calMustEndBefore, blockMustEndBefore
@@ -369,30 +378,41 @@ class EventPlannerRegistry {
 
             var placed = false
 
-            // DuringShift: constrained to the shift window only
+            // DuringShift: greedy first-fit within shift free slots to prevent overlap
             if (duringShift && shiftStartMs != null && shiftEndMs != null) {
-                val fitStart = if (tw != null) maxOf(shiftStartMs, toMs(tw.startHour, tw.startMin)) else shiftStartMs
-                val fitEnd   = if (tw != null) minOf(shiftEndMs,   toMs(tw.endHour,   tw.endMin))   else shiftEndMs
-                if (fitEnd - fitStart >= durationMs) {
+                for (i in shiftFreeSlots.indices) {
+                    val (slotStart, slotEnd) = shiftFreeSlots[i]
+                    val fitStart = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
+                    val fitEnd   = if (tw != null) minOf(slotEnd,   toMs(tw.endHour,   tw.endMin))   else slotEnd
+                    if (fitEnd - fitStart < durationMs) continue
                     scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    shiftFreeSlots[i] = (fitStart + durationMs) to slotEnd
                     placed = true
+                    break
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time in shift")
                 continue
             }
 
-            // DuringBlock: placed within the named block's estimated window
+            // DuringBlock: greedy first-fit within per-block free slots to prevent overlap
             val duringBlock = event.conditions.filterIsInstance<EventCondition.DuringBlock>().firstOrNull()
             if (duringBlock != null) {
-                val inst = namedBlockInstances.find { it.block.id == duringBlock.blockId }
+                val inst = allBlockInstances.find { it.block.id == duringBlock.blockId }
                 if (inst == null) {
                     blocked += BlockedEvent(event, "Named block not scheduled today"); continue
                 }
-                val fitStart = if (tw != null) maxOf(inst.scheduledStartMs, toMs(tw.startHour, tw.startMin)) else inst.scheduledStartMs
-                val fitEnd   = if (tw != null) minOf(inst.estimatedEndMs,   toMs(tw.endHour,   tw.endMin))   else inst.estimatedEndMs
-                if (fitEnd - fitStart >= durationMs) {
+                val slots = blockFreeSlots.getOrPut(inst.block.id) {
+                    mutableListOf(inst.scheduledStartMs to inst.estimatedEndMs)
+                }
+                for (i in slots.indices) {
+                    val (slotStart, slotEnd) = slots[i]
+                    val fitStart = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
+                    val fitEnd   = if (tw != null) minOf(slotEnd,   toMs(tw.endHour,   tw.endMin))   else slotEnd
+                    if (fitEnd - fitStart < durationMs) continue
                     scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    slots[i] = (fitStart + durationMs) to slotEnd
                     placed = true
+                    break
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time in block window")
                 continue
