@@ -608,7 +608,8 @@ private fun PlanTab(
                 blockLogStore = blockSessionLogStore,
                 date = selectedDate,
                 modifier = Modifier.weight(1f),
-                onEndSession = { blockSessionStore.endSession() }
+                onEndSession = { blockSessionStore.endSession() },
+                onTaskClick = { selectedPlannerEvent = it }
             )
         } else {
             DayTimelineView(

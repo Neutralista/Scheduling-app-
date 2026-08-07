@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -81,7 +82,8 @@ fun BlockScopeView(
     blockLogStore: BlockSessionLogStore? = null,
     date: LocalDate,
     modifier: Modifier = Modifier,
-    onEndSession: () -> Unit
+    onEndSession: () -> Unit,
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null
 ) {
     val blockColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
 
@@ -189,7 +191,8 @@ fun BlockScopeView(
                     secCont = secCont,
                     onSecCont = onSecCont,
                     outline = outline,
-                    onSV = onSV
+                    onSV = onSV,
+                    onTaskClick = onTaskClick
                 )
             }
         }
@@ -283,7 +286,8 @@ private fun BsTimelineBody(
     secCont: Color,
     onSecCont: Color,
     outline: Color,
-    onSV: Color
+    onSV: Color,
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null
 ) {
     Box(modifier.fillMaxHeight().clipToBounds()) {
 
@@ -352,7 +356,7 @@ private fun BsTimelineBody(
         // Task tiles
         val eventColors = listOf(secCont to onSecCont)
         blockSubTasks.sortedBy { it.startMillis }.forEachIndexed { idx, se ->
-            BsTaskTile(se, viewStartMs, totalMinutes, eventColors[idx % eventColors.size])
+            BsTaskTile(se, viewStartMs, totalMinutes, eventColors[idx % eventColors.size], onTaskClick)
         }
 
         // Current-time indicator
@@ -411,7 +415,8 @@ private fun BsTaskTile(
     se: ScheduledEvent,
     viewStartMs: Long,
     totalMinutes: Int,
-    colorPair: Pair<Color, Color>
+    colorPair: Pair<Color, Color>,
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null
 ) {
     val seStartMin = bsMsToMin(se.startMillis, viewStartMs)
     val seEndMin   = bsMsToMin(se.endMillis,   viewStartMs)
@@ -428,6 +433,7 @@ private fun BsTaskTile(
             .height(eventH)
             .padding(horizontal = 6.dp)
             .clip(RoundedCornerShape(6.dp))
+            .then(if (onTaskClick != null) Modifier.clickable { onTaskClick(se) } else Modifier)
             .background(bg)
             .border(1.dp, fg.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
     ) {
