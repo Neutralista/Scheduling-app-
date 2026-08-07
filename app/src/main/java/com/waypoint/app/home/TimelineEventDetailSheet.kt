@@ -12,10 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -51,7 +56,10 @@ fun TimelineEventDetailSheet(
     item: TimelineDetailItem,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)? = null,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    onStart: (() -> Unit)? = null,
+    onComplete: (() -> Unit)? = null,
+    onBlockStart: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -70,11 +78,50 @@ fun TimelineEventDetailSheet(
                     PlannerContent(item.scheduled, item.task)
             }
 
+            // Primary action buttons (start / complete / start block)
+            val hasActions = onStart != null || onComplete != null || onBlockStart != null
+            if (hasActions) {
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (onBlockStart != null) {
+                        Button(
+                            onClick = { onBlockStart(); onDismiss() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("▶ Start block")
+                        }
+                    }
+                    if (onStart != null) {
+                        OutlinedButton(
+                            onClick = { onStart(); onDismiss() },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Start")
+                        }
+                    }
+                    if (onComplete != null) {
+                        FilledTonalButton(
+                            onClick = { onComplete(); onDismiss() },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Done")
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(20.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(12.dp))
 
-            // Action buttons
+            // Secondary actions (close / edit / delete)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

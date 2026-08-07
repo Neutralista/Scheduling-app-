@@ -673,6 +673,10 @@ private fun PlanTab(
     val selPlanner = selectedPlannerEvent
     if (selPlanner != null) {
         val taskReq = taskManager.getAllTasks().find { it.id == selPlanner.event.id }
+        val isBlockTile = selPlanner.event.id.startsWith("__block__")
+        val blockTileId = if (isBlockTile) selPlanner.event.id.removePrefix("__block__") else null
+        val isRunning = taskManager.getRunningExecution()?.taskId == selPlanner.event.id
+        val isDone = taskManager.completions.isDone(selPlanner.event.id)
         TimelineEventDetailSheet(
             item = TimelineDetailItem.PlannerItem(selPlanner, taskReq),
             onDismiss = { selectedPlannerEvent = null },
@@ -685,7 +689,33 @@ private fun PlanTab(
                     calRefreshKey++
                     selectedPlannerEvent = null
                 }
-            } else null
+            } else null,
+            onStart = if (taskReq != null && !isRunning && !isDone) {
+                {
+                    taskManager.getRunningExecution()?.let { taskManager.stopExecution(it.taskId) }
+                    taskManager.startExecution(selPlanner.event.id)
+                    taskManager.syncToRegistry()
+                    calRefreshKey++
+                    headerRefreshKey++
+                }
+            } else null,
+            onComplete = if (taskReq != null && !isDone) {
+                {
+                    if (isRunning) taskManager.stopExecution(selPlanner.event.id)
+                    taskManager.markDone(selPlanner.event.id)
+                    taskManager.syncToRegistry()
+                    calRefreshKey++
+                    headerRefreshKey++
+                }
+            } else null,
+            onBlockStart = if (blockTileId != null && activeSession == null) {
+                {
+                    val block = namedBlockStore.loadBlock(blockTileId)
+                    if (block != null) {
+                        blockSessionStore.startSession(block, selPlanner.endMillis, selectedDate)
+                    }
+                }
+            } else null,
         )
     }
 
