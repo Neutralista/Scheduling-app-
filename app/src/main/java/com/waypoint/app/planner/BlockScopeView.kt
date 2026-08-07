@@ -353,8 +353,11 @@ private fun BsTimelineBody(
         }
         if (blockEndMin > cursor && blockEndMin - cursor >= 10) BsFreeWindow(cursor, blockEndMin, onSV)
 
-        // Task tiles
-        val eventColors = listOf(secCont to onSecCont)
+        // Task tiles — bg uses alpha to match the translucent style of the regular timeline
+        val eventColors = listOf(
+            secCont.copy(alpha = 0.35f) to onSecCont,
+            onSV.copy(alpha = 0.12f) to onSV
+        )
         blockSubTasks.sortedBy { it.startMillis }.forEachIndexed { idx, se ->
             BsTaskTile(se, viewStartMs, totalMinutes, eventColors[idx % eventColors.size], onTaskClick)
         }
