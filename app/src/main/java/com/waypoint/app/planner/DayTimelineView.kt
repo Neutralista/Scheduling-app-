@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -553,13 +554,19 @@ private fun TimelineBody(
             CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
         }
 
-        // Planner event blocks (block sub-tasks are rendered inside the block tile, not here)
+        // Planner event blocks — sub-tasks are shown inside their parent block tile
+        val blockSubTasksMap = visibleScheduled
+            .filter { it.event.sourceWidgetId?.startsWith("__block__") == true }
+            .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
         val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
         var habitIdx = 0
         visibleScheduled.filter { it.event.sourceWidgetId?.startsWith("__block__") != true }.forEach { se ->
             val colorPair = if (se.event.category == EventCategory.SLEEP ||
                                 se.event.category == EventCategory.BLOCK) null
                             else eventColors[habitIdx++ % eventColors.size]
+            val subTasks = if (se.event.category == EventCategory.BLOCK)
+                blockSubTasksMap[se.event.id.removePrefix("__block__")] ?: emptyList()
+            else emptyList()
             PlannerEventBlock(
                 se = se,
                 viewStartMs = viewStartMs,
@@ -567,6 +574,7 @@ private fun TimelineBody(
                 blockInstances = blockInstances,
                 nextDayBlockInstances = nextDayBlockInstances,
                 defaultColorPair = colorPair,
+                blockSubTasks = subTasks,
                 isToday = isToday,
                 activeBlockId = activeBlockId,
                 onBlockStart = onBlockStart,
@@ -722,6 +730,7 @@ private fun PlannerEventBlock(
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
     defaultColorPair: Pair<Color, Color>?,
+    blockSubTasks: List<ScheduledEvent> = emptyList(),
     isToday: Boolean,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
@@ -789,6 +798,20 @@ private fun PlannerEventBlock(
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = fg.copy(alpha = 0.65f)
                 )
+            }
+            if (isBlock && blockSubTasks.isNotEmpty() && eventH >= 56.dp) {
+                Spacer(Modifier.height(2.dp))
+                blockSubTasks.sortedBy { it.startMillis }.forEach { task ->
+                    val durMin = ((task.endMillis - task.startMillis) / 60_000L).toInt()
+                    val durLabel = if (durMin < 60) "${durMin}m"
+                        else "${durMin / 60}h${if (durMin % 60 > 0) " ${durMin % 60}m" else ""}"
+                    Text(
+                        "· ${fmtMs(task.startMillis)}  ${task.event.title}  $durLabel",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = fg.copy(alpha = 0.75f),
+                        maxLines = 1
+                    )
+                }
             }
         }
         if (showStartButton) {
