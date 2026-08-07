@@ -197,6 +197,15 @@ fun NamedBlockSheet(
     var showAutoAfterPicker by remember { mutableStateOf(false) }
     var showAutoBeforePicker by remember { mutableStateOf(false) }
 
+    // Block-relative positioning (auto-place mode)
+    var autoAfterBlockId by remember {
+        mutableStateOf(initial?.floatingConditions?.firstOrNull { it.type == "afterBlock" }?.blockId)
+    }
+    var autoBeforeBlockId by remember {
+        mutableStateOf(initial?.floatingConditions?.firstOrNull { it.type == "beforeBlock" }?.blockId)
+    }
+    val availableFixedBlocks = remember { store.loadAllBlocks().filter { !it.isFloating && it.id != blockId } }
+
     // Tasks
     val tasks = remember {
         mutableStateListOf<BlockTask>().also { list ->
@@ -252,6 +261,8 @@ fun NamedBlockSheet(
                                 start = if (autoAfterEnabled) "%02d:%02d".format(autoAfterHour, autoAfterMinute) else null,
                                 end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
                             ))
+                            if (autoAfterBlockId != null) add(TaskConditionSpec("afterBlock", blockId = autoAfterBlockId))
+                            if (autoBeforeBlockId != null) add(TaskConditionSpec("beforeBlock", blockId = autoBeforeBlockId))
                         } else emptyList()
                         val block = NamedBlock(
                             id = blockId,
@@ -644,6 +655,50 @@ fun NamedBlockSheet(
                                         if (autoBeforeEnabled) {
                                             TextButton(onClick = { showAutoBeforePicker = true }) {
                                                 Text("%02d:%02d".format(autoBeforeHour, autoBeforeMinute))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Relative to block (optional)
+                                if (availableFixedBlocks.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Relative to block (optional)", style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("After", style = MaterialTheme.typography.bodyMedium)
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                FilterChip(
+                                                    selected = autoAfterBlockId == null,
+                                                    onClick = { autoAfterBlockId = null },
+                                                    label = { Text("None") }
+                                                )
+                                                availableFixedBlocks.forEach { blk ->
+                                                    FilterChip(
+                                                        selected = autoAfterBlockId == blk.id,
+                                                        onClick = { autoAfterBlockId = if (autoAfterBlockId == blk.id) null else blk.id },
+                                                        label = { Text(blk.name) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("Before", style = MaterialTheme.typography.bodyMedium)
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                FilterChip(
+                                                    selected = autoBeforeBlockId == null,
+                                                    onClick = { autoBeforeBlockId = null },
+                                                    label = { Text("None") }
+                                                )
+                                                availableFixedBlocks.forEach { blk ->
+                                                    FilterChip(
+                                                        selected = autoBeforeBlockId == blk.id,
+                                                        onClick = { autoBeforeBlockId = if (autoBeforeBlockId == blk.id) null else blk.id },
+                                                        label = { Text(blk.name) }
+                                                    )
+                                                }
                                             }
                                         }
                                     }

@@ -553,10 +553,10 @@ private fun TimelineBody(
             CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
         }
 
-        // Planner event blocks
+        // Planner event blocks (block sub-tasks are rendered inside the block tile, not here)
         val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
         var habitIdx = 0
-        visibleScheduled.forEach { se ->
+        visibleScheduled.filter { it.event.sourceWidgetId?.startsWith("__block__") != true }.forEach { se ->
             val colorPair = if (se.event.category == EventCategory.SLEEP ||
                                 se.event.category == EventCategory.BLOCK) null
                             else eventColors[habitIdx++ % eventColors.size]

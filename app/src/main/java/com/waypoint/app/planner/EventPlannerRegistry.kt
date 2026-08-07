@@ -141,17 +141,31 @@ class EventPlannerRegistry {
             if (!eligible) continue
             val durationMs = inst.block.estimatedMinutes * 60_000L
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
+            val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
+            val afterBlockCond  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }
+            val floatUpperBound = beforeBlockCond?.blockId?.let { refId ->
+                (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.scheduledStartMs
+            }
+            val floatLowerBound = afterBlockCond?.blockId?.let { refId ->
+                (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.estimatedEndMs
+            }
             var placed = false
             for (i in remaining.indices) {
                 val (bStart, bEnd) = remaining[i]
-                val fitStart = if (tw?.start != null) {
-                    val p = tw.start!!.split(":"); val h = p[0].toIntOrNull() ?: 0; val m = p.getOrNull(1)?.toIntOrNull() ?: 0
-                    maxOf(bStart, toMs(h, m))
-                } else bStart
-                val fitEnd = if (tw?.end != null) {
-                    val p = tw.end!!.split(":"); val h = p[0].toIntOrNull() ?: 23; val m = p.getOrNull(1)?.toIntOrNull() ?: 59
-                    minOf(bEnd, toMs(h, m))
-                } else bEnd
+                val fitStart = maxOf(
+                    if (tw?.start != null) {
+                        val p = tw.start!!.split(":"); val h = p[0].toIntOrNull() ?: 0; val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+                        maxOf(bStart, toMs(h, m))
+                    } else bStart,
+                    floatLowerBound ?: bStart
+                )
+                val fitEnd = minOf(
+                    if (tw?.end != null) {
+                        val p = tw.end!!.split(":"); val h = p[0].toIntOrNull() ?: 23; val m = p.getOrNull(1)?.toIntOrNull() ?: 59
+                        minOf(bEnd, toMs(h, m))
+                    } else bEnd,
+                    floatUpperBound ?: bEnd
+                )
                 if (fitEnd - fitStart < durationMs) continue
                 floatingResolved += NamedBlockInstance(
                     block = inst.block,
