@@ -13,27 +13,36 @@ object WakeAlarmScheduler {
     private const val RC_RING      = 8022
     private const val RC_RING_SHOW = 8023
 
-    fun scheduleAlarms(context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5) {
+    fun scheduleAlarms(
+        context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5,
+        gentleEnabled: Boolean = true, mediumEnabled: Boolean = true, wakeEnabled: Boolean = true
+    ) {
         cancelAlarms(context)
-        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes)
+        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled)
     }
 
-    fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5) {
-        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes)
+    fun scheduleAlarmsIfEarlier(
+        context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5,
+        gentleEnabled: Boolean = true, mediumEnabled: Boolean = true, wakeEnabled: Boolean = true
+    ) {
+        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled)
     }
 
-    private fun scheduleWakeAlarms(context: Context, wakeMs: Long, count: Int, intervalMinutes: Int) {
+    private fun scheduleWakeAlarms(
+        context: Context, wakeMs: Long, count: Int, intervalMinutes: Int,
+        gentleEnabled: Boolean, mediumEnabled: Boolean, wakeEnabled: Boolean
+    ) {
         val now = System.currentTimeMillis()
         val intervalMs = intervalMinutes * 60_000L
-        if (count >= 3) {
+        if (count >= 3 && gentleEnabled) {
             val gentleMs = wakeMs - 2 * intervalMs
             if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
         }
-        if (count >= 2) {
+        if (count >= 2 && mediumEnabled) {
             val mediumMs = wakeMs - intervalMs
             if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
         }
-        if (wakeMs > now) scheduleRingAlarm(context, wakeMs)
+        if (wakeEnabled && wakeMs > now) scheduleRingAlarm(context, wakeMs)
     }
 
     fun scheduleRingAlarm(context: Context, wakeMs: Long) {

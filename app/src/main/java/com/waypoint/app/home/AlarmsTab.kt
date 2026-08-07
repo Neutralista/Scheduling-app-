@@ -73,6 +73,11 @@ fun AlarmsTab(
     var wakeAlarmCount by remember { mutableIntStateOf(initialConfig.wakeAlarmCount) }
     var wakeAlarmIntervalMinutes by remember { mutableIntStateOf(initialConfig.wakeAlarmIntervalMinutes) }
     var preSleepReminderMinutes by remember { mutableIntStateOf(initialConfig.preSleepReminderMinutes) }
+    var preSleepAlarmEnabled by remember { mutableStateOf(initialConfig.preSleepAlarmEnabled) }
+    var bedtimeAlarmEnabled by remember { mutableStateOf(initialConfig.bedtimeAlarmEnabled) }
+    var gentleWakeEnabled by remember { mutableStateOf(initialConfig.gentleWakeEnabled) }
+    var mediumWakeEnabled by remember { mutableStateOf(initialConfig.mediumWakeEnabled) }
+    var wakeAlarmEnabled by remember { mutableStateOf(initialConfig.wakeAlarmEnabled) }
 
     val (bedMs, wakeMs) = sleepTimes
     val hasSleepTimes = bedMs != null && wakeMs != null
@@ -198,18 +203,36 @@ fun AlarmsTab(
                             if (preSleepReminderMinutes > 0) {
                                 SleepAlarmRow(
                                     label = "Pre-sleep reminder",
-                                    epochMs = bedMs!! - preSleepReminderMinutes * 60_000L
+                                    epochMs = bedMs!! - preSleepReminderMinutes * 60_000L,
+                                    enabled = preSleepAlarmEnabled,
+                                    onToggle = { e ->
+                                        preSleepAlarmEnabled = e
+                                        scope.launch { sleepStore.setSleepAlarmEnabled("pre_sleep", e) }
+                                    }
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
 
-                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs!!)
+                            SleepAlarmRow(
+                                label = "Bedtime",
+                                epochMs = bedMs!!,
+                                enabled = bedtimeAlarmEnabled,
+                                onToggle = { e ->
+                                    bedtimeAlarmEnabled = e
+                                    scope.launch { sleepStore.setSleepAlarmEnabled("bedtime", e) }
+                                }
+                            )
                             Spacer(Modifier.height(8.dp))
 
                             if (wakeAlarmCount >= 3) {
                                 SleepAlarmRow(
                                     label = "Gentle wake (35% volume)",
-                                    epochMs = wakeMs!! - 2 * intervalMs
+                                    epochMs = wakeMs!! - 2 * intervalMs,
+                                    enabled = gentleWakeEnabled,
+                                    onToggle = { e ->
+                                        gentleWakeEnabled = e
+                                        scope.launch { sleepStore.setSleepAlarmEnabled("gentle_wake", e) }
+                                    }
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
@@ -217,12 +240,25 @@ fun AlarmsTab(
                             if (wakeAlarmCount >= 2) {
                                 SleepAlarmRow(
                                     label = "Medium wake (70% volume)",
-                                    epochMs = wakeMs!! - intervalMs
+                                    epochMs = wakeMs!! - intervalMs,
+                                    enabled = mediumWakeEnabled,
+                                    onToggle = { e ->
+                                        mediumWakeEnabled = e
+                                        scope.launch { sleepStore.setSleepAlarmEnabled("medium_wake", e) }
+                                    }
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
 
-                            SleepAlarmRow(label = "Wake up!", epochMs = wakeMs!!)
+                            SleepAlarmRow(
+                                label = "Wake up!",
+                                epochMs = wakeMs!!,
+                                enabled = wakeAlarmEnabled,
+                                onToggle = { e ->
+                                    wakeAlarmEnabled = e
+                                    scope.launch { sleepStore.setSleepAlarmEnabled("wake_up", e) }
+                                }
+                            )
                             Spacer(Modifier.height(16.dp))
                         }
                     }
@@ -279,12 +315,16 @@ fun AlarmsTab(
 }
 
 @Composable
-private fun SleepAlarmRow(label: String, epochMs: Long) {
+private fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onToggle: (Boolean) -> Unit) {
     val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
     val timeStr = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+    val dimmed = if (enabled) 1f else 0.45f
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled) MaterialTheme.colorScheme.surfaceVariant
+                             else MaterialTheme.colorScheme.surface
+        )
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(),
@@ -294,19 +334,15 @@ private fun SleepAlarmRow(label: String, epochMs: Long) {
                 Text(
                     text = timeStr,
                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dimmed)
                 )
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dimmed)
                 )
             }
-            Text(
-                "Auto",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
+            Switch(checked = enabled, onCheckedChange = onToggle)
         }
     }
 }
