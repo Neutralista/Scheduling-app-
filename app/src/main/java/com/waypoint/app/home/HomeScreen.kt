@@ -598,6 +598,7 @@ private fun PlanTab(
         if (sessionForToday != null) {
             BlockScopeView(
                 session = sessionForToday,
+                registry = eventPlanner,
                 namedBlockStore = namedBlockStore,
                 date = selectedDate,
                 modifier = Modifier.weight(1f),

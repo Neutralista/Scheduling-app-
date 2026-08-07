@@ -1,121 +1,192 @@
 package com.waypoint.app.planner
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Calendar
+import kotlinx.coroutines.delay
+
+private val BS_HOUR_HEIGHT = 90.dp
+private val BS_LABEL_WIDTH = 44.dp
+
+private fun bsMinToY(minutes: Int, hourHeight: Dp): Dp =
+    hourHeight * (minutes.coerceAtLeast(0) / 60f)
+
+private fun bsMsToMin(ms: Long, viewStartMs: Long): Int =
+    ((ms - viewStartMs) / 60_000L).toInt()
+
+private fun bsFmt(ms: Long): String =
+    Calendar.getInstance().apply { timeInMillis = ms }
+        .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+
+private fun Modifier.bsYOffset(y: Dp): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    layout(placeable.width, placeable.height) { placeable.placeRelative(0, y.roundToPx()) }
+}
 
 @Composable
 fun BlockScopeView(
     session: ActiveBlockSession,
+    registry: EventPlannerRegistry,
     namedBlockStore: NamedBlockStore,
     date: LocalDate,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit
 ) {
     val blockColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
-    val tasks = remember(session.blockId, date) {
-        namedBlockStore.resolveActiveTasks(session.blockId, date)
+
+    val blockInstances = remember(date) {
+        namedBlockStore.resolveForDate(date).map { (block, sched) ->
+            val startMs = date.atTime(sched.startHour, sched.startMinute)
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val endMs = if (sched.endHour >= 0) {
+                val e = date.atTime(sched.endHour, sched.endMinute)
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                if (e > startMs) e else e + 24 * 3600_000L
+            } else startMs + block.estimatedMinutes * 60_000L
+            NamedBlockInstance(block, startMs, endMs, namedBlockStore.resolveActiveTasks(block.id, date))
+        }
     }
-    val checkedIds = remember { mutableStateOf(emptySet<String>()) }
+    val floatingInstances = remember(date) {
+        namedBlockStore.loadAllBlocks().filter { it.isFloating }.map { block ->
+            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, date))
+        }
+    }
+
+    var plan by remember(date) {
+        mutableStateOf(
+            registry.planForDate(
+                date,
+                namedBlockInstances = blockInstances,
+                floatingBlocks = floatingInstances,
+                nowMs = System.currentTimeMillis()
+            )
+        )
+    }
+
+    // Scheduled block start from the plan; fall back to session.startedAtMs
+    val thisBlockInstance = blockInstances.find { it.block.id == session.blockId }
+    val scheduledStartMs = thisBlockInstance?.scheduledStartMs ?: session.startedAtMs
+    val scheduledEndMs   = thisBlockInstance?.estimatedEndMs   ?: session.scheduledEndMs
+
+    // Sub-tasks for this block only
+    val blockSubTasks = plan.scheduled.filter {
+        it.event.sourceWidgetId == "__block__${session.blockId}"
+    }
+
+    // View window covers the block window plus any tasks scheduled outside it (BEFORE/AFTER)
+    val viewStartMs = minOf(
+        scheduledStartMs,
+        blockSubTasks.minOfOrNull { it.startMillis } ?: scheduledStartMs
+    )
+    val viewEndMs = maxOf(
+        scheduledEndMs,
+        blockSubTasks.maxOfOrNull { it.endMillis } ?: scheduledEndMs
+    )
+    val totalMinutes = ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
+    val totalHours   = (totalMinutes + 59) / 60
+
+    var nowMin by remember { mutableIntStateOf(bsMsToMin(System.currentTimeMillis(), viewStartMs)) }
+    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
+
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+
+    LaunchedEffect(viewStartMs) {
+        val targetMin = if (isNowVisible) (nowMin - 30).coerceAtLeast(0) else 0
+        scrollState.animateScrollTo(with(density) { (targetMin / 60f * BS_HOUR_HEIGHT.toPx()).toInt() })
+    }
+
+    LaunchedEffect(date) {
+        while (true) {
+            delay(60_000L)
+            nowMin = bsMsToMin(System.currentTimeMillis(), viewStartMs)
+            plan = registry.planForDate(
+                date,
+                namedBlockInstances = blockInstances,
+                floatingBlocks = floatingInstances,
+                nowMs = System.currentTimeMillis()
+            )
+        }
+    }
+
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val onSV    = MaterialTheme.colorScheme.onSurfaceVariant
+    val secCont = MaterialTheme.colorScheme.secondaryContainer
+    val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
 
     Column(modifier.fillMaxSize()) {
-        BlockScopeHeader(
-            session = session,
-            blockColor = blockColor,
-            totalTasks = tasks.size,
-            checkedTasks = checkedIds.value.size,
-            onEndSession = onEndSession
-        )
+        BsHeader(session = session, blockColor = blockColor, onEndSession = onEndSession)
         HorizontalDivider(color = blockColor.copy(alpha = 0.25f))
 
-        if (tasks.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No tasks scheduled for this block",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        val totalH = BS_HOUR_HEIGHT * totalHours
+        Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
+            Row(Modifier.fillMaxWidth().height(totalH)) {
+                BsHourLabels(viewStartMs, totalHours, onSV)
+                BsTimelineBody(
+                    modifier = Modifier.weight(1f),
+                    viewStartMs = viewStartMs,
+                    totalHours = totalHours,
+                    totalMinutes = totalMinutes,
+                    scheduledStartMs = scheduledStartMs,
+                    scheduledEndMs = scheduledEndMs,
+                    blockSubTasks = blockSubTasks,
+                    nowMin = nowMin,
+                    isNowVisible = isNowVisible,
+                    blockColor = blockColor,
+                    secCont = secCont,
+                    onSecCont = onSecCont,
+                    outline = outline,
+                    onSV = onSV
                 )
-            }
-        } else {
-            val before = tasks.filter { it.placement == BlockTaskPlacement.BEFORE }
-                .sortedByDescending { it.priority }
-            val during = tasks.filter { it.placement == BlockTaskPlacement.DURING }
-                .sortedByDescending { it.priority }
-            val after  = tasks.filter { it.placement == BlockTaskPlacement.AFTER }
-                .sortedByDescending { it.priority }
-
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (before.isNotEmpty()) {
-                    TaskSection(label = "Before", tasks = before, blockColor = blockColor,
-                        checkedIds = checkedIds.value) { id ->
-                        checkedIds.value = checkedIds.value.toggle(id)
-                    }
-                }
-                if (during.isNotEmpty()) {
-                    TaskSection(label = "During", tasks = during, blockColor = blockColor,
-                        checkedIds = checkedIds.value) { id ->
-                        checkedIds.value = checkedIds.value.toggle(id)
-                    }
-                }
-                if (after.isNotEmpty()) {
-                    TaskSection(label = "After", tasks = after, blockColor = blockColor,
-                        checkedIds = checkedIds.value) { id ->
-                        checkedIds.value = checkedIds.value.toggle(id)
-                    }
-                }
             }
         }
     }
 }
 
-private fun Set<String>.toggle(id: String): Set<String> =
-    if (id in this) this - id else this + id
-
 @Composable
-private fun BlockScopeHeader(
+private fun BsHeader(
     session: ActiveBlockSession,
     blockColor: Color,
-    totalTasks: Int,
-    checkedTasks: Int,
     onEndSession: () -> Unit
 ) {
     Row(
@@ -137,9 +208,8 @@ private fun BlockScopeHeader(
                 fontWeight = FontWeight.SemiBold,
                 color = blockColor
             )
-            val progress = if (totalTasks > 0) "  ·  $checkedTasks/$totalTasks done" else ""
             Text(
-                text = "${bsFmt(session.startedAtMs)} – ${bsFmt(session.scheduledEndMs)}$progress",
+                text = "${bsFmt(session.startedAtMs)} – ${bsFmt(session.scheduledEndMs)}",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -150,92 +220,219 @@ private fun BlockScopeHeader(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, blockColor.copy(alpha = 0.55f))
         ) {
-            Text(
-                "End Block",
-                style = MaterialTheme.typography.labelSmall,
-                color = blockColor
-            )
+            Text("End Block", style = MaterialTheme.typography.labelSmall, color = blockColor)
         }
     }
 }
 
 @Composable
-private fun TaskSection(
-    label: String,
-    tasks: List<BlockTask>,
-    blockColor: Color,
-    checkedIds: Set<String>,
-    onToggle: (String) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = label.uppercase(),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 0.8.sp),
-            color = blockColor.copy(alpha = 0.65f),
-            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp, start = 4.dp)
-        )
-        tasks.forEach { task ->
-            TaskRow(task = task, checked = task.id in checkedIds, blockColor = blockColor) {
-                onToggle(task.id)
+private fun BsHourLabels(viewStartMs: Long, totalHours: Int, onSV: Color) {
+    Box(Modifier.width(BS_LABEL_WIDTH).fillMaxHeight()) {
+        for (h in 0..totalHours) {
+            val yOff = (BS_HOUR_HEIGHT * h - 8.dp).coerceAtLeast(2.dp)
+            val wallHour = Calendar.getInstance().apply {
+                timeInMillis = viewStartMs + h * 3600_000L
+            }.get(Calendar.HOUR_OF_DAY)
+            Text(
+                text = "%02d:00".format(wallHour),
+                modifier = Modifier.bsYOffset(yOff),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = onSV.copy(alpha = 0.38f)
+            )
+            // Quarter-hour labels
+            if (h < totalHours) {
+                for (m in listOf(15, 30, 45)) {
+                    val minYOff = (BS_HOUR_HEIGHT * h + BS_HOUR_HEIGHT * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                    Text(
+                        text = ":%02d".format(m),
+                        modifier = Modifier.bsYOffset(minYOff).padding(start = 4.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = onSV.copy(alpha = 0.25f)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TaskRow(
-    task: BlockTask,
-    checked: Boolean,
+private fun BsTimelineBody(
+    modifier: Modifier,
+    viewStartMs: Long,
+    totalHours: Int,
+    totalMinutes: Int,
+    scheduledStartMs: Long,
+    scheduledEndMs: Long,
+    blockSubTasks: List<ScheduledEvent>,
+    nowMin: Int,
+    isNowVisible: Boolean,
     blockColor: Color,
-    onToggle: () -> Unit
+    secCont: Color,
+    onSecCont: Color,
+    outline: Color,
+    onSV: Color
 ) {
-    val onSV = MaterialTheme.colorScheme.onSurfaceVariant
-    val bg = if (checked) blockColor.copy(alpha = 0.08f)
-             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    Box(modifier.fillMaxHeight().clipToBounds()) {
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(bg)
-            .border(
-                width = 1.dp,
-                color = if (checked) blockColor.copy(alpha = 0.25f) else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
+        // Grid lines
+        Canvas(Modifier.fillMaxSize()) {
+            for (h in 0..totalHours) {
+                val y = h * BS_HOUR_HEIGHT.toPx()
+                drawLine(outline, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.5.dp.toPx())
+                if (h < totalHours) {
+                    for (q in 1..3) {
+                        val qy = y + q * BS_HOUR_HEIGHT.toPx() / 4f
+                        drawLine(outline.copy(alpha = 0.55f), Offset(0f, qy), Offset(size.width, qy),
+                            strokeWidth = 0.4.dp.toPx())
+                    }
+                }
+            }
+        }
+
+        // Block window background fill
+        val blockStartMin = bsMsToMin(scheduledStartMs, viewStartMs).coerceAtLeast(0)
+        val blockEndMin   = bsMsToMin(scheduledEndMs,   viewStartMs).coerceAtMost(totalMinutes)
+        if (blockEndMin > blockStartMin) {
+            val bStartY = bsMinToY(blockStartMin, BS_HOUR_HEIGHT)
+            val fillH   = (bsMinToY(blockEndMin, BS_HOUR_HEIGHT) - bStartY).coerceAtLeast(0.dp)
+            Box(
+                Modifier
+                    .bsYOffset(bStartY)
+                    .fillMaxWidth()
+                    .height(fillH)
+                    .background(blockColor.copy(alpha = 0.08f))
             )
-            .clickable { onToggle() }
-            .padding(end = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(
-                checkedColor = blockColor,
-                uncheckedColor = onSV.copy(alpha = 0.38f)
-            ),
-            modifier = Modifier.size(40.dp)
-        )
-        Text(
-            text = task.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (checked) onSV.copy(alpha = 0.45f) else onSV,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(Modifier.width(8.dp))
-        val durMin = task.durationMinutes
-        Text(
-            text = when {
-                durMin < 60            -> "${durMin}m"
-                durMin % 60 == 0       -> "${durMin / 60}h"
-                else                   -> "${durMin / 60}h ${durMin % 60}m"
-            },
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-            color = onSV.copy(alpha = 0.38f)
-        )
+            // Top and bottom boundary lines
+            Canvas(Modifier.bsYOffset(bStartY).fillMaxWidth().height(fillH)) {
+                drawLine(blockColor.copy(alpha = 0.45f), Offset(0f, 0f), Offset(size.width, 0f),
+                    strokeWidth = 2.dp.toPx())
+                drawLine(blockColor.copy(alpha = 0.45f), Offset(0f, size.height), Offset(size.width, size.height),
+                    strokeWidth = 2.dp.toPx())
+            }
+        }
+
+        // Free windows within the block
+        val occupied = buildList {
+            blockSubTasks.forEach { se ->
+                val s = bsMsToMin(se.startMillis, viewStartMs)
+                val e = bsMsToMin(se.endMillis, viewStartMs)
+                if (e > s) add(s to e)
+            }
+        }.sortedBy { it.first }
+
+        val merged = mutableListOf<Pair<Int, Int>>()
+        for ((s, e) in occupied) {
+            val last = merged.lastOrNull()
+            if (last != null && s <= last.second) merged[merged.size - 1] = last.first to maxOf(last.second, e)
+            else merged += s to e
+        }
+
+        var cursor = blockStartMin
+        for ((occStart, occEnd) in merged) {
+            if (occStart >= blockEndMin) break
+            val gapEnd = occStart.coerceIn(blockStartMin, blockEndMin)
+            if (gapEnd > cursor && gapEnd - cursor >= 10) BsFreeWindow(cursor, gapEnd, onSV)
+            if (occEnd > cursor) cursor = occEnd
+        }
+        if (blockEndMin > cursor && blockEndMin - cursor >= 10) BsFreeWindow(cursor, blockEndMin, onSV)
+
+        // Task tiles
+        val eventColors = listOf(secCont to onSecCont)
+        blockSubTasks.sortedBy { it.startMillis }.forEachIndexed { idx, se ->
+            BsTaskTile(se, viewStartMs, totalMinutes, eventColors[idx % eventColors.size])
+        }
+
+        // Current-time indicator
+        if (isNowVisible) {
+            val clampedNow = nowMin.coerceIn(0, totalMinutes)
+            val nowY = bsMinToY(clampedNow, BS_HOUR_HEIGHT)
+            Text(
+                text = bsFmt(viewStartMs + clampedNow * 60_000L),
+                color = Color(0xFFE53935),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                modifier = Modifier.bsYOffset(nowY - 20.dp).padding(start = 2.dp)
+            )
+            Canvas(Modifier.bsYOffset(nowY - 4.dp).fillMaxWidth().height(8.dp)) {
+                val cy = size.height / 2f
+                drawCircle(Color(0xFFE53935), 4.dp.toPx(), Offset(0f, cy))
+                drawLine(Color(0xFFE53935), Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
+            }
+        }
     }
 }
 
-private fun bsFmt(ms: Long): String =
-    Calendar.getInstance().apply { timeInMillis = ms }
-        .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+@Composable
+private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color) {
+    val startY = bsMinToY(startMin, BS_HOUR_HEIGHT)
+    val blockH = (bsMinToY(endMin, BS_HOUR_HEIGHT) - startY).coerceAtLeast(4.dp)
+    val durMin = endMin - startMin
+    val h = durMin / 60; val m = durMin % 60
+    val durLabel = when {
+        durMin >= 60 && m > 0 -> "${h}h ${m}m"
+        durMin >= 60           -> "${h}h"
+        else                   -> "${durMin}m"
+    }
+    Box(
+        Modifier
+            .bsYOffset(startY)
+            .fillMaxWidth()
+            .height(blockH)
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(onSV.copy(alpha = 0.03f))
+            .border(1.dp, onSV.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
+    ) {
+        if (blockH >= 20.dp) {
+            Text(
+                text = "free · $durLabel",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = onSV.copy(alpha = 0.28f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BsTaskTile(
+    se: ScheduledEvent,
+    viewStartMs: Long,
+    totalMinutes: Int,
+    colorPair: Pair<Color, Color>
+) {
+    val seStartMin = bsMsToMin(se.startMillis, viewStartMs)
+    val seEndMin   = bsMsToMin(se.endMillis,   viewStartMs)
+    if (seStartMin >= totalMinutes || seEndMin <= 0) return
+
+    val startY = bsMinToY(seStartMin, BS_HOUR_HEIGHT)
+    val eventH = (bsMinToY(seEndMin, BS_HOUR_HEIGHT) - startY - 2.dp).coerceAtLeast(24.dp)
+    val (bg, fg) = colorPair
+
+    Box(
+        Modifier
+            .bsYOffset(startY + 1.dp)
+            .fillMaxWidth()
+            .height(eventH)
+            .padding(horizontal = 6.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .border(1.dp, fg.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(
+                se.event.title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
+                fontWeight = FontWeight.Medium,
+                color = fg,
+                maxLines = 1
+            )
+            if (eventH >= 36.dp) {
+                Text(
+                    "${bsFmt(se.startMillis)} – ${bsFmt(se.endMillis)}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = fg.copy(alpha = 0.65f)
+                )
+            }
+        }
+    }
+}
