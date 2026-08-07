@@ -28,39 +28,41 @@ sealed class RecurrenceRule {
     data class NTimesPerPeriod(val count: Int, val periodDays: Int, val anchorDate: String) : RecurrenceRule()
 }
 
-fun RecurrenceRule.occursOn(date: LocalDate): Boolean = when (this) {
-    is RecurrenceRule.OneOff ->
-        date.toString() == this.date
+fun RecurrenceRule.occursOn(date: LocalDate): Boolean {
+    return when (this) {
+        is RecurrenceRule.OneOff ->
+            date.toString() == this.date
 
-    is RecurrenceRule.DaysOfWeek ->
-        date.dayOfWeek.value in this.days
+        is RecurrenceRule.DaysOfWeek ->
+            date.dayOfWeek.value in this.days
 
-    is RecurrenceRule.EveryNDays -> {
-        val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
-        val diff = ChronoUnit.DAYS.between(anchor, date)
-        diff >= 0 && diff % n == 0L
-    }
+        is RecurrenceRule.EveryNDays -> {
+            val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+            val diff = ChronoUnit.DAYS.between(anchor, date)
+            diff >= 0 && diff % n == 0L
+        }
 
-    is RecurrenceRule.EveryNWeeks -> {
-        val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
-        val diff = ChronoUnit.DAYS.between(anchor, date)
-        diff >= 0 && diff % (n * 7L) == 0L
-    }
+        is RecurrenceRule.EveryNWeeks -> {
+            val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+            val diff = ChronoUnit.DAYS.between(anchor, date)
+            diff >= 0 && diff % (n * 7L) == 0L
+        }
 
-    is RecurrenceRule.EveryNMonths -> {
-        val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
-        if (date.dayOfMonth != anchor.dayOfMonth) return false
-        val months = ChronoUnit.MONTHS.between(anchor, date)
-        months >= 0 && months % n == 0L
-    }
+        is RecurrenceRule.EveryNMonths -> {
+            val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+            if (date.dayOfMonth != anchor.dayOfMonth) return false
+            val months = ChronoUnit.MONTHS.between(anchor, date)
+            months >= 0 && months % n == 0L
+        }
 
-    is RecurrenceRule.NTimesPerPeriod -> {
-        val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
-        val daysSince = ChronoUnit.DAYS.between(anchor, date)
-        if (daysSince < 0) return false
-        val dayInPeriod = (daysSince % periodDays).toInt()
-        val spacing = periodDays.toDouble() / count
-        (0 until count).any { k -> dayInPeriod == (k * spacing).roundToInt() }
+        is RecurrenceRule.NTimesPerPeriod -> {
+            val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+            val daysSince = ChronoUnit.DAYS.between(anchor, date)
+            if (daysSince < 0) return false
+            val dayInPeriod = (daysSince % periodDays).toInt()
+            val spacing = periodDays.toDouble() / count
+            (0 until count).any { k -> dayInPeriod == (k * spacing).roundToInt() }
+        }
     }
 }
 
