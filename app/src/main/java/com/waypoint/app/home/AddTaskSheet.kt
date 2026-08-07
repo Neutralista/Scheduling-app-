@@ -49,6 +49,7 @@ import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.PlannerZone
+import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
@@ -56,6 +57,7 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.ui.components.RecurrencePicker
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
 import java.util.UUID
@@ -160,6 +162,20 @@ fun AddTaskSheet(
         initConditions.firstOrNull { it.type == "beforeBlock" }?.blockId
     ) }
 
+    // ── Recurrence state ─────────────────────────────────────────────────────
+    var taskRecurrenceRule by remember { mutableStateOf<RecurrenceRule?>(
+        initConditions.firstOrNull { it.type in setOf("oneOff", "everyNDays", "everyNWeeks", "everyNMonths") }
+            ?.toEventCondition()?.let { cond ->
+                when (cond) {
+                    is com.waypoint.app.planner.EventCondition.OneOff       -> RecurrenceRule.OneOff(cond.date)
+                    is com.waypoint.app.planner.EventCondition.EveryNDays   -> RecurrenceRule.EveryNDays(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.EveryNWeeks  -> RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.EveryNMonths -> RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate)
+                    else -> null
+                }
+            }
+    ) }
+
     // ── Routine & buffer state ───────────────────────────────────────────────
     var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: initialBlockTask?.isRoutine ?: false) }
     val subtasks = remember { mutableStateListOf<SubtaskDef>().also {
@@ -258,6 +274,13 @@ fun AddTaskSheet(
                 duringCalEventId?.let { evtId -> add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId)) }
                 afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
                 beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
+                when (val r = taskRecurrenceRule) {
+                    is RecurrenceRule.OneOff       -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
+                    is RecurrenceRule.EveryNDays   -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.EveryNWeeks  -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.EveryNMonths -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+                    else -> Unit
+                }
             }
             onSaveBlockTask(
                 BlockTask(
@@ -309,6 +332,13 @@ fun AddTaskSheet(
             }
             afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
             beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
+            when (val r = taskRecurrenceRule) {
+                is RecurrenceRule.OneOff       -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
+                is RecurrenceRule.EveryNDays   -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
+                is RecurrenceRule.EveryNWeeks  -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
+                is RecurrenceRule.EveryNMonths -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+                else -> Unit
+            }
         }
 
         onSave(
@@ -595,7 +625,7 @@ fun AddTaskSheet(
                                 afterTime != null || beforeTime != null ||
                                 afterTaskIds.isNotEmpty() || beforeTaskIds.isNotEmpty() ||
                                 afterCalEventIds.isNotEmpty() || beforeCalEventIds.isNotEmpty() ||
-                                duringCalEventId != null ||
+                                duringCalEventId != null || taskRecurrenceRule != null ||
                                 (!isBlockMode && (afterBlockId != null || beforeBlockId != null ||
                                     (dayRelation != DayRelation.ANY && dayRelationTaskIds.isNotEmpty())))
 
@@ -635,6 +665,16 @@ fun AddTaskSheet(
                                     duringCalEventId?.let { evtId ->
                                         val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
                                         ConstraintTag("During $name") { duringCalEventId = null }
+                                    }
+                                    taskRecurrenceRule?.let { r ->
+                                        val label = when (r) {
+                                            is RecurrenceRule.OneOff       -> "Once (${r.date})"
+                                            is RecurrenceRule.EveryNDays   -> if (r.n == 1) "Every day" else "Every ${r.n} days"
+                                            is RecurrenceRule.EveryNWeeks  -> if (r.n == 1) "Every week" else "Every ${r.n} weeks"
+                                            is RecurrenceRule.EveryNMonths -> if (r.n == 1) "Every month" else "Every ${r.n} months"
+                                            is RecurrenceRule.DaysOfWeek   -> "Days of week"
+                                        }
+                                        ConstraintTag(label) { taskRecurrenceRule = null }
                                     }
                                     if (!isBlockMode) {
                                         afterBlockId?.let { bId ->
@@ -687,6 +727,7 @@ fun AddTaskSheet(
                                                 text = when (constraintPicker) {
                                                     "categories"  -> "Add constraint"
                                                     "daysOfWeek"  -> "Days of week"
+                                                    "recurrence"  -> "Recurrence"
                                                     "after"       -> "After"
                                                     "before"      -> "Before"
                                                     "sameDayAs"   -> "Day relation"
@@ -727,6 +768,11 @@ fun AddTaskSheet(
                                                 )
                                                 FilterChip(
                                                     selected = false,
+                                                    onClick  = { constraintPicker = "recurrence" },
+                                                    label    = { Text("Recurrence") }
+                                                )
+                                                FilterChip(
+                                                    selected = false,
                                                     onClick  = { constraintPicker = "after" },
                                                     label    = { Text("After") }
                                                 )
@@ -748,6 +794,12 @@ fun AddTaskSheet(
                                                     )
                                                 }
                                             }
+
+                                            "recurrence" -> RecurrencePicker(
+                                                value             = taskRecurrenceRule,
+                                                onChange          = { taskRecurrenceRule = it; constraintPicker = null },
+                                                includeDaysOfWeek = false
+                                            )
 
                                             "daysOfWeek" -> FlowRow(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp),

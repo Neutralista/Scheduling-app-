@@ -102,6 +102,18 @@ sealed class EventCondition {
 
     /** Must start after the named block's estimated end (pushes block end later on timeline) */
     data class AfterBlock(val blockId: String) : EventCondition()
+
+    /** Occurs only on the given date (yyyy-MM-dd) */
+    data class OneOff(val date: String) : EventCondition()
+
+    /** Occurs every N days counting from anchorDate */
+    data class EveryNDays(val n: Int, val anchorDate: String) : EventCondition()
+
+    /** Occurs every N weeks counting from anchorDate */
+    data class EveryNWeeks(val n: Int, val anchorDate: String) : EventCondition()
+
+    /** Occurs every N months counting from anchorDate */
+    data class EveryNMonths(val n: Int, val anchorDate: String) : EventCondition()
 }
 
 data class ScheduledEvent(

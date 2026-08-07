@@ -66,7 +66,7 @@ class NamedBlockStore(context: Context) {
             }
             when {
                 override != null -> if (override.enabled) block to override else null
-                dayOfWeek in block.recurringDays -> block to NamedBlockSchedule(
+                (block.recurrenceRule?.occursOn(date) ?: (dayOfWeek in block.recurringDays)) -> block to NamedBlockSchedule(
                     blockId = block.id, date = dateStr,
                     startHour = block.defaultStartHour, startMinute = block.defaultStartMinute,
                     endHour = block.defaultEndHour, endMinute = block.defaultEndMinute

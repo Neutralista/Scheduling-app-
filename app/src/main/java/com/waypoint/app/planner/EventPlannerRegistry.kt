@@ -1,6 +1,7 @@
 package com.waypoint.app.planner
 
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 
 class EventPlannerRegistry {
@@ -657,6 +658,26 @@ class EventPlannerRegistry {
             is EventCondition.DuringShift,
             is EventCondition.AfterShift -> if (!isWorkDay || shiftStartMs == null || shiftEndMs == null) return "No shift today"
             is EventCondition.Deadline -> if (System.currentTimeMillis() > cond.byMillis) return "Past deadline"
+            is EventCondition.OneOff -> if (date.toString() != cond.date) return "Not scheduled for today"
+            is EventCondition.EveryNDays -> {
+                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
+                    ?: return "Invalid anchor date"
+                val diff = ChronoUnit.DAYS.between(anchor, date)
+                if (diff < 0 || diff % cond.n != 0L) return "Not scheduled for today"
+            }
+            is EventCondition.EveryNWeeks -> {
+                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
+                    ?: return "Invalid anchor date"
+                val diff = ChronoUnit.DAYS.between(anchor, date)
+                if (diff < 0 || diff % (cond.n * 7L) != 0L) return "Not scheduled for today"
+            }
+            is EventCondition.EveryNMonths -> {
+                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
+                    ?: return "Invalid anchor date"
+                if (date.dayOfMonth != anchor.dayOfMonth) return "Not scheduled for today"
+                val months = ChronoUnit.MONTHS.between(anchor, date)
+                if (months < 0 || months % cond.n != 0L) return "Not scheduled for today"
+            }
             else -> Unit
         }
         return null

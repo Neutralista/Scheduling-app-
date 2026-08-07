@@ -65,7 +65,9 @@ import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TaskConditionSpec
+import com.waypoint.app.ui.components.RecurrencePicker
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -122,8 +124,14 @@ fun NamedBlockSheet(
     var canStartEarly by remember { mutableStateOf(initial?.canStartEarly ?: true) }
     var canRunLate by remember { mutableStateOf(initial?.canRunLate ?: true) }
 
-    val recurringDays = remember {
-        mutableStateListOf<Int>().also { it.addAll(initial?.recurringDays ?: emptyList()) }
+    var recurrenceRule by remember {
+        mutableStateOf(
+            initial?.recurrenceRule
+                ?: if (initial?.recurringDays?.isNotEmpty() == true)
+                    RecurrenceRule.DaysOfWeek(initial.recurringDays)
+                else
+                    RecurrenceRule.DaysOfWeek(emptyList())
+        )
     }
     var defaultHour by remember { mutableIntStateOf(initial?.defaultStartHour ?: 9) }
     var defaultMinute by remember { mutableIntStateOf(initial?.defaultStartMinute ?: 0) }
@@ -264,6 +272,7 @@ fun NamedBlockSheet(
                             if (autoAfterBlockId != null) add(TaskConditionSpec("afterBlock", blockId = autoAfterBlockId))
                             if (autoBeforeBlockId != null) add(TaskConditionSpec("beforeBlock", blockId = autoBeforeBlockId))
                         } else emptyList()
+                        val fixedRule = if (schedulingMode == BlockSchedulingMode.FIXED) recurrenceRule else null
                         val block = NamedBlock(
                             id = blockId,
                             name = name.trim(),
@@ -271,14 +280,15 @@ fun NamedBlockSheet(
                             estimatedMinutes = dur,
                             canStartEarly = canStartEarly,
                             canRunLate = canRunLate,
-                            recurringDays = if (schedulingMode == BlockSchedulingMode.FIXED) recurringDays.sorted() else emptyList(),
+                            recurringDays = if (fixedRule is RecurrenceRule.DaysOfWeek) fixedRule.days.sorted() else emptyList(),
                             defaultStartHour = defaultHour,
                             defaultStartMinute = defaultMinute,
                             defaultEndHour = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndHour else -1,
                             defaultEndMinute = if (useTimeRange && schedulingMode == BlockSchedulingMode.FIXED) defaultEndMinute else 0,
                             isFloating = schedulingMode == BlockSchedulingMode.AUTO,
                             floatingConditions = autoConditions,
-                            useTotalTaskDuration = useTotalTaskDuration
+                            useTotalTaskDuration = useTotalTaskDuration,
+                            recurrenceRule = fixedRule
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -513,53 +523,47 @@ fun NamedBlockSheet(
                         }
 
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
-                            // Recurring days + default start/end times
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    DAY_LABELS.forEachIndexed { idx, lbl ->
-                                        val dow = idx + 1
-                                        FilterChip(
-                                            selected = dow in recurringDays,
-                                            onClick = {
-                                                if (dow in recurringDays) recurringDays.remove(dow)
-                                                else recurringDays.add(dow)
-                                            },
-                                            label = { Text(lbl) }
-                                        )
+                            // Recurrence picker
+                            RecurrencePicker(
+                                value    = recurrenceRule,
+                                onChange = { recurrenceRule = it }
+                            )
+
+                            val hasSchedule = when (val r = recurrenceRule) {
+                                is RecurrenceRule.DaysOfWeek -> r.days.isNotEmpty()
+                                else -> true
+                            }
+
+                            if (hasSchedule) {
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Default start:", style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = { showDefaultStartPicker = true }) {
+                                        Text("%02d:%02d".format(defaultHour, defaultMinute),
+                                            style = MaterialTheme.typography.bodyMedium)
                                     }
                                 }
-                                if (recurringDays.isNotEmpty()) {
+                                if (useTimeRange) {
                                     Row(verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("Default start:", style = MaterialTheme.typography.bodyMedium)
-                                        TextButton(onClick = { showDefaultStartPicker = true }) {
-                                            Text("%02d:%02d".format(defaultHour, defaultMinute),
+                                        Text("Default end:", style = MaterialTheme.typography.bodyMedium)
+                                        TextButton(onClick = { showDefaultEndPicker = true }) {
+                                            Text("%02d:%02d".format(defaultEndHour, defaultEndMinute),
                                                 style = MaterialTheme.typography.bodyMedium)
-                                        }
-                                    }
-                                    if (useTimeRange) {
-                                        Row(verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text("Default end:", style = MaterialTheme.typography.bodyMedium)
-                                            TextButton(onClick = { showDefaultEndPicker = true }) {
-                                                Text("%02d:%02d".format(defaultEndHour, defaultEndMinute),
-                                                    style = MaterialTheme.typography.bodyMedium)
-                                            }
                                         }
                                     }
                                 }
                             }
 
                             // Next 14 days strip
-                            if (recurringDays.isNotEmpty()) {
+                            if (hasSchedule) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("Next 14 days", style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(next14) { date ->
                                             val key = date.format(dateFmt)
-                                            val dow = date.dayOfWeek.value
-                                            val isRecurring = dow in recurringDays
+                                            val isRecurring = recurrenceRule.occursOn(date)
                                             val ov = dateOverrides[key]
                                             val effectiveEnabled = ov?.enabled ?: isRecurring
                                             val effectiveStartH = ov?.startH ?: defaultHour

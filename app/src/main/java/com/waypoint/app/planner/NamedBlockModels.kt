@@ -46,7 +46,9 @@ data class NamedBlock(
     /** Relative priority among floating blocks (higher = placed first). */
     val priority: Int = 5,
     /** When true, estimatedMinutes is recomputed from the sum of block task durations on each save. */
-    val useTotalTaskDuration: Boolean = false
+    val useTotalTaskDuration: Boolean = false,
+    /** Flexible recurrence rule; when set takes precedence over [recurringDays]. */
+    val recurrenceRule: RecurrenceRule? = null
 )
 
 /**
