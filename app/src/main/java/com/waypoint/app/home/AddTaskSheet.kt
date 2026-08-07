@@ -582,55 +582,379 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Constraints
+                    // Constraints — tag-based: active constraints shown as dismissible chips,
+                    // new constraints added via a two-level inline picker.
                     FormSection(title = "Constraints") {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
-                            // Day relation — not shown for block tasks (block controls its own days)
-                            if (!isBlockMode)
-                            ConstraintSubsection("Day") {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        FilterChip(
-                                            selected = dayRelation == DayRelation.ANY,
-                                            onClick  = { dayRelation = DayRelation.ANY; dayRelationTaskIds = emptySet() },
-                                            label    = { Text("Any day") }
-                                        )
-                                        FilterChip(
-                                            selected = dayRelation == DayRelation.SAME_DAY_AS,
-                                            onClick  = { dayRelation = DayRelation.SAME_DAY_AS },
-                                            label    = { Text("Same day as") }
-                                        )
-                                        FilterChip(
-                                            selected = dayRelation == DayRelation.NOT_SAME_DAY_AS,
-                                            onClick  = { dayRelation = DayRelation.NOT_SAME_DAY_AS },
-                                            label    = { Text("When not scheduled") }
-                                        )
+                            // null = picker closed; "categories" = category list; else = specific category
+                            var constraintPicker by remember { mutableStateOf<String?>(null) }
+
+                            // ── Active constraint tags ──────────────────────────────────────
+                            val hasConstraints = selectedDays.isNotEmpty() ||
+                                afterTime != null || beforeTime != null ||
+                                afterTaskIds.isNotEmpty() || beforeTaskIds.isNotEmpty() ||
+                                afterCalEventIds.isNotEmpty() || beforeCalEventIds.isNotEmpty() ||
+                                duringCalEventId != null ||
+                                (!isBlockMode && (afterBlockId != null || beforeBlockId != null ||
+                                    (dayRelation != DayRelation.ANY && dayRelationTaskIds.isNotEmpty())))
+
+                            if (hasConstraints) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement   = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (selectedDays.isNotEmpty()) {
+                                        val dayLabel = if (selectedDays.size <= 3)
+                                            selectedDays.sorted().joinToString(" ") { DAY_NAMES[it - 1] }
+                                        else "${selectedDays.size} days"
+                                        ConstraintTag(dayLabel) { selectedDays = emptySet() }
                                     }
-                                    if (dayRelation != DayRelation.ANY) {
-                                        if (chainTargets.isEmpty()) {
+                                    if (afterTime != null)
+                                        ConstraintTag("After $afterTime") { afterTime = null }
+                                    if (beforeTime != null)
+                                        ConstraintTag("Before $beforeTime") { beforeTime = null }
+                                    afterTaskIds.forEach { tid ->
+                                        val name = if (tid == TASK_REF_SLEEP) "Sleep"
+                                                   else chainTargets.find { it.id == tid }?.title ?: tid
+                                        ConstraintTag("After $name") { afterTaskIds = afterTaskIds - tid }
+                                    }
+                                    beforeTaskIds.forEach { tid ->
+                                        val name = if (tid == TASK_REF_SLEEP) "Sleep"
+                                                   else chainTargets.find { it.id == tid }?.title ?: tid
+                                        ConstraintTag("Before $name") { beforeTaskIds = beforeTaskIds - tid }
+                                    }
+                                    afterCalEventIds.forEach { evtId ->
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        ConstraintTag("After $name") { afterCalEventIds = afterCalEventIds - evtId }
+                                    }
+                                    beforeCalEventIds.forEach { evtId ->
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        ConstraintTag("Before $name") { beforeCalEventIds = beforeCalEventIds - evtId }
+                                    }
+                                    duringCalEventId?.let { evtId ->
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        ConstraintTag("During $name") { duringCalEventId = null }
+                                    }
+                                    if (!isBlockMode) {
+                                        afterBlockId?.let { bId ->
+                                            val name = availableBlocks.find { it.id == bId }?.name ?: bId
+                                            ConstraintTag("After $name") { afterBlockId = null }
+                                        }
+                                        beforeBlockId?.let { bId ->
+                                            val name = availableBlocks.find { it.id == bId }?.name ?: bId
+                                            ConstraintTag("Before $name") { beforeBlockId = null }
+                                        }
+                                        if (dayRelation != DayRelation.ANY) {
+                                            dayRelationTaskIds.forEach { tid ->
+                                                val name = chainTargets.find { it.id == tid }?.title ?: tid
+                                                val prefix = if (dayRelation == DayRelation.SAME_DAY_AS) "Same day as" else "Not with"
+                                                ConstraintTag("$prefix $name") {
+                                                    val next = dayRelationTaskIds - tid
+                                                    dayRelationTaskIds = next
+                                                    if (next.isEmpty()) dayRelation = DayRelation.ANY
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ── Add constraint entry / inline picker ────────────────────────
+                            if (constraintPicker == null) {
+                                FilterChip(
+                                    selected = false,
+                                    onClick  = { constraintPicker = "categories" },
+                                    label    = { Text("+ Add constraint") }
+                                )
+                            } else {
+                                Surface(
+                                    tonalElevation = 2.dp,
+                                    shape    = MaterialTheme.shapes.small,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        // Picker header
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment     = Alignment.CenterVertically
+                                        ) {
                                             Text(
-                                                "Add more tasks to use this constraint.",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                text = when (constraintPicker) {
+                                                    "categories"  -> "Add constraint"
+                                                    "daysOfWeek"  -> "Days of week"
+                                                    "after"       -> "After"
+                                                    "before"      -> "Before"
+                                                    "sameDayAs"   -> "Day relation"
+                                                    "duringEvent" -> "During event"
+                                                    else          -> "Add constraint"
+                                                },
+                                                style      = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold
                                             )
-                                        } else {
-                                            FlowRow(
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (constraintPicker != "categories") {
+                                                    TextButton(
+                                                        onClick  = { constraintPicker = "categories" },
+                                                        modifier = Modifier.height(24.dp).padding(horizontal = 0.dp)
+                                                    ) {
+                                                        Text("Back", style = MaterialTheme.typography.labelSmall)
+                                                    }
+                                                    Spacer(Modifier.width(4.dp))
+                                                }
+                                                IconButton(
+                                                    onClick  = { constraintPicker = null },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+
+                                        when (constraintPicker) {
+                                            "categories" -> FlowRow(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                verticalArrangement   = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                chainTargets.forEach { task ->
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "daysOfWeek" },
+                                                    label    = { Text("Days of week") }
+                                                )
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "after" },
+                                                    label    = { Text("After") }
+                                                )
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "before" },
+                                                    label    = { Text("Before") }
+                                                )
+                                                if (!isBlockMode) {
                                                     FilterChip(
-                                                        selected = task.id in dayRelationTaskIds,
+                                                        selected = false,
+                                                        onClick  = { constraintPicker = "sameDayAs" },
+                                                        label    = { Text("Same day as / Not with") }
+                                                    )
+                                                    if (todayCalEvents.isNotEmpty()) FilterChip(
+                                                        selected = false,
+                                                        onClick  = { constraintPicker = "duringEvent" },
+                                                        label    = { Text("During event") }
+                                                    )
+                                                }
+                                            }
+
+                                            "daysOfWeek" -> FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                DAY_NAMES.forEachIndexed { i, name ->
+                                                    val day = i + 1
+                                                    FilterChip(
+                                                        selected = day in selectedDays,
                                                         onClick  = {
-                                                            dayRelationTaskIds =
-                                                                if (task.id in dayRelationTaskIds) dayRelationTaskIds - task.id
-                                                                else dayRelationTaskIds + task.id
+                                                            selectedDays = if (day in selectedDays)
+                                                                selectedDays - day else selectedDays + day
                                                         },
-                                                        label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                        label    = { Text(name) }
+                                                    )
+                                                }
+                                            }
+
+                                            "after" -> FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                if (afterTime != null) {
+                                                    Row(
+                                                        verticalAlignment     = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        TimePickerChip(value = afterTime!!, onValueChange = { afterTime = it })
+                                                        IconButton(onClick = { afterTime = null }, modifier = Modifier.size(20.dp)) {
+                                                            Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                                        }
+                                                    }
+                                                } else {
+                                                    FilterChip(
+                                                        selected = false,
+                                                        onClick  = { showAfterTimePicker = true },
+                                                        label    = { Text("+ Time") }
+                                                    )
+                                                }
+                                                if (!isBlockMode) FilterChip(
+                                                    selected = TASK_REF_SLEEP in afterTaskIds,
+                                                    onClick  = {
+                                                        afterTaskIds = if (TASK_REF_SLEEP in afterTaskIds)
+                                                            afterTaskIds - TASK_REF_SLEEP else afterTaskIds + TASK_REF_SLEEP
+                                                    },
+                                                    label    = { Text("Sleep") }
+                                                )
+                                                chainTargets.forEach { task ->
+                                                    val conflict = isAfterConflicting(task.id)
+                                                    FilterChip(
+                                                        selected = task.id in afterTaskIds,
+                                                        enabled  = !conflict || task.id in afterTaskIds,
+                                                        onClick  = {
+                                                            afterTaskIds = if (task.id in afterTaskIds)
+                                                                afterTaskIds - task.id else afterTaskIds + task.id
+                                                        },
+                                                        colors   = if (conflict && task.id !in afterTaskIds)
+                                                            FilterChipDefaults.filterChipColors(
+                                                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                                                labelColor     = MaterialTheme.colorScheme.error
+                                                            ) else FilterChipDefaults.filterChipColors(),
+                                                        label    = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                                todayCalEvents.forEach { evt ->
+                                                    FilterChip(
+                                                        selected = evt.eventId in afterCalEventIds,
+                                                        onClick  = {
+                                                            afterCalEventIds = if (evt.eventId in afterCalEventIds)
+                                                                afterCalEventIds - evt.eventId else afterCalEventIds + evt.eventId
+                                                        },
+                                                        label    = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                                if (!isBlockMode) availableBlocks.forEach { block ->
+                                                    FilterChip(
+                                                        selected = afterBlockId == block.id,
+                                                        onClick  = { afterBlockId = if (afterBlockId == block.id) null else block.id },
+                                                        label    = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+
+                                            "before" -> FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                if (beforeTime != null) {
+                                                    Row(
+                                                        verticalAlignment     = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        TimePickerChip(value = beforeTime!!, onValueChange = { beforeTime = it })
+                                                        IconButton(onClick = { beforeTime = null }, modifier = Modifier.size(20.dp)) {
+                                                            Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                                        }
+                                                    }
+                                                } else {
+                                                    FilterChip(
+                                                        selected = false,
+                                                        onClick  = { showBeforeTimePicker = true },
+                                                        label    = { Text("+ Time") }
+                                                    )
+                                                }
+                                                if (!isBlockMode) FilterChip(
+                                                    selected = TASK_REF_SLEEP in beforeTaskIds,
+                                                    onClick  = {
+                                                        beforeTaskIds = if (TASK_REF_SLEEP in beforeTaskIds)
+                                                            beforeTaskIds - TASK_REF_SLEEP else beforeTaskIds + TASK_REF_SLEEP
+                                                    },
+                                                    label    = { Text("Sleep") }
+                                                )
+                                                chainTargets.forEach { task ->
+                                                    val conflict = isBeforeConflicting(task.id)
+                                                    FilterChip(
+                                                        selected = task.id in beforeTaskIds,
+                                                        enabled  = !conflict || task.id in beforeTaskIds,
+                                                        onClick  = {
+                                                            beforeTaskIds = if (task.id in beforeTaskIds)
+                                                                beforeTaskIds - task.id else beforeTaskIds + task.id
+                                                        },
+                                                        colors   = if (conflict && task.id !in beforeTaskIds)
+                                                            FilterChipDefaults.filterChipColors(
+                                                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                                                labelColor     = MaterialTheme.colorScheme.error
+                                                            ) else FilterChipDefaults.filterChipColors(),
+                                                        label    = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                                todayCalEvents.forEach { evt ->
+                                                    FilterChip(
+                                                        selected = evt.eventId in beforeCalEventIds,
+                                                        onClick  = {
+                                                            beforeCalEventIds = if (evt.eventId in beforeCalEventIds)
+                                                                beforeCalEventIds - evt.eventId else beforeCalEventIds + evt.eventId
+                                                        },
+                                                        label    = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                                if (!isBlockMode) availableBlocks.forEach { block ->
+                                                    FilterChip(
+                                                        selected = beforeBlockId == block.id,
+                                                        onClick  = { beforeBlockId = if (beforeBlockId == block.id) null else block.id },
+                                                        label    = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
+                                                    )
+                                                }
+                                            }
+
+                                            "sameDayAs" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                FlowRow(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    FilterChip(
+                                                        selected = dayRelation == DayRelation.SAME_DAY_AS,
+                                                        onClick  = { dayRelation = DayRelation.SAME_DAY_AS },
+                                                        label    = { Text("Same day as") }
+                                                    )
+                                                    FilterChip(
+                                                        selected = dayRelation == DayRelation.NOT_SAME_DAY_AS,
+                                                        onClick  = {
+                                                            dayRelation = DayRelation.NOT_SAME_DAY_AS
+                                                            dayRelationTaskIds = emptySet()
+                                                        },
+                                                        label    = { Text("Not with") }
+                                                    )
+                                                }
+                                                if (dayRelation != DayRelation.ANY) {
+                                                    if (chainTargets.isEmpty()) {
+                                                        Text(
+                                                            "Add more tasks to use this constraint.",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        )
+                                                    } else {
+                                                        FlowRow(
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                            verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            chainTargets.forEach { task ->
+                                                                FilterChip(
+                                                                    selected = task.id in dayRelationTaskIds,
+                                                                    onClick  = {
+                                                                        dayRelationTaskIds = if (task.id in dayRelationTaskIds)
+                                                                            dayRelationTaskIds - task.id else dayRelationTaskIds + task.id
+                                                                    },
+                                                                    label    = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            "duringEvent" -> FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                todayCalEvents.forEach { evt ->
+                                                    FilterChip(
+                                                        selected = duringCalEventId == evt.eventId,
+                                                        onClick  = {
+                                                            duringCalEventId = if (duringCalEventId == evt.eventId) null else evt.eventId
+                                                        },
+                                                        label    = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
                                                     )
                                                 }
                                             }
@@ -639,228 +963,28 @@ fun AddTaskSheet(
                                 }
                             }
 
-                            // After — start-time lower bound (time + task/sleep/calendar anchors)
-                            ConstraintSubsection("After") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    if (afterTime != null) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            TimePickerChip(value = afterTime!!, onValueChange = { afterTime = it })
-                                            IconButton(
-                                                onClick = { afterTime = null },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Close, contentDescription = "Remove time",
-                                                    modifier = Modifier.size(12.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        FilterChip(
-                                            selected = false,
-                                            onClick  = { showAfterTimePicker = true },
-                                            label    = { Text("+ time") }
-                                        )
+                            // Time picker dialogs (shown on demand from the After/Before sub-pickers)
+                            if (showAfterTimePicker) {
+                                TimePickerDialog(
+                                    initialHour   = afterTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 9,
+                                    initialMinute = afterTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+                                    onDismiss = { showAfterTimePicker = false },
+                                    onConfirm = { h, m ->
+                                        afterTime = "%02d:%02d".format(h, m)
+                                        showAfterTimePicker = false
                                     }
-                                    if (!isBlockMode) FilterChip(
-                                        selected = TASK_REF_SLEEP in afterTaskIds,
-                                        onClick  = {
-                                            afterTaskIds = if (TASK_REF_SLEEP in afterTaskIds)
-                                                afterTaskIds - TASK_REF_SLEEP else afterTaskIds + TASK_REF_SLEEP
-                                        },
-                                        label = { Text("Sleep") }
-                                    )
-                                    chainTargets.forEach { task ->
-                                        val conflict = isAfterConflicting(task.id)
-                                        FilterChip(
-                                            selected = task.id in afterTaskIds,
-                                            enabled  = !conflict || task.id in afterTaskIds,
-                                            onClick  = {
-                                                afterTaskIds = if (task.id in afterTaskIds)
-                                                    afterTaskIds - task.id else afterTaskIds + task.id
-                                            },
-                                            colors = if (conflict && task.id !in afterTaskIds)
-                                                FilterChipDefaults.filterChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                                                    labelColor     = MaterialTheme.colorScheme.error
-                                                )
-                                            else FilterChipDefaults.filterChipColors(),
-                                            label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
-                                    todayCalEvents.forEach { evt ->
-                                        FilterChip(
-                                            selected = evt.eventId in afterCalEventIds,
-                                            onClick  = {
-                                                afterCalEventIds = if (evt.eventId in afterCalEventIds)
-                                                    afterCalEventIds - evt.eventId
-                                                else afterCalEventIds + evt.eventId
-                                            },
-                                            label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
-                                    if (!isBlockMode) {
-                                        availableBlocks.forEach { block ->
-                                            FilterChip(
-                                                selected = afterBlockId == block.id,
-                                                onClick  = {
-                                                    afterBlockId = if (afterBlockId == block.id) null else block.id
-                                                },
-                                                label = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
-                                            )
-                                        }
-                                    }
-                                }
-                                if (showAfterTimePicker) {
-                                    TimePickerDialog(
-                                        initialHour   = afterTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 9,
-                                        initialMinute = afterTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
-                                        onDismiss = { showAfterTimePicker = false },
-                                        onConfirm = { h, m ->
-                                            afterTime = "%02d:%02d".format(h, m)
-                                            showAfterTimePicker = false
-                                        }
-                                    )
-                                }
+                                )
                             }
-
-                            // Before — end-time upper bound (time + task/sleep/calendar anchors)
-                            ConstraintSubsection("Before") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    if (beforeTime != null) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            TimePickerChip(value = beforeTime!!, onValueChange = { beforeTime = it })
-                                            IconButton(
-                                                onClick = { beforeTime = null },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Close, contentDescription = "Remove time",
-                                                    modifier = Modifier.size(12.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        FilterChip(
-                                            selected = false,
-                                            onClick  = { showBeforeTimePicker = true },
-                                            label    = { Text("+ time") }
-                                        )
+                            if (showBeforeTimePicker) {
+                                TimePickerDialog(
+                                    initialHour   = beforeTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 22,
+                                    initialMinute = beforeTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+                                    onDismiss = { showBeforeTimePicker = false },
+                                    onConfirm = { h, m ->
+                                        beforeTime = "%02d:%02d".format(h, m)
+                                        showBeforeTimePicker = false
                                     }
-                                    if (!isBlockMode) FilterChip(
-                                        selected = TASK_REF_SLEEP in beforeTaskIds,
-                                        onClick  = {
-                                            beforeTaskIds = if (TASK_REF_SLEEP in beforeTaskIds)
-                                                beforeTaskIds - TASK_REF_SLEEP else beforeTaskIds + TASK_REF_SLEEP
-                                        },
-                                        label = { Text("Sleep") }
-                                    )
-                                    chainTargets.forEach { task ->
-                                        val conflict = isBeforeConflicting(task.id)
-                                        FilterChip(
-                                            selected = task.id in beforeTaskIds,
-                                            enabled  = !conflict || task.id in beforeTaskIds,
-                                            onClick  = {
-                                                beforeTaskIds = if (task.id in beforeTaskIds)
-                                                    beforeTaskIds - task.id else beforeTaskIds + task.id
-                                            },
-                                            colors = if (conflict && task.id !in beforeTaskIds)
-                                                FilterChipDefaults.filterChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                                                    labelColor     = MaterialTheme.colorScheme.error
-                                                )
-                                            else FilterChipDefaults.filterChipColors(),
-                                            label = { Text(task.title, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
-                                    todayCalEvents.forEach { evt ->
-                                        FilterChip(
-                                            selected = evt.eventId in beforeCalEventIds,
-                                            onClick  = {
-                                                beforeCalEventIds = if (evt.eventId in beforeCalEventIds)
-                                                    beforeCalEventIds - evt.eventId
-                                                else beforeCalEventIds + evt.eventId
-                                            },
-                                            label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
-                                    if (!isBlockMode) {
-                                        availableBlocks.forEach { block ->
-                                            FilterChip(
-                                                selected = beforeBlockId == block.id,
-                                                onClick  = {
-                                                    beforeBlockId = if (beforeBlockId == block.id) null else block.id
-                                                },
-                                                label = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
-                                            )
-                                        }
-                                    }
-                                }
-                                if (showBeforeTimePicker) {
-                                    TimePickerDialog(
-                                        initialHour   = beforeTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 22,
-                                        initialMinute = beforeTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
-                                        onDismiss = { showBeforeTimePicker = false },
-                                        onConfirm = { h, m ->
-                                            beforeTime = "%02d:%02d".format(h, m)
-                                            showBeforeTimePicker = false
-                                        }
-                                    )
-                                }
-                            }
-
-                            // During calendar event — exclusive placement within the event's slot (not valid inside a block)
-                            if (!isBlockMode && todayCalEvents.isNotEmpty()) {
-                                ConstraintSubsection("During event") {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        todayCalEvents.forEach { evt ->
-                                            FilterChip(
-                                                selected = duringCalEventId == evt.eventId,
-                                                onClick  = {
-                                                    duringCalEventId = if (duringCalEventId == evt.eventId) null else evt.eventId
-                                                },
-                                                label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Days of week
-                            ConstraintSubsection("Days of week") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    DAY_NAMES.forEachIndexed { i, name ->
-                                        val isoDay = i + 1
-                                        FilterChip(
-                                            selected = isoDay in selectedDays,
-                                            onClick  = {
-                                                selectedDays = if (isoDay in selectedDays)
-                                                    selectedDays - isoDay else selectedDays + isoDay
-                                            },
-                                            label = { Text(name) }
-                                        )
-                                    }
-                                }
+                                )
                             }
                         }
                     }
@@ -1226,4 +1350,20 @@ private fun ConstraintSubsection(label: String, content: @Composable () -> Unit)
         )
         content()
     }
+}
+
+@Composable
+private fun ConstraintTag(label: String, onRemove: () -> Unit) {
+    FilterChip(
+        selected     = true,
+        onClick      = onRemove,
+        label        = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        trailingIcon = {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove",
+                modifier           = Modifier.size(14.dp)
+            )
+        }
+    )
 }
