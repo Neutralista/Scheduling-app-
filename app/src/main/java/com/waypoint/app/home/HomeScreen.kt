@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.cycle.CycleTracker
+import com.waypoint.app.planner.BlockScopeView
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -593,24 +594,34 @@ private fun PlanTab(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        DayTimelineView(
-            registry = eventPlanner,
-            calendarSignals = calendarSignals,
-            calendarPrefsStore = calPrefsStore,
-            namedBlockStore = namedBlockStore,
-            date = selectedDate,
-            refreshKey = calRefreshKey,
-            modifier = Modifier.weight(1f),
-            sessionWindow = if (selectedDate == today) activeSession?.let { it.startedAtMs to it.scheduledEndMs } else null,
-            activeBlockId = activeSession?.blockId,
-            onBlockStart = { blockId, endMs ->
-                val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
-                blockSessionStore.startSession(block, endMs, selectedDate)
-            },
-            onCalendarEventClick = { selectedCalEvent = it },
-            onPlannerEventClick = { selectedPlannerEvent = it },
-            onCalEventsChanged = { planTabCalEvents = it }
-        )
+        val sessionForToday = if (selectedDate == today) activeSession else null
+        if (sessionForToday != null) {
+            BlockScopeView(
+                session = sessionForToday,
+                namedBlockStore = namedBlockStore,
+                date = selectedDate,
+                modifier = Modifier.weight(1f),
+                onEndSession = { blockSessionStore.endSession() }
+            )
+        } else {
+            DayTimelineView(
+                registry = eventPlanner,
+                calendarSignals = calendarSignals,
+                calendarPrefsStore = calPrefsStore,
+                namedBlockStore = namedBlockStore,
+                date = selectedDate,
+                refreshKey = calRefreshKey,
+                modifier = Modifier.weight(1f),
+                activeBlockId = activeSession?.blockId,
+                onBlockStart = { blockId, endMs ->
+                    val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
+                    blockSessionStore.startSession(block, endMs, selectedDate)
+                },
+                onCalendarEventClick = { selectedCalEvent = it },
+                onPlannerEventClick = { selectedPlannerEvent = it },
+                onCalEventsChanged = { planTabCalEvents = it }
+            )
+        }
     }
 
     if (showAddEvent) {

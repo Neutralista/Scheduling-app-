@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -92,7 +91,6 @@ fun DayTimelineView(
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
-    sessionWindow: Pair<Long, Long>? = null,
     activeBlockId: String? = null,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
@@ -101,7 +99,6 @@ fun DayTimelineView(
 ) {
     val isToday = date == LocalDate.now()
 
-    // Compute blockInstances first so we can resolve the scheduled block start for session mode
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
@@ -115,34 +112,17 @@ fun DayTimelineView(
                 namedBlockStore.resolveActiveTasks(block.id, date))
         } ?: emptyList()
     }
-    // Floating blocks have no fixed schedule; the planner assigns them a slot.
-    // Pass with placeholder times (0L) — the planner fills in the real start/end.
     val floatingBlockInstances = remember(date, refreshKey) {
         namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
             NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, date))
         } ?: emptyList()
     }
 
-    // In session mode use the block's SCHEDULED start (from blockInstances) so the full
-    // block history is visible from 09:00 even if the user tapped Start at 22:00.
-    val scheduledBlockStart: Long? = if (sessionWindow != null && activeBlockId != null)
-        blockInstances.find { it.block.id == activeBlockId }?.scheduledStartMs else null
-    val blockWindowStart: Long? = if (sessionWindow != null) scheduledBlockStart ?: sessionWindow.first else null
-    val blockWindowEnd:   Long? = sessionWindow?.second
+    val viewStartMs = remember(date) {
+        date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }
+    val viewEndMs = remember(viewStartMs) { viewStartMs + TOTAL_HOURS * 3600_000L }
 
-    // View spans block window ± 2h padding in session mode; standard 4 AM–4 AM otherwise.
-    val viewStartMs = remember(date, blockWindowStart) {
-        if (blockWindowStart != null) blockWindowStart - 2 * 3600_000L
-        else date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    }
-    val viewEndMs = remember(viewStartMs, blockWindowEnd) {
-        if (blockWindowEnd != null) blockWindowEnd + 2 * 3600_000L
-        else viewStartMs + TOTAL_HOURS * 3600_000L
-    }
-    val totalMinutes = remember(viewStartMs, viewEndMs) {
-        ((viewEndMs - viewStartMs) / 60_000L).toInt().coerceAtLeast(60)
-    }
-    val totalHours = remember(totalMinutes) { (totalMinutes + 59) / 60 }
     var isNowVisible by remember(viewStartMs, viewEndMs) {
         mutableStateOf(System.currentTimeMillis() in viewStartMs until viewEndMs)
     }
@@ -200,20 +180,12 @@ fun DayTimelineView(
         }
     }
 
-    val inSession = sessionWindow != null
-    LaunchedEffect(date, inSession) {
-        if (inSession) {
-            // Session mode: scroll to block start (past the 2h padding) so the user sees
-            // the block from the beginning and can scroll up to see pre-block context.
-            val paddingPx = with(density) { 2f * hourHeight.toPx() }.toInt()
-            scrollState.scrollTo(paddingPx)
-        } else {
-            val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
-            val scrollPx = with(density) {
-                scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
-            }.toInt()
-            scrollState.animateScrollTo(scrollPx)
-        }
+    LaunchedEffect(date) {
+        val scrollMin = if (isNowVisible) (nowMin - 60) else (4 * 60)
+        val scrollPx = with(density) {
+            scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
+        }.toInt()
+        scrollState.animateScrollTo(scrollPx)
     }
 
     LaunchedEffect(zoomIndex) {
@@ -284,16 +256,16 @@ fun DayTimelineView(
     val terCont        = MaterialTheme.colorScheme.tertiaryContainer
     val onSecCont      = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont      = MaterialTheme.colorScheme.onTertiaryContainer
-    val indicatorColor = if (sessionWindow != null) MaterialTheme.colorScheme.primary else Color(0xFFE53935)
+    val indicatorColor = Color(0xFFE53935)
 
-    val totalH = hourHeight * totalHours
+    val totalH = hourHeight * TOTAL_HOURS
 
     Box(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
             Row(Modifier.fillMaxWidth().height(totalH)) {
                 HourLabelsColumn(
                     viewStartMs = viewStartMs,
-                    totalHours = totalHours,
+                    totalHours = TOTAL_HOURS,
                     hourHeight = hourHeight,
                     showQuarterLabels = showQuarterLabels,
                     showMinuteLines = showMinuteLines,
@@ -303,8 +275,8 @@ fun DayTimelineView(
                     modifier = Modifier.weight(1f),
                     viewStartMs = viewStartMs,
                     viewEndMs = viewEndMs,
-                    totalHours = totalHours,
-                    totalMinutes = totalMinutes,
+                    totalHours = TOTAL_HOURS,
+                    totalMinutes = TOTAL_HOURS * 60,
                     hourHeight = hourHeight,
                     showMinuteLines = showMinuteLines,
                     plan = plan,
@@ -315,9 +287,6 @@ fun DayTimelineView(
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     isToday = isToday,
-                    inSession = sessionWindow != null,
-                    blockWindowStart = blockWindowStart,
-                    blockWindowEnd = blockWindowEnd,
                     activeBlockId = activeBlockId,
                     onBlockStart = onBlockStart,
                     outline = outline,
@@ -425,9 +394,6 @@ private fun TimelineBody(
     nowMin: Int,
     isNowVisible: Boolean,
     isToday: Boolean,
-    inSession: Boolean,
-    blockWindowStart: Long?,
-    blockWindowEnd: Long?,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     outline: Color,
@@ -461,38 +427,21 @@ private fun TimelineBody(
         out
     }
 
-    // In session mode: remove the active block tile (drawn as background fill instead) and
-    // restrict other events to the block window.
-    val visibleScheduled = if (inSession) {
-        val winStart = blockWindowStart ?: viewStartMs
-        val winEnd   = blockWindowEnd   ?: viewEndMs
-        mergedScheduled.filter { se ->
-            if (se.event.category == EventCategory.BLOCK &&
-                se.event.id.removePrefix("__block__") == activeBlockId) return@filter false
-            se.startMillis < winEnd && se.endMillis > winStart
-        }
-    } else mergedScheduled
+    // Block sub-tasks are shown inside their parent block tile; exclude them from standalone rendering.
+    val visibleScheduled = mergedScheduled.filter {
+        it.event.sourceWidgetId?.startsWith("__block__") != true
+    }
 
-    // Calendar events filtered to block window when in session (padding zone stays empty)
-    val visibleCalEvents = if (inSession && blockWindowStart != null && blockWindowEnd != null) {
-        calEvents.filter { it.endMillis > blockWindowStart && it.startMillis < blockWindowEnd }
-    } else calEvents
-
-    // Free window range: restricted to the actual block window in session mode
-    val freeRangeStart = if (inSession && blockWindowStart != null)
-        msToMin(blockWindowStart, viewStartMs).coerceAtLeast(0) else 0
-    val freeRangeEnd = if (inSession && blockWindowEnd != null)
-        msToMin(blockWindowEnd, viewStartMs).coerceAtMost(viewTotalMin) else viewTotalMin
-
-    // Compute free time windows (gaps ≥ 15 min between occupied ranges)
+    // Compute free time windows (gaps ≥ 15 min between occupied ranges).
+    // Use mergedScheduled (all events) so BEFORE/AFTER block tasks also count as occupied.
     val freeWindows = run {
         val raw = mutableListOf<Pair<Int, Int>>()
-        visibleScheduled.forEach { se ->
+        mergedScheduled.forEach { se ->
             val s = msToMin(se.startMillis, viewStartMs)
             val e = msToMin(se.endMillis,   viewStartMs)
             if (e > s) raw += s to e
         }
-        visibleCalEvents.filter { !it.allDay }.forEach { evt ->
+        calEvents.filter { !it.allDay }.forEach { evt ->
             val s = msToMin(evt.startMillis, viewStartMs)
             val e = msToMin(evt.endMillis,   viewStartMs)
             if (e > s) raw += s to e
@@ -506,42 +455,23 @@ private fun TimelineBody(
             else merged += s to e
         }
         val windows = mutableListOf<Pair<Int, Int>>()
-        var cursor = freeRangeStart
+        var cursor = 0
         for ((occStart, occEnd) in merged) {
-            if (occStart >= freeRangeEnd) break
-            val gapEnd = occStart.coerceIn(freeRangeStart, freeRangeEnd)
+            if (occStart >= viewTotalMin) break
+            val gapEnd = occStart.coerceIn(0, viewTotalMin)
             if (gapEnd > cursor && gapEnd - cursor >= 15) windows += cursor to gapEnd
             if (occEnd > cursor) cursor = occEnd
         }
-        if (freeRangeEnd > cursor && freeRangeEnd - cursor >= 15) windows += cursor to freeRangeEnd
+        if (viewTotalMin > cursor && viewTotalMin - cursor >= 15) windows += cursor to viewTotalMin
         windows
     }
 
-    Box(modifier.fillMaxHeight().clipToBounds()) {
-        // Block window background: colored fill + thick boundary lines at start/end.
-        // Drawn first so it sits beneath the grid and events.
-        if (inSession && blockWindowStart != null && blockWindowEnd != null) {
-            val blockColor = blockInstances.find { it.block.id == activeBlockId }
-                ?.block?.colorArgb?.let { Color(it) }
-                ?: MaterialTheme.colorScheme.primary
-            val bStartMin = msToMin(blockWindowStart, viewStartMs).coerceAtLeast(0)
-            val bEndMin   = msToMin(blockWindowEnd,   viewStartMs).coerceAtMost(viewTotalMin)
-            val bStartY   = minToY(bStartMin, hourHeight)
-            val bEndY     = minToY(bEndMin,   hourHeight)
-            val fillH     = (bEndY - bStartY).coerceAtLeast(0.dp)
-            Box(
-                Modifier
-                    .yOffset(bStartY)
-                    .fillMaxWidth()
-                    .height(fillH)
-                    .background(blockColor.copy(alpha = 0.12f))
-            )
-            Canvas(Modifier.fillMaxWidth().yOffset(bStartY).height(fillH)) {
-                drawLine(blockColor, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 3.dp.toPx())
-                drawLine(blockColor, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 3.dp.toPx())
-            }
-        }
+    // Group block sub-tasks by parent block id so we can render them inside the tile
+    val blockSubTasksMap = mergedScheduled
+        .filter { it.event.sourceWidgetId?.startsWith("__block__") == true }
+        .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
 
+    Box(modifier.fillMaxHeight().clipToBounds()) {
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
 
         // Free time windows
@@ -550,17 +480,14 @@ private fun TimelineBody(
         }
 
         // Calendar event blocks (skip Sleep — handled by planner)
-        visibleCalEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
+        calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
             CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
         }
 
-        // Planner event blocks — sub-tasks are shown inside their parent block tile
-        val blockSubTasksMap = visibleScheduled
-            .filter { it.event.sourceWidgetId?.startsWith("__block__") == true }
-            .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
+        // Planner event blocks
         val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
         var habitIdx = 0
-        visibleScheduled.filter { it.event.sourceWidgetId?.startsWith("__block__") != true }.forEach { se ->
+        visibleScheduled.forEach { se ->
             val colorPair = if (se.event.category == EventCategory.SLEEP ||
                                 se.event.category == EventCategory.BLOCK) null
                             else eventColors[habitIdx++ % eventColors.size]
@@ -800,7 +727,6 @@ private fun PlannerEventBlock(
                 )
             }
             if (isBlock && blockSubTasks.isNotEmpty() && eventH >= 56.dp) {
-                Spacer(Modifier.height(2.dp))
                 blockSubTasks.sortedBy { it.startMillis }.forEach { task ->
                     val durMin = ((task.endMillis - task.startMillis) / 60_000L).toInt()
                     val durLabel = if (durMin < 60) "${durMin}m"
