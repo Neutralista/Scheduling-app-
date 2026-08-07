@@ -45,6 +45,16 @@ import java.time.ZoneId
 import java.util.Calendar
 import kotlinx.coroutines.delay
 
+private fun List<BlockTask>.withMeasuredDurations(logStore: BlockSessionLogStore?): List<BlockTask> {
+    if (logStore == null) return this
+    return map { task ->
+        if (task.useMeasuredDuration) {
+            val avg = logStore.averageMeasuredMinutes(task.id)
+            if (avg != null) task.copy(durationMinutes = avg) else task
+        } else task
+    }
+}
+
 private val BS_HOUR_HEIGHT = 90.dp
 private val BS_LABEL_WIDTH = 44.dp
 
@@ -68,6 +78,7 @@ fun BlockScopeView(
     session: ActiveBlockSession,
     registry: EventPlannerRegistry,
     namedBlockStore: NamedBlockStore,
+    blockLogStore: BlockSessionLogStore? = null,
     date: LocalDate,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit
@@ -83,12 +94,14 @@ fun BlockScopeView(
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
             } else startMs + block.estimatedMinutes * 60_000L
-            NamedBlockInstance(block, startMs, endMs, namedBlockStore.resolveActiveTasks(block.id, date))
+            NamedBlockInstance(block, startMs, endMs,
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }
     }
     val floatingInstances = remember(date) {
         namedBlockStore.loadAllBlocks().filter { it.isFloating }.map { block ->
-            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, date))
+            NamedBlockInstance(block, 0L, 0L,
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }
     }
 

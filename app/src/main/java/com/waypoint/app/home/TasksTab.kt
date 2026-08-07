@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
+import com.waypoint.app.planner.BlockTaskMeasurement
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
@@ -447,6 +449,19 @@ private fun BlockSessionCard(
         }
     }
 
+    // Task timer state for useMeasuredDuration tasks
+    var runningBlockTaskId by remember { mutableStateOf<String?>(null) }
+    var blockTaskStartMs by remember { mutableStateOf(0L) }
+    var elapsedTick by remember { mutableIntStateOf(0) }
+    val sessionMeasurements = remember { mutableStateListOf<BlockTaskMeasurement>() }
+    LaunchedEffect(runningBlockTaskId) {
+        elapsedTick = 0
+        while (runningBlockTaskId != null) {
+            delay(1_000L)
+            elapsedTick++
+        }
+    }
+
     // Compute next occurrence (within 7 days)
     val nextOccurrenceDate = remember(session.blockId) {
         (1..7).map { today.plusDays(it.toLong()) }
@@ -564,11 +579,75 @@ private fun BlockSessionCard(
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f)
                         )
-                        Text(
-                            text = "${task.durationMinutes}m",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
+                        if (task.useMeasuredDuration) {
+                            val isRunning = runningBlockTaskId == task.id
+                            if (isRunning) {
+                                val elapsedS = run {
+                                    val _ = elapsedTick  // read to trigger recomposition
+                                    ((System.currentTimeMillis() - blockTaskStartMs) / 1000L).toInt()
+                                }
+                                Text(
+                                    text = "%d:%02d".format(elapsedS / 60, elapsedS % 60),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = accentColor
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val endMs = System.currentTimeMillis()
+                                        sessionMeasurements.add(BlockTaskMeasurement(
+                                            taskId = task.id,
+                                            startMs = blockTaskStartMs,
+                                            endMs = endMs
+                                        ))
+                                        runningBlockTaskId = null
+                                        blockTaskStartMs = 0L
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Stop timer",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = accentColor
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "${task.durationMinutes}m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        // Auto-stop any currently running task first
+                                        val prevId = runningBlockTaskId
+                                        if (prevId != null) {
+                                            sessionMeasurements.add(BlockTaskMeasurement(
+                                                taskId = prevId,
+                                                startMs = blockTaskStartMs,
+                                                endMs = System.currentTimeMillis()
+                                            ))
+                                        }
+                                        runningBlockTaskId = task.id
+                                        blockTaskStartMs = System.currentTimeMillis()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = "Start timer",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "${task.durationMinutes}m",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        }
                     }
                 }
             }
@@ -589,9 +668,17 @@ private fun BlockSessionCard(
                     TextButton(onClick = { completionMode = false }) { Text("Cancel") }
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = {
+                        val finalMeasurements = if (runningBlockTaskId != null) {
+                            sessionMeasurements + BlockTaskMeasurement(
+                                taskId = runningBlockTaskId!!,
+                                startMs = blockTaskStartMs,
+                                endMs = System.currentTimeMillis()
+                            )
+                        } else sessionMeasurements.toList()
                         blockSessionStore.endSession(
                             tasksCompleted = checkState.values.count { it },
-                            tasksTotal = activeTasks.size
+                            tasksTotal = activeTasks.size,
+                            taskMeasurements = finalMeasurements
                         )
                     }) {
                         Text("Exit timeblock")
@@ -659,9 +746,17 @@ private fun BlockSessionCard(
                                 namedBlockStore.toggleSituational(session.blockId, nextDate, task.id)
                             }
                         }
+                        val finalMeasurements = if (runningBlockTaskId != null) {
+                            sessionMeasurements + BlockTaskMeasurement(
+                                taskId = runningBlockTaskId!!,
+                                startMs = blockTaskStartMs,
+                                endMs = System.currentTimeMillis()
+                            )
+                        } else sessionMeasurements.toList()
                         blockSessionStore.endSession(
                             tasksCompleted = checkState.values.count { it },
-                            tasksTotal = activeTasks.size
+                            tasksTotal = activeTasks.size,
+                            taskMeasurements = finalMeasurements
                         )
                     }) {
                         Text("Save & exit timeblock", color = accentColor)

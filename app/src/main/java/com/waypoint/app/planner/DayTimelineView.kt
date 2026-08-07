@@ -82,12 +82,24 @@ private fun Modifier.yOffset(y: Dp): Modifier = layout { measurable, constraints
     }
 }
 
+/** Overrides durationMinutes on tasks with useMeasuredDuration using historical averages. */
+private fun List<BlockTask>.withMeasuredDurations(logStore: BlockSessionLogStore?): List<BlockTask> {
+    if (logStore == null) return this
+    return map { task ->
+        if (task.useMeasuredDuration) {
+            val avg = logStore.averageMeasuredMinutes(task.id)
+            if (avg != null) task.copy(durationMinutes = avg) else task
+        } else task
+    }
+}
+
 @Composable
 fun DayTimelineView(
     registry: EventPlannerRegistry,
     calendarSignals: CalendarSignals? = null,
     calendarPrefsStore: CalendarPrefsStore? = null,
     namedBlockStore: NamedBlockStore? = null,
+    blockLogStore: BlockSessionLogStore? = null,
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
@@ -109,12 +121,13 @@ fun DayTimelineView(
                 if (e > startMs) e else e + 24 * 3600_000L
             } else startMs + block.estimatedMinutes * 60_000L
             NamedBlockInstance(block, startMs, endMs,
-                namedBlockStore.resolveActiveTasks(block.id, date))
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
     }
     val floatingBlockInstances = remember(date, refreshKey) {
         namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
-            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, date))
+            NamedBlockInstance(block, 0L, 0L,
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
     }
 
@@ -137,13 +150,14 @@ fun DayTimelineView(
                 if (e > startMs) e else e + 24 * 3600_000L
             } else startMs + block.estimatedMinutes * 60_000L
             NamedBlockInstance(block, startMs, endMs,
-                namedBlockStore.resolveActiveTasks(block.id, nextDate))
+                namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
     }
     val nextDayFloatingInstances = remember(date, refreshKey) {
         val nextDate = date.plusDays(1)
         namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
-            NamedBlockInstance(block, 0L, 0L, namedBlockStore.resolveActiveTasks(block.id, nextDate))
+            NamedBlockInstance(block, 0L, 0L,
+                namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
     }
 

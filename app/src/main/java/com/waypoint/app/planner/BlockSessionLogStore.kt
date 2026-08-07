@@ -15,7 +15,8 @@ data class BlockSessionLog(
     val startedAtMs: Long,
     val endedAtMs: Long,
     val tasksCompleted: Int,
-    val tasksTotal: Int
+    val tasksTotal: Int,
+    val taskMeasurements: List<BlockTaskMeasurement> = emptyList()
 )
 
 class BlockSessionLogStore(context: Context) {
@@ -35,6 +36,16 @@ class BlockSessionLogStore(context: Context) {
         prefs.getString("entries", null)?.let {
             try { json.decodeFromString<List<BlockSessionLog>>(it) } catch (_: Exception) { emptyList() }
         } ?: emptyList()
+
+    /** Returns the historical average measured duration for a block task, or null if no data. */
+    fun averageMeasuredMinutes(taskId: String): Int? =
+        loadAll()
+            .flatMap { it.taskMeasurements }
+            .filter { it.taskId == taskId }
+            .map { it.measuredMinutes }
+            .takeIf { it.isNotEmpty() }
+            ?.average()
+            ?.toInt()
 
     fun clear() {
         prefs.edit().remove("entries").apply()

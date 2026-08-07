@@ -52,7 +52,11 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
         AppLogger.i(TAG, "startSession: blockId=${block.id} name=${block.name}")
     }
 
-    fun endSession(tasksCompleted: Int = 0, tasksTotal: Int = 0) {
+    fun endSession(
+        tasksCompleted: Int = 0,
+        tasksTotal: Int = 0,
+        taskMeasurements: List<BlockTaskMeasurement> = emptyList()
+    ) {
         val current = loadFromPrefs()
         prefs.edit().remove("active").apply()
         sessionFlow.value = null
@@ -66,10 +70,11 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
                 startedAtMs = current.startedAtMs,
                 endedAtMs = System.currentTimeMillis(),
                 tasksCompleted = tasksCompleted,
-                tasksTotal = tasksTotal
+                tasksTotal = tasksTotal,
+                taskMeasurements = taskMeasurements
             ))
         }
-        AppLogger.i(TAG, "endSession")
+        AppLogger.i(TAG, "endSession: measurements=${taskMeasurements.size}")
     }
 
     fun extendSession(extraMs: Long) {

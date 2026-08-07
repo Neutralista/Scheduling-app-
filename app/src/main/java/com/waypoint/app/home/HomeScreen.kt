@@ -164,7 +164,7 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore)
+                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore)
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager)
@@ -359,7 +359,8 @@ private fun PlanTab(
     calendarSignals: CalendarSignals,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     taskManager: TaskManagerScript,
-    blockSessionStore: BlockSessionStore
+    blockSessionStore: BlockSessionStore,
+    blockSessionLogStore: com.waypoint.app.planner.BlockSessionLogStore? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -604,6 +605,7 @@ private fun PlanTab(
                 session = sessionForToday,
                 registry = eventPlanner,
                 namedBlockStore = namedBlockStore,
+                blockLogStore = blockSessionLogStore,
                 date = selectedDate,
                 modifier = Modifier.weight(1f),
                 onEndSession = { blockSessionStore.endSession() }
@@ -614,6 +616,7 @@ private fun PlanTab(
                 calendarSignals = calendarSignals,
                 calendarPrefsStore = calPrefsStore,
                 namedBlockStore = namedBlockStore,
+                blockLogStore = blockSessionLogStore,
                 date = selectedDate,
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),

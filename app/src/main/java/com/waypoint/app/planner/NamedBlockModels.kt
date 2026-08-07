@@ -8,6 +8,15 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class BlockTaskPlacement { BEFORE, DURING, AFTER }
 
+/** Duration measurement for a single block-task execution within a session. */
+@Serializable
+data class BlockTaskMeasurement(
+    val taskId: String,
+    val startMs: Long,
+    val endMs: Long,
+    val measuredMinutes: Int = ((endMs - startMs) / 60_000L).coerceAtLeast(1).toInt()
+)
+
 /** Position preference within the block window, only meaningful when placement == DURING. */
 @Serializable
 enum class BlockSubPlacement { START, MID, END }
