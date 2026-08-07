@@ -42,7 +42,9 @@ data class PlannerEvent(
     /** When true, the scheduler uses last-fit (places the event as late as possible). */
     val scheduleLate: Boolean = false,
     /** Soft time-of-day preference; null means no preference (default first-fit). */
-    val zone: PlannerZone? = null
+    val zone: PlannerZone? = null,
+    /** Optional ARGB tint for this event's timeline tile; null = use the cycling default palette. */
+    val colorArgb: Int? = null
 )
 
 sealed class EventCondition {

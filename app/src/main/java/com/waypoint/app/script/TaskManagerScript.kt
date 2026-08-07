@@ -93,7 +93,8 @@ class TaskManagerScript(
                     scheduleLate = req.scheduleLate,
                     zone = req.zone,
                     fixedStartMillis = fixedStart,
-                    fixedEndMillis = fixedEnd
+                    fixedEndMillis = fixedEnd,
+                    colorArgb = req.colorArgb
                 )
             )
         }

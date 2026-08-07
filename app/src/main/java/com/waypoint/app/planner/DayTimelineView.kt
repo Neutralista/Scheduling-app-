@@ -693,10 +693,14 @@ private fun PlannerEventBlock(
         stored?.block?.colorArgb?.let { Color(it) } ?: Color(0xFF4DB6AC)
     } else null
 
+    val taskAccent: Color? = if (!isSleep && !isBlock && se.event.colorArgb != null)
+        Color(se.event.colorArgb) else null
+
     val (bg, fg) = when {
         isLoggedSleep -> sleepAccent.copy(alpha = 0.18f) to sleepAccent
         isSleep       -> sleepAccent.copy(alpha = 0.07f) to sleepAccent.copy(alpha = 0.50f)
         isBlock       -> blockAccent!!.copy(alpha = 0.15f) to blockAccent
+        taskAccent != null -> taskAccent.copy(alpha = 0.15f) to taskAccent
         else          -> defaultColorPair ?: (Color(0xFF4DB6AC).copy(alpha = 0.15f) to Color(0xFF4DB6AC))
     }
     val displayTitle = when {

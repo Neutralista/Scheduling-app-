@@ -211,11 +211,13 @@ fun AddTaskSheet(
         initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
     ) }
 
+    // Color (both modes)
+    var taskColor by remember { mutableStateOf(initial?.colorArgb ?: initialBlockTask?.colorArgb) }
+
     // Block-task-mode state
     var blockPlacement  by remember { mutableStateOf(initialBlockTask?.placement   ?: BlockTaskPlacement.DURING) }
     var blockSubPlace   by remember { mutableStateOf(initialBlockTask?.subPlacement) }
     var blockIsAlways   by remember { mutableStateOf(initialBlockTask?.isAlways    ?: true) }
-    var taskColor       by remember { mutableStateOf(initialBlockTask?.colorArgb) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also {
@@ -372,7 +374,8 @@ fun AddTaskSheet(
                 useMeasuredDuration = useMeasuredDuration,
                 triggers            = triggers.toList(),
                 scheduleLate        = zone == PlannerZone.EVENING,
-                zone                = zone
+                zone                = zone,
+                colorArgb           = taskColor
             )
         )
     }
@@ -432,8 +435,8 @@ fun AddTaskSheet(
                         )
                     }
 
-                    // Color (block tasks only)
-                    if (isBlockMode) FormSection(title = "Color") {
+                    // Color
+                    FormSection(title = "Color") {
                         val isCustomTaskColor = taskColor != null && taskColor !in BLOCK_COLORS
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),

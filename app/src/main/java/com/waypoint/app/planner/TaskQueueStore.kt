@@ -71,7 +71,8 @@ data class TaskRequest(
     val useMeasuredDuration: Boolean = false,
     val triggers: List<TaskTrigger> = emptyList(),
     val scheduleLate: Boolean = false,
-    val zone: PlannerZone? = null
+    val zone: PlannerZone? = null,
+    val colorArgb: Int? = null
 )
 
 class TaskQueueStore(context: Context) {

@@ -157,7 +157,7 @@ private fun TaskRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val priorityColor = when {
+    val priorityColor = task.colorArgb?.let { Color(it) } ?: when {
         task.priority >= 9 -> Color(0xFFE53935)
         task.priority >= 7 -> Color(0xFFFF7043)
         task.priority >= 4 -> Color(0xFFFFA726)
