@@ -214,20 +214,24 @@ class EventPlannerRegistry {
             // (AfterBlock tasks will be scheduled after estimatedEndMs via condition)
 
             for (task in inst.activeTasks) {
-                val taskCondition: EventCondition = when (task.placement) {
+                val placementCond: EventCondition = when (task.placement) {
                     BlockTaskPlacement.BEFORE -> EventCondition.BeforeBlock(inst.block.id)
                     BlockTaskPlacement.DURING -> EventCondition.DuringBlock(inst.block.id)
                     BlockTaskPlacement.AFTER  -> EventCondition.AfterBlock(inst.block.id)
                 }
-                allSchedulable += PlannerEvent(
+                val extraConds = task.conditions.mapNotNull { it.toEventCondition() }
+                val syntheticEvent = PlannerEvent(
                     id = task.id,
                     title = task.title,
                     durationMinutes = task.durationMinutes,
                     priority = task.priority,
                     bufferMinutes = task.bufferMinutes,
-                    conditions = listOf(taskCondition),
+                    conditions = listOf(placementCond) + extraConds,
                     sourceWidgetId = blockEventId
                 )
+                val dayReason = checkDayConditions(syntheticEvent, date, isWorkDay, shiftStartMs, shiftEndMs)
+                if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
+                else allSchedulable += syntheticEvent
             }
         }
         // Re-build fixedIntervals to include block bodies (DuringBlock tasks will carve into them)

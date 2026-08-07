@@ -117,12 +117,18 @@ class NamedBlockStore(context: Context) {
     /**
      * Resolves which tasks are active for a block on a given date.
      * Always-on tasks are always included; situational tasks only if activated.
+     * Day-of-week conditions on the task are enforced here so the UI and the
+     * planner both see only tasks that are eligible on [date].
      */
     fun resolveActiveTasks(blockId: String, date: LocalDate): List<BlockTask> {
         val all = loadTasksForBlock(blockId)
         val activation = getActivation(blockId, date)
+        val dayOfWeek = date.dayOfWeek.value  // 1=Mon..7=Sun
         return all.filter { task ->
-            task.isAlways || task.id in activation.activeTaskIds
+            (task.isAlways || task.id in activation.activeTaskIds) &&
+            task.conditions.none { spec ->
+                spec.type == "daysOfWeek" && spec.days?.let { dayOfWeek !in it } == true
+            }
         }
     }
 }
