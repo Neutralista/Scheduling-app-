@@ -1,4 +1,28 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Waypoint — Project Notes
+
+## Build
+
+```bash
+# Assemble debug APK (builds without running)
+bash gradlew :app:assembleDebug
+
+# Compile Kotlin only (fastest error check)
+bash gradlew :app:compileDebugKotlin
+```
+
+Note: `./gradlew` is broken in this repo's shell — always use `bash gradlew`.
+
+## App structure
+
+7 tabs in `HomeScreen.kt` (index order): **Plan · History · Tasks · Blocks · Modules · Alarms · Settings**
+
+`MainActivity` → `WaypointApplication.env: RealScriptEnvironment` is the single shared dependency container. Everything that needs a store or signal should pull it from `env`, not create its own instance. `blockSessionStore` in particular must always come from `env` — creating a second instance loses the shared `sessionFlow`.
+
+Entry point for init failures: `WaypointApplication.startupCrash` is non-null when `onCreate` threw. `MainActivity` shows a crash-recovery UI when this is set.
 
 ## Architecture
 
@@ -158,6 +182,48 @@ scripts.get(scriptId)          // returns {doneToday, values, settings} or null
 scripts.set(scriptId, state)   // overwrites another script's state
 // Built-in IDs: BUILTIN.WORK_SCHEDULE, BUILTIN.SLEEP_SCHEDULE, BUILTIN.TASK_MANAGER
 ```
+
+## Named block / planner architecture
+
+`NamedBlock` → stored in `NamedBlockStore` (`wp_named_blocks` SharedPreferences).
+
+Two scheduling modes:
+- **Fixed** (`isFloating=false`): recurring on `recurringDays` with a default start time; per-date overrides in `wp_block_schedules`.
+- **Floating** (`isFloating=true`): placed by `EventPlannerRegistry` at runtime using `floatingConditions`.
+
+`NamedBlockStore.resolveForDate(date)` → `List<Pair<NamedBlock, NamedBlockSchedule>>` (fixed blocks only — floating blocks are resolved by the planner).
+
+`EventPlannerRegistry.planForDate(...)` accepts `namedBlockInstances` (fixed) and `floatingBlocks` separately. It:
+1. Places floating blocks first (greedy first-fit, priority order) into `remaining` free slots.
+2. Injects each block's `activeTasks` into `allSchedulable` as `PlannerEvent` entries with synthesised `EventCondition.BeforeBlock` / `DuringBlock` / `AfterBlock` conditions and `sourceWidgetId = "__block__${blockId}"`.
+3. Runs the normal topological-sort greedy pass; block tasks are scheduled within/around the block window.
+4. Returns a `DayPlan` where block sub-tasks appear in `plan.scheduled` alongside all other events.
+
+Block events in `plan.scheduled` use `EventCategory.BLOCK` and `id = "__block__${blockId}"`. Sub-tasks use `sourceWidgetId = "__block__${blockId}"` to identify their parent.
+
+**Block session lifecycle** (`BlockSessionStore`, `wp_block_session` SharedPreferences):
+- `startSession()` writes prefs + emits on `sessionFlow: MutableStateFlow<ActiveBlockSession?>`.
+- `endSession()` clears prefs + emits null + writes a log entry to `BlockSessionLogStore`.
+- A `SharedPreferences.OnSharedPreferenceChangeListener` keeps the flow in sync when `BlockStartReceiver` writes from a BroadcastReceiver context.
+- `loadCurrent()` auto-clears stale sessions (date mismatch).
+
+**Notification / alarm flow for blocks:**
+`BlockAlarmScheduler` → `AlarmManager.setExactAndAllowWhileIdle` → fires `BlockStartReceiver` (`ACTION_BLOCK_START`) → posts "starts now" notification via `BlockNotificationHelper` → user taps "Proceed" → `BlockStartReceiver` (`ACTION_PROCEED_BLOCK`) → `startSession()`.
+
+## SharedPreferences stores
+
+| Key | Store class | Contents |
+|---|---|---|
+| `wp_named_blocks` | `NamedBlockStore` | `NamedBlock` definitions |
+| `wp_block_schedules` | `NamedBlockStore` | Per-date `NamedBlockSchedule` overrides |
+| `wp_block_tasks` | `NamedBlockStore` | `BlockTask` definitions |
+| `wp_block_activations` | `NamedBlockStore` | `BlockTaskActivation` (situational task toggles) |
+| `wp_block_session` | `BlockSessionStore` | Active `ActiveBlockSession` (single key `"active"`) |
+| `waypoint_timeline` | `DayTimelineView` | Zoom index preference |
+| `wp_calendar_prefs` | `CalendarPrefsStore` | Which calendar events reserve time |
+| `wp_buffer_rules` | `BufferRulesStore` | Buffer time rules |
+| `wp_sleep_schedule` | `SleepScheduleStore` | Bed/wake times |
+| `wp_sleep_log` | `SleepLogStore` | Daily sleep log entries |
 
 ## Design Brainstorm — Container / Routine Unification
 
