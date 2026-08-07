@@ -23,7 +23,13 @@ import kotlinx.serialization.json.Json
 data class SleepSchedule(
     val preferredWakeTime: ShiftTime = ShiftTime(7, 0),
     val preferredBedTime: ShiftTime = ShiftTime(23, 0),
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** Number of escalating wake alarms (1–3). */
+    val wakeAlarmCount: Int = 3,
+    /** Minutes between consecutive wake alarms. */
+    val wakeAlarmIntervalMinutes: Int = 5,
+    /** Minutes before bedtime to send a reminder; 0 = disabled. */
+    val preSleepReminderMinutes: Int = 30
 )
 
 data class EffectiveSleepTimes(
@@ -59,7 +65,27 @@ class SleepScheduleStore(private val context: Context) {
     fun setPreferredWakeTime(time: ShiftTime) = save(load().copy(preferredWakeTime = time))
     fun setPreferredBedTime(time: ShiftTime) = save(load().copy(preferredBedTime = time))
     fun setEnabled(enabled: Boolean) = save(load().copy(enabled = enabled))
+    fun setWakeAlarmCount(count: Int) {
+        save(load().copy(wakeAlarmCount = count.coerceIn(1, 3)))
+        rescheduleFromStored()
+    }
+    fun setWakeAlarmIntervalMinutes(minutes: Int) {
+        save(load().copy(wakeAlarmIntervalMinutes = minutes.coerceAtLeast(1)))
+        rescheduleFromStored()
+    }
+    fun setPreSleepReminderMinutes(minutes: Int) {
+        save(load().copy(preSleepReminderMinutes = minutes.coerceAtLeast(0)))
+        rescheduleFromStored()
+    }
     fun resetToDefaults() = save(SleepSchedule())
+
+    private fun rescheduleFromStored() {
+        val (bedMs, wakeMs) = _scheduledTimes.value
+        if (bedMs == null || wakeMs == null) return
+        val s = load()
+        SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs, s.preSleepReminderMinutes)
+        WakeAlarmScheduler.scheduleAlarms(context, wakeMs, s.wakeAlarmCount, s.wakeAlarmIntervalMinutes)
+    }
 
     fun computeEffectiveTimes(registry: EventPlannerRegistry): EffectiveSleepTimes {
         val today = LocalDate.now()
@@ -126,10 +152,10 @@ class SleepScheduleStore(private val context: Context) {
                     sleepMillis(date, effective.bedTime, effective.wakeTime)
                 }
 
-                SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs)
+                SleepAlarmScheduler.scheduleAlarms(context, bedMs, wakeMs, s.preSleepReminderMinutes)
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
                 _scheduledTimes.value = bedMs to wakeMs
-                WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs)
+                WakeAlarmScheduler.scheduleAlarmsIfEarlier(context, wakeMs, s.wakeAlarmCount, s.wakeAlarmIntervalMinutes)
                 if (logStore.getSleepModeState() == SleepModeState.IDLE) {
                     logStore.updateScheduledTimes(bedMs, wakeMs)
                 }

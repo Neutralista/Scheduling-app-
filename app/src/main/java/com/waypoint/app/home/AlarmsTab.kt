@@ -49,20 +49,30 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.planner.SleepScheduleStore
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun AlarmsTab(
     alarms: AlarmSignals,
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
 ) {
+    val context = LocalContext.current
+    val sleepStore = remember { SleepScheduleStore(context) }
+
     val alarmList by alarms.alarmsFlow.collectAsState()
     val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<AlarmEntry?>(null) }
+
+    val initialConfig = remember { sleepStore.load() }
+    var wakeAlarmCount by remember { mutableIntStateOf(initialConfig.wakeAlarmCount) }
+    var wakeAlarmIntervalMinutes by remember { mutableIntStateOf(initialConfig.wakeAlarmIntervalMinutes) }
+    var preSleepReminderMinutes by remember { mutableIntStateOf(initialConfig.preSleepReminderMinutes) }
 
     val (bedMs, wakeMs) = sleepTimes
     val hasSleepTimes = bedMs != null && wakeMs != null
@@ -106,17 +116,113 @@ fun AlarmsTab(
                                 "Sleep Schedule",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                            )
+
+                            // Pre-sleep reminder setting
+                            Text(
+                                "Pre-sleep reminder",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                             )
-                            SleepAlarmRow(label = "Pre-sleep reminder", epochMs = bedMs!! - 30 * 60_000L)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            ) {
+                                listOf(0 to "Off", 15 to "15m", 30 to "30m", 45 to "45m", 60 to "1h").forEach { (mins, label) ->
+                                    FilterChip(
+                                        selected = preSleepReminderMinutes == mins,
+                                        onClick = {
+                                            preSleepReminderMinutes = mins
+                                            scope.launch { sleepStore.setPreSleepReminderMinutes(mins) }
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+
+                            // Wake alarm count setting
+                            Text(
+                                "Wake-up alarms",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            ) {
+                                listOf(1 to "1", 2 to "2", 3 to "3").forEach { (count, label) ->
+                                    FilterChip(
+                                        selected = wakeAlarmCount == count,
+                                        onClick = {
+                                            wakeAlarmCount = count
+                                            scope.launch { sleepStore.setWakeAlarmCount(count) }
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+
+                            // Interval setting (only relevant when count > 1)
+                            if (wakeAlarmCount > 1) {
+                                Text(
+                                    "Interval between alarms",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp, top = 8.dp)
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                ) {
+                                    listOf(5 to "5m", 10 to "10m", 15 to "15m", 20 to "20m").forEach { (mins, label) ->
+                                        FilterChip(
+                                            selected = wakeAlarmIntervalMinutes == mins,
+                                            onClick = {
+                                                wakeAlarmIntervalMinutes = mins
+                                                scope.launch { sleepStore.setWakeAlarmIntervalMinutes(mins) }
+                                            },
+                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
+                                }
+                            } else {
+                                Spacer(Modifier.height(12.dp))
+                            }
+
+                            // Alarm rows based on current config
+                            val intervalMs = wakeAlarmIntervalMinutes * 60_000L
+
+                            if (preSleepReminderMinutes > 0) {
+                                SleepAlarmRow(
+                                    label = "Pre-sleep reminder",
+                                    epochMs = bedMs!! - preSleepReminderMinutes * 60_000L
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs!!)
                             Spacer(Modifier.height(8.dp))
-                            SleepAlarmRow(label = "Bedtime", epochMs = bedMs)
-                            Spacer(Modifier.height(8.dp))
-                            SleepAlarmRow(label = "Gentle wake (35% volume)", epochMs = wakeMs!! - 15 * 60_000L)
-                            Spacer(Modifier.height(8.dp))
-                            SleepAlarmRow(label = "Medium wake (70% volume)", epochMs = wakeMs - 10 * 60_000L)
-                            Spacer(Modifier.height(8.dp))
-                            SleepAlarmRow(label = "Wake up!", epochMs = wakeMs)
+
+                            if (wakeAlarmCount >= 3) {
+                                SleepAlarmRow(
+                                    label = "Gentle wake (35% volume)",
+                                    epochMs = wakeMs!! - 2 * intervalMs
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            if (wakeAlarmCount >= 2) {
+                                SleepAlarmRow(
+                                    label = "Medium wake (70% volume)",
+                                    epochMs = wakeMs!! - intervalMs
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            SleepAlarmRow(label = "Wake up!", epochMs = wakeMs!!)
                             Spacer(Modifier.height(16.dp))
                         }
                     }
@@ -197,7 +303,7 @@ private fun SleepAlarmRow(label: String, epochMs: Long) {
                 )
             }
             Text(
-                text = "Auto",
+                "Auto",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )

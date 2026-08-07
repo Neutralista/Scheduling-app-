@@ -11,13 +11,17 @@ object SleepAlarmScheduler {
     private const val RC_PRE_SLEEP  = 8010
     private const val RC_BEDTIME    = 8011
 
-    fun scheduleAlarms(context: Context, bedMs: Long, wakeMs: Long) {
+    fun scheduleAlarms(
+        context: Context, bedMs: Long, wakeMs: Long,
+        preSleepReminderMinutes: Int = 30
+    ) {
         cancelAlarms(context)
         val now = System.currentTimeMillis()
-
-        val preSleepMs = bedMs - 30 * 60_000L
-        if (preSleepMs > now) scheduleExact(context, preSleepMs, buildPi(context, RC_PRE_SLEEP, SleepAlarmReceiver.ACTION_PRE_SLEEP))
-        if (bedMs > now)      scheduleExact(context, bedMs, buildPi(context, RC_BEDTIME, SleepAlarmReceiver.ACTION_BEDTIME))
+        if (preSleepReminderMinutes > 0) {
+            val preSleepMs = bedMs - preSleepReminderMinutes * 60_000L
+            if (preSleepMs > now) scheduleExact(context, preSleepMs, buildPi(context, RC_PRE_SLEEP, SleepAlarmReceiver.ACTION_PRE_SLEEP))
+        }
+        if (bedMs > now) scheduleExact(context, bedMs, buildPi(context, RC_BEDTIME, SleepAlarmReceiver.ACTION_BEDTIME))
     }
 
     fun cancelAlarms(context: Context) {

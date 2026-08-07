@@ -13,23 +13,27 @@ object WakeAlarmScheduler {
     private const val RC_RING      = 8022
     private const val RC_RING_SHOW = 8023
 
-    fun scheduleAlarms(context: Context, wakeMs: Long) {
+    fun scheduleAlarms(context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5) {
         cancelAlarms(context)
-        val now = System.currentTimeMillis()
-        val gentleMs = wakeMs - 15 * 60_000L
-        val mediumMs = wakeMs - 10 * 60_000L
-        if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
-        if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
-        if (wakeMs > now)   scheduleRingAlarm(context, wakeMs)
+        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes)
     }
 
-    fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long) {
+    fun scheduleAlarmsIfEarlier(context: Context, wakeMs: Long, count: Int = 3, intervalMinutes: Int = 5) {
+        scheduleWakeAlarms(context, wakeMs, count, intervalMinutes)
+    }
+
+    private fun scheduleWakeAlarms(context: Context, wakeMs: Long, count: Int, intervalMinutes: Int) {
         val now = System.currentTimeMillis()
-        val gentleMs = wakeMs - 15 * 60_000L
-        val mediumMs = wakeMs - 10 * 60_000L
-        if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
-        if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
-        if (wakeMs > now)   scheduleRingAlarm(context, wakeMs)
+        val intervalMs = intervalMinutes * 60_000L
+        if (count >= 3) {
+            val gentleMs = wakeMs - 2 * intervalMs
+            if (gentleMs > now) scheduleExact(context, gentleMs, buildPi(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE))
+        }
+        if (count >= 2) {
+            val mediumMs = wakeMs - intervalMs
+            if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
+        }
+        if (wakeMs > now) scheduleRingAlarm(context, wakeMs)
     }
 
     fun scheduleRingAlarm(context: Context, wakeMs: Long) {
