@@ -46,6 +46,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
+import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
@@ -83,6 +84,7 @@ fun AddTaskSheet(
     initial: TaskRequest? = null,
     availableTasks: List<TaskRequest> = emptyList(),
     calendarEvents: List<CalendarEvent> = emptyList(),
+    availableBlocks: List<NamedBlock> = emptyList(),
     // Block-task mode: when set, the sheet saves a BlockTask instead of a floating TaskRequest.
     forBlock: String? = null,
     initialBlockTask: BlockTask? = null,
@@ -148,6 +150,14 @@ fun AddTaskSheet(
     val todayCalEvents = remember(calendarEvents) {
         calendarEvents.filter { !it.allDay && !it.title.equals("sleep", ignoreCase = true) }
     }
+
+    // ── Block anchor condition state (non-block-mode only) ───────────────────
+    var afterBlockId by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "afterBlock" }?.blockId
+    ) }
+    var beforeBlockId by remember { mutableStateOf(
+        initConditions.firstOrNull { it.type == "beforeBlock" }?.blockId
+    ) }
 
     // ── Routine & buffer state ───────────────────────────────────────────────
     var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: initialBlockTask?.isRoutine ?: false) }
@@ -244,6 +254,8 @@ fun AddTaskSheet(
                 afterCalEventIds.forEach { evtId -> add(TaskConditionSpec("afterCalEvent", calendarEventId = evtId)) }
                 beforeCalEventIds.forEach { evtId -> add(TaskConditionSpec("beforeCalEvent", calendarEventId = evtId)) }
                 duringCalEventId?.let { evtId -> add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId)) }
+                afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
+                beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
             }
             onSaveBlockTask(
                 BlockTask(
@@ -292,6 +304,8 @@ fun AddTaskSheet(
             duringCalEventId?.let { evtId ->
                 add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId))
             }
+            afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
+            beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
         }
 
         onSave(
@@ -643,6 +657,17 @@ fun AddTaskSheet(
                                             label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
                                         )
                                     }
+                                    if (!isBlockMode) {
+                                        availableBlocks.forEach { block ->
+                                            FilterChip(
+                                                selected = afterBlockId == block.id,
+                                                onClick  = {
+                                                    afterBlockId = if (afterBlockId == block.id) null else block.id
+                                                },
+                                                label = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
+                                            )
+                                        }
+                                    }
                                 }
                                 if (showAfterTimePicker) {
                                     TimePickerDialog(
@@ -723,6 +748,17 @@ fun AddTaskSheet(
                                             },
                                             label = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
                                         )
+                                    }
+                                    if (!isBlockMode) {
+                                        availableBlocks.forEach { block ->
+                                            FilterChip(
+                                                selected = beforeBlockId == block.id,
+                                                onClick  = {
+                                                    beforeBlockId = if (beforeBlockId == block.id) null else block.id
+                                                },
+                                                label = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
+                                            )
+                                        }
                                     }
                                 }
                                 if (showBeforeTimePicker) {

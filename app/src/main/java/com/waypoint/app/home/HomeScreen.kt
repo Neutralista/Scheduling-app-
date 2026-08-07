@@ -163,7 +163,7 @@ fun HomeScreen(
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore)
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
-                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, onRefresh = { headerRefreshKey++ })
+                2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager)
                 4 -> WidgetsTab(
                     widgets = widgets,
@@ -364,6 +364,7 @@ private fun PlanTab(
     val bufferStore = remember { BufferRulesStore(context) }
     val calPrefsStore = remember { CalendarPrefsStore(context) }
     val namedBlockStore = remember { NamedBlockStore(context) }
+    val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
     val activeSession by blockSessionStore.sessionFlow.collectAsState()
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
@@ -686,6 +687,7 @@ private fun PlanTab(
         AddTaskSheet(
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,
+            availableBlocks = allNamedBlocks,
             onDismiss = { showAddTask = false },
             onSave = { req ->
                 taskManager.submitTask(req)
@@ -720,6 +722,7 @@ private fun PlanTab(
             initial = taskBeingEdited,
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,
+            availableBlocks = allNamedBlocks,
             onDismiss = { editingTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)

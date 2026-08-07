@@ -58,6 +58,7 @@ import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.SleepCalendarSync
@@ -90,6 +91,7 @@ fun TasksTab(
     taskManager: TaskManagerScript,
     calendarSignals: CalendarSignals? = null,
     blockSessionStore: BlockSessionStore? = null,
+    availableBlocks: List<NamedBlock> = emptyList(),
     onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -348,6 +350,7 @@ fun TasksTab(
             initial = editTarget,
             availableTasks = allTasks,
             calendarEvents = todayCalEvents,
+            availableBlocks = availableBlocks,
             onDismiss = { showAdd = false; editTarget = null },
             onSave = { req ->
                 taskManager.submitTask(req)
