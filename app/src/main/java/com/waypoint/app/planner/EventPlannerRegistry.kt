@@ -220,6 +220,13 @@ class EventPlannerRegistry {
                     BlockTaskPlacement.AFTER  -> EventCondition.AfterBlock(inst.block.id)
                 }
                 val extraConds = task.conditions.mapNotNull { it.toEventCondition() }
+                val blockZone = if (task.placement == BlockTaskPlacement.DURING) {
+                    when (task.subPlacement) {
+                        BlockSubPlacement.MID -> PlannerZone.AFTERNOON
+                        BlockSubPlacement.END -> PlannerZone.EVENING
+                        else                  -> null
+                    }
+                } else null
                 val syntheticEvent = PlannerEvent(
                     id = task.id,
                     title = task.title,
@@ -227,7 +234,8 @@ class EventPlannerRegistry {
                     priority = task.priority,
                     bufferMinutes = task.bufferMinutes,
                     conditions = listOf(placementCond) + extraConds,
-                    sourceWidgetId = blockEventId
+                    sourceWidgetId = blockEventId,
+                    zone = blockZone
                 )
                 val dayReason = checkDayConditions(syntheticEvent, date, isWorkDay, shiftStartMs, shiftEndMs)
                 if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
@@ -422,7 +430,7 @@ class EventPlannerRegistry {
                 continue
             }
 
-            // DuringBlock: greedy first-fit within per-block free slots to prevent overlap
+            // DuringBlock: greedy first-fit (or last-fit for END zone) within per-block free slots
             val duringBlock = event.conditions.filterIsInstance<EventCondition.DuringBlock>().firstOrNull()
             if (duringBlock != null) {
                 val inst = allBlockInstances.find { it.block.id == duringBlock.blockId }
@@ -432,15 +440,42 @@ class EventPlannerRegistry {
                 val slots = blockFreeSlots.getOrPut(inst.block.id) {
                     mutableListOf(inst.scheduledStartMs to inst.estimatedEndMs)
                 }
-                for (i in slots.indices) {
-                    val (slotStart, slotEnd) = slots[i]
-                    val fitStart = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
-                    val fitEnd   = if (tw != null) minOf(slotEnd,   toMs(tw.endHour,   tw.endMin))   else slotEnd
-                    if (fitEnd - fitStart < durationMs) continue
-                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                    slots[i] = (fitStart + durationMs) to slotEnd
-                    placed = true
-                    break
+                val blockDuration = inst.estimatedEndMs - inst.scheduledStartMs
+                // MID: lower bound at 1/3 of block window; END: last-fit
+                val blockZoneLower: Long? = if (event.zone == PlannerZone.AFTERNOON)
+                    inst.scheduledStartMs + blockDuration / 3 else null
+                val useBlockLast = event.zone == PlannerZone.EVENING
+                if (!useBlockLast) {
+                    for (i in slots.indices) {
+                        val (slotStart, slotEnd) = slots[i]
+                        val fitStart = maxOf(
+                            if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart,
+                            blockZoneLower ?: slotStart
+                        )
+                        val fitEnd = if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd
+                        if (fitEnd - fitStart < durationMs) continue
+                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                        slots[i] = (fitStart + durationMs) to slotEnd
+                        placed = true
+                        break
+                    }
+                } else {
+                    for (i in slots.indices.reversed()) {
+                        val (slotStart, slotEnd) = slots[i]
+                        val lo = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
+                        val hi = if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd
+                        val lateStart = hi - durationMs
+                        if (lateStart < lo) continue
+                        scheduled += ScheduledEvent(event, lateStart, lateStart + durationMs)
+                        slots.removeAt(i)
+                        val segs = buildList {
+                            if (lateStart > slotStart) add(slotStart to lateStart)
+                            if (lateStart + durationMs < slotEnd) add((lateStart + durationMs) to slotEnd)
+                        }
+                        slots.addAll(i, segs)
+                        placed = true
+                        break
+                    }
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time in block window")
                 continue

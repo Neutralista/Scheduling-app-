@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.waypoint.app.planner.BlockSubPlacement
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.NamedBlock
@@ -181,8 +182,9 @@ fun AddTaskSheet(
     ) }
 
     // Block-task-mode state
-    var blockPlacement by remember { mutableStateOf(initialBlockTask?.placement ?: BlockTaskPlacement.DURING) }
-    var blockIsAlways  by remember { mutableStateOf(initialBlockTask?.isAlways  ?: true) }
+    var blockPlacement  by remember { mutableStateOf(initialBlockTask?.placement   ?: BlockTaskPlacement.DURING) }
+    var blockSubPlace   by remember { mutableStateOf(initialBlockTask?.subPlacement) }
+    var blockIsAlways   by remember { mutableStateOf(initialBlockTask?.isAlways    ?: true) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also {
@@ -267,6 +269,7 @@ fun AddTaskSheet(
                     priority            = priority,
                     bufferMinutes       = resolvedBuffer,
                     isAlways            = blockIsAlways,
+                    subPlacement        = if (blockPlacement == BlockTaskPlacement.DURING) blockSubPlace else null,
                     conditions          = blockConditions,
                     useMeasuredDuration = useMeasuredDuration,
                     triggers            = triggers.toList(),
@@ -442,7 +445,7 @@ fun AddTaskSheet(
                                 ) {
                                     FilterChip(
                                         selected = blockPlacement == BlockTaskPlacement.BEFORE,
-                                        onClick  = { blockPlacement = BlockTaskPlacement.BEFORE },
+                                        onClick  = { blockPlacement = BlockTaskPlacement.BEFORE; blockSubPlace = null },
                                         label    = { Text("Before block") }
                                     )
                                     FilterChip(
@@ -452,7 +455,7 @@ fun AddTaskSheet(
                                     )
                                     FilterChip(
                                         selected = blockPlacement == BlockTaskPlacement.AFTER,
-                                        onClick  = { blockPlacement = BlockTaskPlacement.AFTER },
+                                        onClick  = { blockPlacement = BlockTaskPlacement.AFTER; blockSubPlace = null },
                                         label    = { Text("After block") }
                                     )
                                 }
@@ -465,6 +468,51 @@ fun AddTaskSheet(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                                 )
+                                // Sub-placement position: only shown for DURING tasks
+                                if (blockPlacement == BlockTaskPlacement.DURING) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        "Position within block",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = blockSubPlace == null,
+                                            onClick  = { blockSubPlace = null },
+                                            label    = { Text("Any") }
+                                        )
+                                        FilterChip(
+                                            selected = blockSubPlace == BlockSubPlacement.START,
+                                            onClick  = { blockSubPlace = BlockSubPlacement.START },
+                                            label    = { Text("Start") }
+                                        )
+                                        FilterChip(
+                                            selected = blockSubPlace == BlockSubPlacement.MID,
+                                            onClick  = { blockSubPlace = BlockSubPlacement.MID },
+                                            label    = { Text("Middle") }
+                                        )
+                                        FilterChip(
+                                            selected = blockSubPlace == BlockSubPlacement.END,
+                                            onClick  = { blockSubPlace = BlockSubPlacement.END },
+                                            label    = { Text("End") }
+                                        )
+                                    }
+                                    Text(
+                                        text = when (blockSubPlace) {
+                                            BlockSubPlacement.START -> "Placed first, at the top of the block"
+                                            BlockSubPlacement.MID   -> "Placed in the middle third of the block"
+                                            BlockSubPlacement.END   -> "Placed as late as possible within the block"
+                                            null                    -> "No preference — fills wherever it fits"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                    )
+                                }
                             }
                         }
                         FormSection(title = "Frequency") {
@@ -538,7 +586,8 @@ fun AddTaskSheet(
                     FormSection(title = "Constraints") {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
-                            // Day relation
+                            // Day relation — not shown for block tasks (block controls its own days)
+                            if (!isBlockMode)
                             ConstraintSubsection("Day") {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     FlowRow(
@@ -620,7 +669,7 @@ fun AddTaskSheet(
                                             label    = { Text("+ time") }
                                         )
                                     }
-                                    FilterChip(
+                                    if (!isBlockMode) FilterChip(
                                         selected = TASK_REF_SLEEP in afterTaskIds,
                                         onClick  = {
                                             afterTaskIds = if (TASK_REF_SLEEP in afterTaskIds)
@@ -712,7 +761,7 @@ fun AddTaskSheet(
                                             label    = { Text("+ time") }
                                         )
                                     }
-                                    FilterChip(
+                                    if (!isBlockMode) FilterChip(
                                         selected = TASK_REF_SLEEP in beforeTaskIds,
                                         onClick  = {
                                             beforeTaskIds = if (TASK_REF_SLEEP in beforeTaskIds)
@@ -774,8 +823,8 @@ fun AddTaskSheet(
                                 }
                             }
 
-                            // During calendar event — exclusive placement within the event's slot
-                            if (todayCalEvents.isNotEmpty()) {
+                            // During calendar event — exclusive placement within the event's slot (not valid inside a block)
+                            if (!isBlockMode && todayCalEvents.isNotEmpty()) {
                                 ConstraintSubsection("During event") {
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -8,6 +8,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class BlockTaskPlacement { BEFORE, DURING, AFTER }
 
+/** Position preference within the block window, only meaningful when placement == DURING. */
+@Serializable
+enum class BlockSubPlacement { START, MID, END }
+
 /**
  * Definition of a recurring named time block (e.g. "Gym", "Dance lessons").
  * The block has a recurring base schedule plus optional per-date overrides.
@@ -66,6 +70,7 @@ data class BlockTask(
     val priority: Int = 5,
     val bufferMinutes: Int = 0,
     val isAlways: Boolean = true,
+    val subPlacement: BlockSubPlacement? = null,
     val conditions: List<TaskConditionSpec> = emptyList(),
     val useMeasuredDuration: Boolean = false,
     val triggers: List<TaskTrigger> = emptyList(),
