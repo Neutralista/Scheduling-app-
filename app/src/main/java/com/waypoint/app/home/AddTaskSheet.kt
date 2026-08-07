@@ -96,16 +96,16 @@ fun AddTaskSheet(
     val initTw = initConditions.firstOrNull { it.type == "timeWindow" }
 
     // ── Form state ───────────────────────────────────────────────────────────
-    var title by remember { mutableStateOf(initial?.title ?: "") }
+    var title by remember { mutableStateOf(initial?.title ?: initialBlockTask?.title ?: "") }
     var titleError by remember { mutableStateOf(false) }
 
-    val initDuration = initial?.durationMinutes ?: 30
+    val initDuration = initial?.durationMinutes ?: initialBlockTask?.durationMinutes ?: 30
     var durationMinutes by remember { mutableIntStateOf(if (initDuration in DURATION_PRESETS) initDuration else 30) }
-    var customDuration  by remember { mutableStateOf(initial != null && initDuration !in DURATION_PRESETS) }
-    var customDurText   by remember { mutableStateOf(if (initial != null && initDuration !in DURATION_PRESETS) initDuration.toString() else "") }
+    var customDuration  by remember { mutableStateOf((initial != null || initialBlockTask != null) && initDuration !in DURATION_PRESETS) }
+    var customDurText   by remember { mutableStateOf(if ((initial != null || initialBlockTask != null) && initDuration !in DURATION_PRESETS) initDuration.toString() else "") }
     var customDurError  by remember { mutableStateOf(false) }
 
-    val initPriority = initial?.priority ?: 5
+    val initPriority = initial?.priority ?: initialBlockTask?.priority ?: 5
     val closestPriority = PRIORITY_OPTIONS.minByOrNull { kotlin.math.abs(it.value - initPriority) }?.value ?: 5
     var priority by remember { mutableIntStateOf(closestPriority) }
 
