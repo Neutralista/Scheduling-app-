@@ -582,8 +582,7 @@ private fun BlockSessionCard(
                         if (task.useMeasuredDuration) {
                             val isRunning = runningBlockTaskId == task.id
                             if (isRunning) {
-                                val elapsedS = run {
-                                    val _ = elapsedTick  // read to trigger recomposition
+                                val elapsedS = elapsedTick.let {
                                     ((System.currentTimeMillis() - blockTaskStartMs) / 1000L).toInt()
                                 }
                                 Text(
