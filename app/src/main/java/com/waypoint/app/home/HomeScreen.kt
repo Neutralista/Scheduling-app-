@@ -132,6 +132,9 @@ fun HomeScreen(
 
     val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
 
+    val context = LocalContext.current
+    val allNamedBlocks = remember { NamedBlockStore(context).loadAllBlocks() }
+
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AppHeader(
