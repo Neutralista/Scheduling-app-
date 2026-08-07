@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -343,9 +346,6 @@ fun NamedBlockSheet(
                         Text("Color", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         val isCustomColor = selectedColor !in BLOCK_COLORS
-                        var hexInput by remember {
-                            mutableStateOf(if (isCustomColor) "%06X".format(selectedColor and 0xFFFFFF) else "")
-                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             BLOCK_COLORS.forEach { argb ->
                                 val c = Color(argb)
@@ -357,7 +357,7 @@ fun NamedBlockSheet(
                                         .then(if (selectedColor == argb)
                                             Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                                         else Modifier)
-                                        .clickable { selectedColor = argb; hexInput = "" }
+                                        .clickable { selectedColor = argb }
                                 )
                             }
                             // Custom color swatch
@@ -372,10 +372,7 @@ fun NamedBlockSheet(
                                         Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                                     else Modifier)
                                     .clickable {
-                                        if (!isCustomColor) {
-                                            selectedColor = 0xFF808080.toInt()
-                                            hexInput = "808080"
-                                        }
+                                        if (!isCustomColor) selectedColor = 0xFF808080.toInt()
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -389,22 +386,42 @@ fun NamedBlockSheet(
                             }
                         }
                         if (isCustomColor) {
-                            OutlinedTextField(
-                                value = hexInput,
-                                onValueChange = { s ->
-                                    val filtered = s.filter { it.isLetterOrDigit() }.take(6).uppercase()
-                                    hexInput = filtered
-                                    if (filtered.length == 6) {
-                                        runCatching { android.graphics.Color.parseColor("#$filtered") }
-                                            .onSuccess { selectedColor = it or 0xFF000000.toInt() }
-                                    }
-                                },
-                                prefix = { Text("#") },
-                                label = { Text("Hex color") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            val r = (selectedColor shr 16) and 0xFF
+                            val g = (selectedColor shr 8) and 0xFF
+                            val b = selectedColor and 0xFF
+                            val a = (selectedColor ushr 24) and 0xFF
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(selectedColor))
+                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                                )
+                                Text(
+                                    "#%08X".format(selectedColor),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
+                                selectedColor = (a shl 24) or (newR shl 16) or (g shl 8) or b
+                            }
+                            ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
+                                selectedColor = (a shl 24) or (r shl 16) or (newG shl 8) or b
+                            }
+                            ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
+                                selectedColor = (a shl 24) or (r shl 16) or (g shl 8) or newB
+                            }
+                            ColorChannelSlider("A", a, MaterialTheme.colorScheme.onSurfaceVariant) { newA ->
+                                selectedColor = (newA shl 24) or (r shl 16) or (g shl 8) or b
+                            }
                         }
                     }
 
@@ -966,6 +983,45 @@ private fun PlacementBadge(placement: BlockTaskPlacement, color: Color) {
             placement.name.lowercase().replaceFirstChar { it.uppercase() },
             style = MaterialTheme.typography.labelSmall,
             color = color
+        )
+    }
+}
+
+@Composable
+private fun ColorChannelSlider(
+    label: String,
+    value: Int,
+    accentColor: Color,
+    onChange: (Int) -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = accentColor,
+            modifier = Modifier.width(16.dp),
+            textAlign = TextAlign.Center
+        )
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.roundToInt().coerceIn(0, 255)) },
+            valueRange = 0f..255f,
+            modifier = Modifier.weight(1f),
+            colors = SliderDefaults.colors(
+                thumbColor = accentColor,
+                activeTrackColor = accentColor,
+                inactiveTrackColor = accentColor.copy(alpha = 0.24f)
+            )
+        )
+        Text(
+            "$value",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(28.dp),
+            textAlign = TextAlign.End
         )
     }
 }
