@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.math.roundToInt
 
 @Serializable
 sealed class RecurrenceRule {
@@ -22,6 +23,9 @@ sealed class RecurrenceRule {
 
     @Serializable @SerialName("every_n_months")
     data class EveryNMonths(val n: Int, val anchorDate: String) : RecurrenceRule()
+
+    @Serializable @SerialName("n_times_per_period")
+    data class NTimesPerPeriod(val count: Int, val periodDays: Int, val anchorDate: String) : RecurrenceRule()
 }
 
 fun RecurrenceRule.occursOn(date: LocalDate): Boolean = when (this) {
@@ -49,6 +53,15 @@ fun RecurrenceRule.occursOn(date: LocalDate): Boolean = when (this) {
         val months = ChronoUnit.MONTHS.between(anchor, date)
         months >= 0 && months % n == 0L
     }
+
+    is RecurrenceRule.NTimesPerPeriod -> {
+        val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+        val daysSince = ChronoUnit.DAYS.between(anchor, date)
+        if (daysSince < 0) return false
+        val dayInPeriod = (daysSince % periodDays).toInt()
+        val spacing = periodDays.toDouble() / count
+        (0 until count).any { k -> dayInPeriod == (k * spacing).roundToInt() }
+    }
 }
 
 fun RecurrenceRule.label(): String = when (this) {
@@ -61,4 +74,5 @@ fun RecurrenceRule.label(): String = when (this) {
     is RecurrenceRule.EveryNDays  -> if (n == 1) "Every day"   else "Every $n days"
     is RecurrenceRule.EveryNWeeks -> if (n == 1) "Every week"  else "Every $n weeks"
     is RecurrenceRule.EveryNMonths-> if (n == 1) "Every month" else "Every $n months"
+    is RecurrenceRule.NTimesPerPeriod -> if (count == 1) "Once every $periodDays days" else "$count times every $periodDays days"
 }

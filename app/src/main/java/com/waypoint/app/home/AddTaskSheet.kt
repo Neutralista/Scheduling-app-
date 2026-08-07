@@ -164,13 +164,14 @@ fun AddTaskSheet(
 
     // ── Recurrence state ─────────────────────────────────────────────────────
     var taskRecurrenceRule by remember { mutableStateOf<RecurrenceRule?>(
-        initConditions.firstOrNull { it.type in setOf("oneOff", "everyNDays", "everyNWeeks", "everyNMonths") }
+        initConditions.firstOrNull { it.type in setOf("oneOff", "everyNDays", "everyNWeeks", "everyNMonths", "nTimesPerPeriod") }
             ?.toEventCondition()?.let { cond ->
                 when (cond) {
-                    is com.waypoint.app.planner.EventCondition.OneOff       -> RecurrenceRule.OneOff(cond.date)
-                    is com.waypoint.app.planner.EventCondition.EveryNDays   -> RecurrenceRule.EveryNDays(cond.n, cond.anchorDate)
-                    is com.waypoint.app.planner.EventCondition.EveryNWeeks  -> RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate)
-                    is com.waypoint.app.planner.EventCondition.EveryNMonths -> RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.OneOff           -> RecurrenceRule.OneOff(cond.date)
+                    is com.waypoint.app.planner.EventCondition.EveryNDays       -> RecurrenceRule.EveryNDays(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.EveryNWeeks      -> RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.EveryNMonths     -> RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate)
+                    is com.waypoint.app.planner.EventCondition.NTimesPerPeriod  -> RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate)
                     else -> null
                 }
             }
@@ -275,10 +276,11 @@ fun AddTaskSheet(
                 afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
                 beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
                 when (val r = taskRecurrenceRule) {
-                    is RecurrenceRule.OneOff       -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
-                    is RecurrenceRule.EveryNDays   -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
-                    is RecurrenceRule.EveryNWeeks  -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
-                    is RecurrenceRule.EveryNMonths -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.OneOff          -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
+                    is RecurrenceRule.EveryNDays      -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.EveryNWeeks     -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.EveryNMonths    -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+                    is RecurrenceRule.NTimesPerPeriod -> add(TaskConditionSpec("nTimesPerPeriod", occurrenceCount = r.count, intervalN = r.periodDays, anchorDate = r.anchorDate))
                     else -> Unit
                 }
             }
@@ -668,11 +670,12 @@ fun AddTaskSheet(
                                     }
                                     taskRecurrenceRule?.let { r ->
                                         val label = when (r) {
-                                            is RecurrenceRule.OneOff       -> "Once (${r.date})"
-                                            is RecurrenceRule.EveryNDays   -> if (r.n == 1) "Every day" else "Every ${r.n} days"
-                                            is RecurrenceRule.EveryNWeeks  -> if (r.n == 1) "Every week" else "Every ${r.n} weeks"
-                                            is RecurrenceRule.EveryNMonths -> if (r.n == 1) "Every month" else "Every ${r.n} months"
-                                            is RecurrenceRule.DaysOfWeek   -> "Days of week"
+                                            is RecurrenceRule.OneOff          -> "Once (${r.date})"
+                                            is RecurrenceRule.EveryNDays      -> if (r.n == 1) "Every day" else "Every ${r.n} days"
+                                            is RecurrenceRule.EveryNWeeks     -> if (r.n == 1) "Every week" else "Every ${r.n} weeks"
+                                            is RecurrenceRule.EveryNMonths    -> if (r.n == 1) "Every month" else "Every ${r.n} months"
+                                            is RecurrenceRule.NTimesPerPeriod -> if (r.count == 1) "Once every ${r.periodDays} days" else "${r.count}× / ${r.periodDays} days"
+                                            is RecurrenceRule.DaysOfWeek      -> "Days of week"
                                         }
                                         ConstraintTag(label) { taskRecurrenceRule = null }
                                     }

@@ -114,6 +114,9 @@ sealed class EventCondition {
 
     /** Occurs every N months counting from anchorDate */
     data class EveryNMonths(val n: Int, val anchorDate: String) : EventCondition()
+
+    /** Occurs [count] times per [periodDays]-day window, evenly spaced from anchorDate */
+    data class NTimesPerPeriod(val count: Int, val periodDays: Int, val anchorDate: String) : EventCondition()
 }
 
 data class ScheduledEvent(

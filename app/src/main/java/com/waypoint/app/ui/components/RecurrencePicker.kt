@@ -32,7 +32,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class RecurrenceMode { ONCE, DAYS_OF_WEEK, EVERY_N_DAYS, EVERY_N_WEEKS, EVERY_N_MONTHS }
+private enum class RecurrenceMode { ONCE, DAYS_OF_WEEK, EVERY_N_DAYS, EVERY_N_WEEKS, EVERY_N_MONTHS, N_TIMES_PER_PERIOD }
 
 private val _DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 private val _DATE_FMT   = DateTimeFormatter.ofPattern("MMM d, yyyy")
@@ -53,11 +53,12 @@ fun RecurrencePicker(
 
     var mode by remember(value) {
         mutableStateOf(when (value) {
-            is RecurrenceRule.OneOff       -> RecurrenceMode.ONCE
-            is RecurrenceRule.DaysOfWeek   -> RecurrenceMode.DAYS_OF_WEEK
-            is RecurrenceRule.EveryNDays   -> RecurrenceMode.EVERY_N_DAYS
-            is RecurrenceRule.EveryNWeeks  -> RecurrenceMode.EVERY_N_WEEKS
-            is RecurrenceRule.EveryNMonths -> RecurrenceMode.EVERY_N_MONTHS
+            is RecurrenceRule.OneOff         -> RecurrenceMode.ONCE
+            is RecurrenceRule.DaysOfWeek     -> RecurrenceMode.DAYS_OF_WEEK
+            is RecurrenceRule.EveryNDays     -> RecurrenceMode.EVERY_N_DAYS
+            is RecurrenceRule.EveryNWeeks    -> RecurrenceMode.EVERY_N_WEEKS
+            is RecurrenceRule.EveryNMonths   -> RecurrenceMode.EVERY_N_MONTHS
+            is RecurrenceRule.NTimesPerPeriod -> RecurrenceMode.N_TIMES_PER_PERIOD
             null -> if (includeDaysOfWeek) RecurrenceMode.DAYS_OF_WEEK else RecurrenceMode.EVERY_N_DAYS
         })
     }
@@ -85,11 +86,18 @@ fun RecurrencePicker(
             else -> 1
         })
     }
+    var countN by remember(value) {
+        mutableIntStateOf((value as? RecurrenceRule.NTimesPerPeriod)?.count ?: 2)
+    }
+    var periodDays by remember(value) {
+        mutableIntStateOf((value as? RecurrenceRule.NTimesPerPeriod)?.periodDays ?: 30)
+    }
     var anchorDate by remember(value) {
         mutableStateOf(when (value) {
-            is RecurrenceRule.EveryNDays   -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
-            is RecurrenceRule.EveryNWeeks  -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
-            is RecurrenceRule.EveryNMonths -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
+            is RecurrenceRule.EveryNDays      -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
+            is RecurrenceRule.EveryNWeeks     -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
+            is RecurrenceRule.EveryNMonths    -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
+            is RecurrenceRule.NTimesPerPeriod -> runCatching { LocalDate.parse(value.anchorDate) }.getOrNull() ?: today
             else -> today
         })
     }
@@ -103,20 +111,22 @@ fun RecurrencePicker(
     }
 
     fun currentRule(): RecurrenceRule = when (mode) {
-        RecurrenceMode.ONCE            -> RecurrenceRule.OneOff(onceDate.toString())
-        RecurrenceMode.DAYS_OF_WEEK    -> RecurrenceRule.DaysOfWeek(selectedDays.sorted())
-        RecurrenceMode.EVERY_N_DAYS    -> RecurrenceRule.EveryNDays(intervalN, anchorDate.toString())
-        RecurrenceMode.EVERY_N_WEEKS   -> RecurrenceRule.EveryNWeeks(intervalN, anchorDate.toString())
-        RecurrenceMode.EVERY_N_MONTHS  -> RecurrenceRule.EveryNMonths(intervalN, anchorDate.toString())
+        RecurrenceMode.ONCE              -> RecurrenceRule.OneOff(onceDate.toString())
+        RecurrenceMode.DAYS_OF_WEEK      -> RecurrenceRule.DaysOfWeek(selectedDays.sorted())
+        RecurrenceMode.EVERY_N_DAYS      -> RecurrenceRule.EveryNDays(intervalN, anchorDate.toString())
+        RecurrenceMode.EVERY_N_WEEKS     -> RecurrenceRule.EveryNWeeks(intervalN, anchorDate.toString())
+        RecurrenceMode.EVERY_N_MONTHS    -> RecurrenceRule.EveryNMonths(intervalN, anchorDate.toString())
+        RecurrenceMode.N_TIMES_PER_PERIOD -> RecurrenceRule.NTimesPerPeriod(countN, periodDays, anchorDate.toString())
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         val modes = buildList<Pair<RecurrenceMode, String>> {
             if (includeDaysOfWeek) add(RecurrenceMode.DAYS_OF_WEEK to "Days of week")
-            add(RecurrenceMode.EVERY_N_DAYS   to "Every N days")
-            add(RecurrenceMode.EVERY_N_WEEKS  to "Every N weeks")
-            add(RecurrenceMode.EVERY_N_MONTHS to "Every N months")
-            add(RecurrenceMode.ONCE           to "Once")
+            add(RecurrenceMode.EVERY_N_DAYS      to "Every N days")
+            add(RecurrenceMode.EVERY_N_WEEKS     to "Every N weeks")
+            add(RecurrenceMode.EVERY_N_MONTHS    to "Every N months")
+            add(RecurrenceMode.N_TIMES_PER_PERIOD to "N times/period")
+            add(RecurrenceMode.ONCE              to "Once")
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -157,6 +167,47 @@ fun RecurrencePicker(
                             },
                             label    = { Text(lbl) }
                         )
+                    }
+                }
+            }
+            RecurrenceMode.N_TIMES_PER_PERIOD -> {
+                val countLabel = if (countN == 1) "Once" else "$countN times"
+                val periodLabel = "every $periodDays day${if (periodDays == 1) "" else "s"}"
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    modifier              = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "$countLabel $periodLabel",
+                        style    = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Text("Times per period (1–10)", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value                = countN.toFloat(),
+                    onValueChange        = { countN = it.toInt() },
+                    onValueChangeFinished = { onChange(currentRule()) },
+                    valueRange           = 1f..10f,
+                    steps                = 8,
+                    modifier             = Modifier.fillMaxWidth()
+                )
+                Text("Period length: $periodDays days (1–90)", style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value                = periodDays.toFloat(),
+                    onValueChange        = { periodDays = it.toInt() },
+                    onValueChangeFinished = { onChange(currentRule()) },
+                    valueRange           = 1f..90f,
+                    steps                = 88,
+                    modifier             = Modifier.fillMaxWidth()
+                )
+                Row(
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Starting from:", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { showAnchorPicker = true }) {
+                        Text(anchorDate.format(_DATE_FMT))
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.waypoint.app.planner
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.Calendar
+import kotlin.math.roundToInt
 
 class EventPlannerRegistry {
 
@@ -677,6 +678,16 @@ class EventPlannerRegistry {
                 if (date.dayOfMonth != anchor.dayOfMonth) return "Not scheduled for today"
                 val months = ChronoUnit.MONTHS.between(anchor, date)
                 if (months < 0 || months % cond.n != 0L) return "Not scheduled for today"
+            }
+            is EventCondition.NTimesPerPeriod -> {
+                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
+                    ?: return "Invalid anchor date"
+                val daysSince = ChronoUnit.DAYS.between(anchor, date)
+                if (daysSince < 0) return "Not scheduled for today"
+                val dayInPeriod = (daysSince % cond.periodDays).toInt()
+                val spacing = cond.periodDays.toDouble() / cond.count
+                val matches = (0 until cond.count).any { k -> dayInPeriod == (k * spacing).roundToInt() }
+                if (!matches) return "Not scheduled for today"
             }
             else -> Unit
         }

@@ -67,6 +67,7 @@ import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TaskConditionSpec
+import com.waypoint.app.planner.occursOn
 import com.waypoint.app.ui.components.RecurrencePicker
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter

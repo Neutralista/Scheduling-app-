@@ -18,7 +18,8 @@ data class TaskConditionSpec(
     val blockId: String? = null,
     val intervalN: Int? = null,
     val anchorDate: String? = null,
-    val oneOffDate: String? = null
+    val oneOffDate: String? = null,
+    val occurrenceCount: Int? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
@@ -49,8 +50,10 @@ data class TaskConditionSpec(
         "oneOff"         -> oneOffDate?.let { EventCondition.OneOff(it) }
         "everyNDays"     -> if (intervalN != null && anchorDate != null) EventCondition.EveryNDays(intervalN, anchorDate) else null
         "everyNWeeks"    -> if (intervalN != null && anchorDate != null) EventCondition.EveryNWeeks(intervalN, anchorDate) else null
-        "everyNMonths"   -> if (intervalN != null && anchorDate != null) EventCondition.EveryNMonths(intervalN, anchorDate) else null
-        else             -> null
+        "everyNMonths"     -> if (intervalN != null && anchorDate != null) EventCondition.EveryNMonths(intervalN, anchorDate) else null
+        "nTimesPerPeriod"  -> if (occurrenceCount != null && intervalN != null && anchorDate != null)
+            EventCondition.NTimesPerPeriod(occurrenceCount, intervalN, anchorDate) else null
+        else               -> null
     }
 }
 
