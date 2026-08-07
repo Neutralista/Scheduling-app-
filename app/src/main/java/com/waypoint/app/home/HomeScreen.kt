@@ -164,7 +164,7 @@ fun HomeScreen(
             beyondViewportPageCount = 1
         ) { page ->
             when (page) {
-                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore)
+                0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore, onHeaderRefresh = { headerRefreshKey++ })
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager)
@@ -360,7 +360,8 @@ private fun PlanTab(
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     taskManager: TaskManagerScript,
     blockSessionStore: BlockSessionStore,
-    blockSessionLogStore: com.waypoint.app.planner.BlockSessionLogStore? = null
+    blockSessionLogStore: com.waypoint.app.planner.BlockSessionLogStore? = null,
+    onHeaderRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -696,7 +697,7 @@ private fun PlanTab(
                     taskManager.startExecution(selPlanner.event.id)
                     taskManager.syncToRegistry()
                     calRefreshKey++
-                    headerRefreshKey++
+                    onHeaderRefresh()
                 }
             } else null,
             onComplete = if (taskReq != null && !isDone) {
@@ -705,7 +706,7 @@ private fun PlanTab(
                     taskManager.markDone(selPlanner.event.id)
                     taskManager.syncToRegistry()
                     calRefreshKey++
-                    headerRefreshKey++
+                    onHeaderRefresh()
                 }
             } else null,
             onBlockStart = if (blockTileId != null && activeSession == null) {
