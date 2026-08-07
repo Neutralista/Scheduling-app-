@@ -124,6 +124,7 @@ fun NamedBlockSheet(
 
     var canStartEarly by remember { mutableStateOf(initial?.canStartEarly ?: true) }
     var canRunLate by remember { mutableStateOf(initial?.canRunLate ?: true) }
+    var notificationsEnabled by remember { mutableStateOf(initial?.notificationsEnabled ?: true) }
 
     var recurrenceRule by remember {
         mutableStateOf(
@@ -289,7 +290,8 @@ fun NamedBlockSheet(
                             isFloating = schedulingMode == BlockSchedulingMode.AUTO,
                             floatingConditions = autoConditions,
                             useTotalTaskDuration = useTotalTaskDuration,
-                            recurrenceRule = fixedRule
+                            recurrenceRule = fixedRule,
+                            notificationsEnabled = notificationsEnabled
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -503,6 +505,16 @@ fun NamedBlockSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(checked = canRunLate, onCheckedChange = { canRunLate = it })
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Start notification",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                Text("Send a notification when this block begins",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = notificationsEnabled, onCheckedChange = { notificationsEnabled = it })
                         }
                     }
 

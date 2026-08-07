@@ -48,7 +48,9 @@ data class NamedBlock(
     /** When true, estimatedMinutes is recomputed from the sum of block task durations on each save. */
     val useTotalTaskDuration: Boolean = false,
     /** Flexible recurrence rule; when set takes precedence over [recurringDays]. */
-    val recurrenceRule: RecurrenceRule? = null
+    val recurrenceRule: RecurrenceRule? = null,
+    /** When false, no start notification/alarm fires for this block. */
+    val notificationsEnabled: Boolean = true
 )
 
 /**
