@@ -81,7 +81,7 @@ import java.util.UUID
 private enum class BlockSchedulingMode { FIXED, AUTO }
 private enum class BlockAutoDay { ANY, WORK_DAYS, DAYS_OFF }
 
-private val BLOCK_COLORS = listOf(
+internal val BLOCK_COLORS = listOf(
     0xFF4DB6AC.toInt(), // teal
     0xFF7986CB.toInt(), // indigo
     0xFFEF9A9A.toInt(), // red
@@ -948,6 +948,15 @@ private fun BlockTaskRow(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (task.colorArgb != null) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(Color(task.colorArgb))
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -988,7 +997,7 @@ private fun PlacementBadge(placement: BlockTaskPlacement, color: Color) {
 }
 
 @Composable
-private fun ColorChannelSlider(
+internal fun ColorChannelSlider(
     label: String,
     value: Int,
     accentColor: Color,

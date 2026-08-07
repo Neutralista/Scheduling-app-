@@ -88,7 +88,8 @@ data class BlockTask(
     val useMeasuredDuration: Boolean = false,
     val triggers: List<TaskTrigger> = emptyList(),
     val isRoutine: Boolean = false,
-    val subtasks: List<SubtaskDef> = emptyList()
+    val subtasks: List<SubtaskDef> = emptyList(),
+    val colorArgb: Int? = null
 )
 
 /**
