@@ -12,12 +12,13 @@ class SleepAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_PRE_SLEEP -> {
+                val minutesBefore = intent.getIntExtra(EXTRA_MINUTES_BEFORE, 30)
                 val logStore = SleepLogStore(context)
                 val bedMs = logStore.getScheduledBedMs()
                 val bedText = if (bedMs != null)
                     SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(bedMs))
                 else "soon"
-                SleepNotificationHelper.sendPreSleepReminder(context, bedText)
+                SleepNotificationHelper.sendPreSleepReminder(context, bedText, minutesBefore)
             }
             ACTION_BEDTIME -> {
                 SleepNotificationHelper.sendBedtimeNotification(context)
@@ -26,7 +27,8 @@ class SleepAlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_PRE_SLEEP  = "com.waypoint.app.SLEEP_PRE_REMINDER"
-        const val ACTION_BEDTIME    = "com.waypoint.app.SLEEP_BEDTIME"
+        const val ACTION_PRE_SLEEP       = "com.waypoint.app.SLEEP_PRE_REMINDER"
+        const val ACTION_BEDTIME         = "com.waypoint.app.SLEEP_BEDTIME"
+        const val EXTRA_MINUTES_BEFORE   = "minutes_before"
     }
 }

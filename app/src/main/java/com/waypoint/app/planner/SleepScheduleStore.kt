@@ -109,6 +109,10 @@ class SleepScheduleStore(private val context: Context) {
             context, wakeMs, s.wakeAlarmCount, s.wakeAlarmIntervalMinutes,
             s.gentleWakeEnabled, s.mediumWakeEnabled, s.wakeAlarmEnabled
         )
+        val anyActive = s.preSleepAlarmEnabled || s.bedtimeAlarmEnabled ||
+            s.gentleWakeEnabled || s.mediumWakeEnabled || s.wakeAlarmEnabled
+        if (anyActive) SleepNotificationHelper.showAlarmStatus(context, bedMs, wakeMs)
+        else SleepNotificationHelper.clearAlarmStatus(context)
     }
 
     fun computeEffectiveTimes(registry: EventPlannerRegistry): EffectiveSleepTimes {

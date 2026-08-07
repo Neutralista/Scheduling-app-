@@ -21,7 +21,16 @@ object SleepAlarmScheduler {
         val now = System.currentTimeMillis()
         if (preSleepEnabled && preSleepReminderMinutes > 0) {
             val preSleepMs = bedMs - preSleepReminderMinutes * 60_000L
-            if (preSleepMs > now) scheduleExact(context, preSleepMs, buildPi(context, RC_PRE_SLEEP, SleepAlarmReceiver.ACTION_PRE_SLEEP))
+            if (preSleepMs > now) {
+                val pi = PendingIntent.getBroadcast(
+                    context, RC_PRE_SLEEP,
+                    Intent(SleepAlarmReceiver.ACTION_PRE_SLEEP)
+                        .setPackage(context.packageName)
+                        .putExtra(SleepAlarmReceiver.EXTRA_MINUTES_BEFORE, preSleepReminderMinutes),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                scheduleExact(context, preSleepMs, pi)
+            }
         }
         if (bedtimeEnabled && bedMs > now) scheduleExact(context, bedMs, buildPi(context, RC_BEDTIME, SleepAlarmReceiver.ACTION_BEDTIME))
     }

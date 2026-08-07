@@ -78,13 +78,15 @@ object SleepNotificationHelper {
 
     // ─── Sleep reminders ───────────────────────────────────────────────────────
 
-    fun sendPreSleepReminder(context: Context, bedTimeText: String) {
+    fun sendPreSleepReminder(context: Context, bedTimeText: String, minutesBefore: Int = 30) {
         val openPi = openAppPi(context, 200)
+        val title = if (minutesBefore >= 60) "Bedtime in ${minutesBefore / 60}h"
+                    else "Bedtime in ${minutesBefore} min"
         nm(context).notify(
             NOTIF_PRE_SLEEP,
             NotificationCompat.Builder(context, CH_SLEEP_REMINDER)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Bedtime in 30 min")
+                .setContentTitle(title)
                 .setContentText("Wind down and head to bed by $bedTimeText")
                 .setContentIntent(openPi)
                 .setAutoCancel(true)
