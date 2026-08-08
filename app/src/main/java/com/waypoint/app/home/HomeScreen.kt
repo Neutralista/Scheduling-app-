@@ -363,6 +363,24 @@ private fun AppHeader(
     }
 }
 
+@Composable
+private fun SlotPillButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = modifier
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
 // ── Plan tab ──────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -656,19 +674,15 @@ private fun PlanTab(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(16.dp))
-                TextButton(
-                    onClick = { freeSlotAddTask = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("+ Task", style = MaterialTheme.typography.bodyMedium) }
-                if (!freeSlotFromBlock) {
-                    TextButton(
-                        onClick = { freeSlotAddBlock = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("+ Time Block", style = MaterialTheme.typography.bodyMedium) }
-                    TextButton(
-                        onClick = { freeSlotAddEvent = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("+ Calendar Event", style = MaterialTheme.typography.bodyMedium) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SlotPillButton(label = "+ Task", onClick = { freeSlotAddTask = true }, modifier = Modifier.weight(1f))
+                    if (!freeSlotFromBlock) {
+                        SlotPillButton(label = "+ Block", onClick = { freeSlotAddBlock = true }, modifier = Modifier.weight(1f))
+                        SlotPillButton(label = "+ Event", onClick = { freeSlotAddEvent = true }, modifier = Modifier.weight(1f))
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
             }
