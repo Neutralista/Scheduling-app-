@@ -81,6 +81,7 @@ fun BlockScopeView(
     namedBlockStore: NamedBlockStore,
     blockLogStore: BlockSessionLogStore? = null,
     date: LocalDate,
+    refreshKey: Int = 0,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
@@ -88,7 +89,7 @@ fun BlockScopeView(
 ) {
     val blockColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
 
-    val blockInstances = remember(date) {
+    val blockInstances = remember(date, refreshKey) {
         namedBlockStore.resolveForDate(date).map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -101,14 +102,14 @@ fun BlockScopeView(
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }
     }
-    val floatingInstances = remember(date) {
+    val floatingInstances = remember(date, refreshKey) {
         namedBlockStore.loadAllBlocks().filter { it.isFloating }.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }
     }
 
-    var plan by remember(date) {
+    var plan by remember(date, refreshKey) {
         mutableStateOf(
             registry.planForDate(
                 date,
@@ -155,7 +156,7 @@ fun BlockScopeView(
     }
 
     // 1-second ticker: moves the now-indicator and re-plans the day
-    LaunchedEffect(viewStartMs, viewEndMs, date) {
+    LaunchedEffect(viewStartMs, viewEndMs, date, refreshKey) {
         while (true) {
             delay(1_000L)
             val now = System.currentTimeMillis()

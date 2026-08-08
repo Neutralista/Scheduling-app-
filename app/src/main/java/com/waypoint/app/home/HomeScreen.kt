@@ -575,6 +575,7 @@ private fun PlanTab(
                 namedBlockStore = namedBlockStore,
                 blockLogStore = blockSessionLogStore,
                 date = selectedDate,
+                refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
                 onEndSession = { blockSessionStore.endSession() },
                 onTaskClick = { selectedPlannerEvent = it },
