@@ -404,6 +404,7 @@ private fun PlanTab(
     var editingBlockTask by remember { mutableStateOf<Pair<String, BlockTask?>?>(null) }
     var showEditSleep by remember { mutableStateOf(false) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var freeSlotFromBlock by remember { mutableStateOf(false) }
     var freeSlotAddTask by remember { mutableStateOf(false) }
     var freeSlotAddEvent by remember { mutableStateOf(false) }
     var freeSlotAddBlock by remember { mutableStateOf(false) }
@@ -596,7 +597,7 @@ private fun PlanTab(
                 modifier = Modifier.weight(1f),
                 onEndSession = { blockSessionStore.endSession() },
                 onTaskClick = { selectedPlannerEvent = it },
-                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs }
+                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = true }
             )
         } else {
             DayTimelineView(
@@ -616,7 +617,7 @@ private fun PlanTab(
                 onCalendarEventClick = { selectedCalEvent = it },
                 onPlannerEventClick = { selectedPlannerEvent = it },
                 onCalEventsChanged = { planTabCalEvents = it },
-                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs }
+                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = false }
             )
         }
     }
@@ -648,14 +649,16 @@ private fun PlanTab(
                     onClick = { freeSlotAddTask = true },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("+ Task", style = MaterialTheme.typography.bodyMedium) }
-                TextButton(
-                    onClick = { freeSlotAddBlock = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("+ Time Block", style = MaterialTheme.typography.bodyMedium) }
-                TextButton(
-                    onClick = { freeSlotAddEvent = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("+ Calendar Event", style = MaterialTheme.typography.bodyMedium) }
+                if (!freeSlotFromBlock) {
+                    TextButton(
+                        onClick = { freeSlotAddBlock = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("+ Time Block", style = MaterialTheme.typography.bodyMedium) }
+                    TextButton(
+                        onClick = { freeSlotAddEvent = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("+ Calendar Event", style = MaterialTheme.typography.bodyMedium) }
+                }
                 Spacer(Modifier.height(16.dp))
             }
         }
