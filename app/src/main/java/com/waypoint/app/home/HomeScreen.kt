@@ -167,7 +167,7 @@ fun HomeScreen(
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore, onHeaderRefresh = { headerRefreshKey++ })
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
-                3 -> BlocksTab(taskManager = taskManager)
+                3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner)
                 4 -> WidgetsTab(
                     widgets = widgets,
                     statesById = statesById,

@@ -54,19 +54,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.SleepSchedule
+import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.script.TaskManagerScript
+import com.waypoint.app.signal.ShiftTime
+import com.waypoint.app.ui.components.TimePickerChip
 
 private val BLOCKS_DAY_ABBREVS = mapOf(
     1 to "Mo", 2 to "Tu", 3 to "We", 4 to "Th", 5 to "Fr", 6 to "Sa", 7 to "Su"
 )
 
 @Composable
-fun BlocksTab(taskManager: TaskManagerScript) {
+fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry) {
     val context = LocalContext.current
     val namedBlockStore = remember { NamedBlockStore(context) }
+    val sleepStore = remember { SleepScheduleStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
     val allBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks() }
 
@@ -86,6 +92,11 @@ fun BlocksTab(taskManager: TaskManagerScript) {
             .windowInsetsPadding(WindowInsets.navigationBars),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        item(key = "sleep_block") {
+            SleepBlockCard(sleepStore = sleepStore, registry = eventPlanner)
+            Spacer(Modifier.height(4.dp))
+        }
+
         item(key = "blocks_header") {
             BlocksSectionHeader(title = "Time Blocks", onAdd = { showAddBlock = true })
         }
@@ -548,6 +559,142 @@ private fun BlocksEmptyHint(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
     )
+}
+
+// ── Sleep block card ──────────────────────────────────────────────────────────
+
+@Composable
+private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlannerRegistry) {
+    var schedule by remember { mutableStateOf(sleepStore.load()) }
+    var expanded by remember { mutableStateOf(false) }
+
+    val accent = Color(0xFF5C6BC0)
+
+    fun commit(updated: SleepSchedule) {
+        schedule = updated
+        sleepStore.syncToRegistry(registry)
+        schedule = sleepStore.load()
+    }
+
+    val bedStr   = schedule.preferredBedTime.displayString
+    val wakeStr  = schedule.preferredWakeTime.displayString
+    val sleepMins = run {
+        val b = schedule.preferredBedTime.totalMinutes
+        val w = schedule.preferredWakeTime.totalMinutes
+        if (b > w) w + (24 * 60 - b) else w - b
+    }
+    val sleepSummary = run {
+        val h = sleepMins / 60; val m = sleepMins % 60
+        if (m == 0) "${h}h" else "${h}h ${m}m"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp)),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .width(4.dp)
+                        .height(56.dp)
+                        .background(
+                            if (schedule.enabled) accent else accent.copy(alpha = 0.3f),
+                            RoundedCornerShape(topStart = 12.dp, bottomStart = if (expanded) 0.dp else 12.dp)
+                        )
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                    Text(
+                        text = "Sleep",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (schedule.enabled) "$bedStr – $wakeStr · $sleepSummary" else "disabled",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = schedule.enabled,
+                    onCheckedChange = { enabled ->
+                        sleepStore.setEnabled(enabled)
+                        commit(sleepStore.load())
+                    }
+                )
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp, top = 4.dp)) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Wake",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            TimePickerChip(
+                                value = schedule.preferredWakeTime.displayString,
+                                onValueChange = { text ->
+                                    ShiftTime.parse(text)?.let {
+                                        sleepStore.setPreferredWakeTime(it)
+                                        commit(sleepStore.load())
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Bed",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            TimePickerChip(
+                                value = schedule.preferredBedTime.displayString,
+                                onValueChange = { text ->
+                                    ShiftTime.parse(text)?.let {
+                                        sleepStore.setPreferredBedTime(it)
+                                        commit(sleepStore.load())
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Shared duration label ─────────────────────────────────────────────────────
