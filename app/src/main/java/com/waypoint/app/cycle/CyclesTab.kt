@@ -195,7 +195,7 @@ private fun CurrentCycleCard(cycle: Cycle, tick: Int, onClick: () -> Unit) {
 
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 LabeledTime("Wake", cycle.wakeMillis)
-                if (isSleeping) LabeledTime("Sleep", cycle.sleepStartMillis!!)
+                if (isSleeping) LabeledTime("Sleep", cycle.sleepStartMillis!!, cycle.wakeMillis)
             }
 
             Text(
@@ -245,8 +245,8 @@ private fun CycleHistoryCard(cycle: Cycle, onClick: () -> Unit) {
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 LabeledTime("Wake", cycle.wakeMillis)
-                cycle.sleepStartMillis?.let { LabeledTime("Sleep", it) }
-                cycle.nextWakeMillis?.let   { LabeledTime("Next wake", it) }
+                cycle.sleepStartMillis?.let { LabeledTime("Sleep", it, cycle.wakeMillis) }
+                cycle.nextWakeMillis?.let   { LabeledTime("Next wake", it, cycle.wakeMillis) }
             }
 
             Spacer(Modifier.height(2.dp))
@@ -266,7 +266,9 @@ private fun CycleHistoryCard(cycle: Cycle, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LabeledTime(label: String, millis: Long) {
+private fun LabeledTime(label: String, millis: Long, referenceMillis: Long? = null) {
+    val crossesDate = referenceMillis != null &&
+        Cycle.dateLabel(millis) != Cycle.dateLabel(referenceMillis)
     Column {
         Text(label, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -277,6 +279,13 @@ private fun LabeledTime(label: String, millis: Long) {
                 fontFeatureSettings = "tnum"
             )
         )
+        if (crossesDate) {
+            Text(
+                Cycle.formatDate(millis),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
     }
 }
 
