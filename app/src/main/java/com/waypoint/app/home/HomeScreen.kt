@@ -364,6 +364,7 @@ private fun AppHeader(
 
 // ── Plan tab ──────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlanTab(
     eventPlanner: EventPlannerRegistry,
