@@ -46,7 +46,9 @@ fun AddCalendarEventSheet(
     onDismiss: () -> Unit,
     onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean, reservesTime: Boolean) -> Unit,
     initialCalEvent: CalendarEvent? = null,
-    initialReservesTime: Boolean = true
+    initialReservesTime: Boolean = true,
+    initialStartMs: Long? = null,
+    initialEndMs: Long? = null
 ) {
     val isEditing = initialCalEvent != null
     val dateDisplay = remember(date) {
@@ -58,10 +60,18 @@ fun AddCalendarEventSheet(
     var allDay by remember { mutableStateOf(initialCalEvent?.allDay ?: false) }
     var reservesTime by remember { mutableStateOf(initialReservesTime) }
     var startTime by remember { mutableStateOf(
-        if (initialCalEvent != null) fmtMs(initialCalEvent.startMillis) else "09:00"
+        when {
+            initialCalEvent != null -> fmtMs(initialCalEvent.startMillis)
+            initialStartMs != null  -> fmtMs(initialStartMs)
+            else                    -> "09:00"
+        }
     ) }
     var endTime by remember { mutableStateOf(
-        if (initialCalEvent != null) fmtMs(initialCalEvent.endMillis) else "10:00"
+        when {
+            initialCalEvent != null -> fmtMs(initialCalEvent.endMillis)
+            initialEndMs != null    -> fmtMs(initialEndMs)
+            else                    -> "10:00"
+        }
     ) }
     var notes by remember { mutableStateOf(initialCalEvent?.description ?: "") }
 

@@ -83,7 +83,8 @@ fun BlockScopeView(
     date: LocalDate,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit,
-    onTaskClick: ((ScheduledEvent) -> Unit)? = null
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null,
+    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     val blockColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
 
@@ -192,7 +193,12 @@ fun BlockScopeView(
                     onSecCont = onSecCont,
                     outline = outline,
                     onSV = onSV,
-                    onTaskClick = onTaskClick
+                    onTaskClick = onTaskClick,
+                    onFreeSlotClick = onFreeSlotClick?.let { cb ->
+                        { startMin: Int, endMin: Int ->
+                            cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)
+                        }
+                    }
                 )
             }
         }
@@ -287,7 +293,8 @@ private fun BsTimelineBody(
     onSecCont: Color,
     outline: Color,
     onSV: Color,
-    onTaskClick: ((ScheduledEvent) -> Unit)? = null
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null,
+    onFreeSlotClick: ((startMin: Int, endMin: Int) -> Unit)? = null
 ) {
     Box(modifier.fillMaxHeight().clipToBounds()) {
 
@@ -348,10 +355,14 @@ private fun BsTimelineBody(
         for ((occStart, occEnd) in merged) {
             if (occStart >= blockEndMin) break
             val gapEnd = occStart.coerceIn(blockStartMin, blockEndMin)
-            if (gapEnd > cursor && gapEnd - cursor >= 10) BsFreeWindow(cursor, gapEnd, onSV)
+            val gapStart = cursor
+            if (gapEnd > cursor && gapEnd - cursor >= 10)
+                BsFreeWindow(gapStart, gapEnd, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(gapStart, gapEnd) } })
             if (occEnd > cursor) cursor = occEnd
         }
-        if (blockEndMin > cursor && blockEndMin - cursor >= 10) BsFreeWindow(cursor, blockEndMin, onSV)
+        val finalCursor = cursor
+        if (blockEndMin > finalCursor && blockEndMin - finalCursor >= 10)
+            BsFreeWindow(finalCursor, blockEndMin, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(finalCursor, blockEndMin) } })
 
         // Task tiles — bg uses alpha to match the translucent style of the regular timeline
         val eventColors = listOf(
@@ -382,7 +393,7 @@ private fun BsTimelineBody(
 }
 
 @Composable
-private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color) {
+private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color, onClick: (() -> Unit)? = null) {
     val startY = bsMinToY(startMin, BS_HOUR_HEIGHT)
     val blockH = (bsMinToY(endMin, BS_HOUR_HEIGHT) - startY).coerceAtLeast(4.dp)
     val durMin = endMin - startMin
@@ -399,6 +410,7 @@ private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color) {
             .height(blockH)
             .padding(horizontal = 4.dp, vertical = 1.dp)
             .clip(RoundedCornerShape(4.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(onSV.copy(alpha = 0.03f))
             .border(1.dp, onSV.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
     ) {

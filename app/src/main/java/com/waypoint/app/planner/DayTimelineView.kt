@@ -107,7 +107,8 @@ fun DayTimelineView(
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
-    onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null
+    onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null,
+    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
 
@@ -311,7 +312,8 @@ fun DayTimelineView(
                     onTerCont = onTerCont,
                     indicatorColor = indicatorColor,
                     onCalendarEventClick = onCalendarEventClick,
-                    onPlannerEventClick = onPlannerEventClick
+                    onPlannerEventClick = onPlannerEventClick,
+                    onFreeSlotClick = onFreeSlotClick
                 )
             }
         }
@@ -418,7 +420,8 @@ private fun TimelineBody(
     onTerCont: Color,
     indicatorColor: Color,
     onCalendarEventClick: ((CalendarEvent) -> Unit)?,
-    onPlannerEventClick: ((ScheduledEvent) -> Unit)?
+    onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
+    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?
 ) {
     val viewTotalMin = totalMinutes
 
@@ -490,7 +493,15 @@ private fun TimelineBody(
 
         // Free time windows
         freeWindows.forEach { (startMin, endMin) ->
-            FreeWindowBlock(startMin, endMin, hourHeight, onSV)
+            FreeWindowBlock(
+                startMin = startMin,
+                endMin = endMin,
+                hourHeight = hourHeight,
+                onSV = onSV,
+                onClick = onFreeSlotClick?.let { cb -> {
+                    cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)
+                }}
+            )
         }
 
         // Calendar event blocks (skip Sleep — handled by planner)
@@ -587,7 +598,13 @@ private fun GridLines(hourHeight: Dp, totalHours: Int, showMinuteLines: Boolean,
 }
 
 @Composable
-private fun FreeWindowBlock(startMin: Int, endMin: Int, hourHeight: Dp, onSV: Color) {
+private fun FreeWindowBlock(
+    startMin: Int,
+    endMin: Int,
+    hourHeight: Dp,
+    onSV: Color,
+    onClick: (() -> Unit)? = null
+) {
     val startY = minToY(startMin, hourHeight)
     val blockH = (minToY(endMin, hourHeight) - startY).coerceAtLeast(4.dp)
     val durMin = endMin - startMin
@@ -604,6 +621,7 @@ private fun FreeWindowBlock(startMin: Int, endMin: Int, hourHeight: Dp, onSV: Co
             .height(blockH)
             .padding(horizontal = 4.dp, vertical = 1.dp)
             .clip(RoundedCornerShape(4.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(onSV.copy(alpha = 0.03f))
             .border(1.dp, onSV.copy(alpha = 0.10f), RoundedCornerShape(4.dp))
     ) {
