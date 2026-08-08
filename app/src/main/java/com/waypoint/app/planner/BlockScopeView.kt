@@ -181,8 +181,6 @@ fun BlockScopeView(
 
     val outline = MaterialTheme.colorScheme.outlineVariant
     val onSV    = MaterialTheme.colorScheme.onSurfaceVariant
-    val secCont = MaterialTheme.colorScheme.secondaryContainer
-    val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
 
     Column(modifier.fillMaxSize()) {
         BsHeader(session = session, blockColor = blockColor, isPlanningMode = isPlanningMode, onEndSession = onEndSession)
@@ -203,8 +201,6 @@ fun BlockScopeView(
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     blockColor = blockColor,
-                    secCont = secCont,
-                    onSecCont = onSecCont,
                     outline = outline,
                     onSV = onSV,
                     onTaskClick = onTaskClick,
@@ -308,8 +304,6 @@ private fun BsTimelineBody(
     nowMin: Int,
     isNowVisible: Boolean,
     blockColor: Color,
-    secCont: Color,
-    onSecCont: Color,
     outline: Color,
     onSV: Color,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
@@ -383,13 +377,12 @@ private fun BsTimelineBody(
         if (blockEndMin > finalCursor && blockEndMin - finalCursor >= 10)
             BsFreeWindow(finalCursor, blockEndMin, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(finalCursor, blockEndMin) } })
 
-        // Task tiles — bg uses alpha to match the translucent style of the regular timeline
-        val eventColors = listOf(
-            secCont.copy(alpha = 0.35f) to onSecCont,
-            onSV.copy(alpha = 0.12f) to onSV
-        )
-        blockSubTasks.sortedBy { it.startMillis }.forEachIndexed { idx, se ->
-            BsTaskTile(se, viewStartMs, totalMinutes, eventColors[idx % eventColors.size], onTaskClick)
+        // Task tiles — tinted with the block color
+        blockSubTasks.sortedBy { it.startMillis }.forEach { se ->
+            BsTaskTile(se, viewStartMs, totalMinutes,
+                bg = blockColor.copy(alpha = 0.18f),
+                fg = blockColor,
+                onTaskClick = onTaskClick)
         }
 
         // Current-time indicator
@@ -449,7 +442,8 @@ private fun BsTaskTile(
     se: ScheduledEvent,
     viewStartMs: Long,
     totalMinutes: Int,
-    colorPair: Pair<Color, Color>,
+    bg: Color,
+    fg: Color,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null
 ) {
     val seStartMin = bsMsToMin(se.startMillis, viewStartMs)
@@ -458,7 +452,6 @@ private fun BsTaskTile(
 
     val startY = bsMinToY(seStartMin, BS_HOUR_HEIGHT)
     val eventH = (bsMinToY(seEndMin, BS_HOUR_HEIGHT) - startY - 2.dp).coerceAtLeast(24.dp)
-    val (bg, fg) = colorPair
 
     Box(
         Modifier
