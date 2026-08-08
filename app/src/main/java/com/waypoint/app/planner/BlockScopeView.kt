@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,14 +15,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +49,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.waypoint.app.home.BLOCK_COLORS
+import com.waypoint.app.home.ColorChannelSlider
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -88,7 +99,9 @@ fun BlockScopeView(
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
-    val blockColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
+    val blockColor = blockColorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    var showColorPicker by remember { mutableStateOf(false) }
 
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore.resolveForDate(date).map { (block, sched) ->
@@ -179,11 +192,39 @@ fun BlockScopeView(
         }
     }
 
-    val outline = MaterialTheme.colorScheme.outlineVariant
-    val onSV    = MaterialTheme.colorScheme.onSurfaceVariant
+    val outline   = MaterialTheme.colorScheme.outlineVariant
+    val onSV      = MaterialTheme.colorScheme.onSurfaceVariant
+    val secCont   = MaterialTheme.colorScheme.secondaryContainer
+    val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
+    // Tile colors: use block color when one is set, otherwise fall back to Material defaults
+    val taskTileBg = if (blockColorArgb != null) blockColor.copy(alpha = 0.18f) else secCont.copy(alpha = 0.35f)
+    val taskTileFg = if (blockColorArgb != null) blockColor else onSecCont
+
+    if (showColorPicker) {
+        BsColorPickerDialog(
+            currentArgb = blockColorArgb,
+            onColorSelected = { argb ->
+                blockColorArgb = argb
+                val block = namedBlockStore.loadBlock(session.blockId)
+                if (block != null) namedBlockStore.saveBlock(block.copy(colorArgb = argb))
+            },
+            onClearColor = {
+                blockColorArgb = null
+                val block = namedBlockStore.loadBlock(session.blockId)
+                if (block != null) namedBlockStore.saveBlock(block.copy(colorArgb = null))
+            },
+            onDismiss = { showColorPicker = false }
+        )
+    }
 
     Column(modifier.fillMaxSize()) {
-        BsHeader(session = session, blockColor = blockColor, isPlanningMode = isPlanningMode, onEndSession = onEndSession)
+        BsHeader(
+            session = session,
+            blockColor = blockColor,
+            isPlanningMode = isPlanningMode,
+            onColorPick = { showColorPicker = true },
+            onEndSession = onEndSession
+        )
         HorizontalDivider(color = blockColor.copy(alpha = 0.25f))
 
         val totalH = BS_HOUR_HEIGHT * totalHours
@@ -201,6 +242,8 @@ fun BlockScopeView(
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     blockColor = blockColor,
+                    taskTileBg = taskTileBg,
+                    taskTileFg = taskTileFg,
                     outline = outline,
                     onSV = onSV,
                     onTaskClick = onTaskClick,
@@ -220,6 +263,7 @@ private fun BsHeader(
     session: ActiveBlockSession,
     blockColor: Color,
     isPlanningMode: Boolean = false,
+    onColorPick: () -> Unit,
     onEndSession: () -> Unit
 ) {
     Row(
@@ -247,6 +291,15 @@ private fun BsHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(blockColor)
+                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                .clickable(onClick = onColorPick)
+        )
         Spacer(Modifier.width(8.dp))
         OutlinedButton(
             onClick = onEndSession,
@@ -304,6 +357,8 @@ private fun BsTimelineBody(
     nowMin: Int,
     isNowVisible: Boolean,
     blockColor: Color,
+    taskTileBg: Color,
+    taskTileFg: Color,
     outline: Color,
     onSV: Color,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
@@ -377,11 +432,11 @@ private fun BsTimelineBody(
         if (blockEndMin > finalCursor && blockEndMin - finalCursor >= 10)
             BsFreeWindow(finalCursor, blockEndMin, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(finalCursor, blockEndMin) } })
 
-        // Task tiles — tinted with the block color
+        // Task tiles
         blockSubTasks.sortedBy { it.startMillis }.forEach { se ->
             BsTaskTile(se, viewStartMs, totalMinutes,
-                bg = blockColor.copy(alpha = 0.18f),
-                fg = blockColor,
+                bg = taskTileBg,
+                fg = taskTileFg,
                 onTaskClick = onTaskClick)
         }
 
@@ -478,6 +533,96 @@ private fun BsTaskTile(
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = fg.copy(alpha = 0.65f)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BsColorPickerDialog(
+    currentArgb: Int?,
+    onColorSelected: (Int) -> Unit,
+    onClearColor: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedColor by remember { mutableIntStateOf(currentArgb ?: BLOCK_COLORS.first()) }
+    val isCustom = selectedColor !in BLOCK_COLORS
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.large) {
+            Column(
+                Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    "Block color",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BLOCK_COLORS.forEach { argb ->
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(argb))
+                                .then(if (selectedColor == argb)
+                                    Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                else Modifier)
+                                .clickable { selectedColor = argb }
+                        )
+                    }
+                    // Custom swatch
+                    val customSwatchColor = if (isCustom) Color(selectedColor)
+                                           else MaterialTheme.colorScheme.surfaceVariant
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(customSwatchColor)
+                            .then(if (isCustom)
+                                Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            else Modifier)
+                            .clickable { if (!isCustom) selectedColor = 0xFF808080.toInt() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!isCustom) Icon(
+                            Icons.Default.Add, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                if (isCustom) {
+                    val r = (selectedColor shr 16) and 0xFF
+                    val g = (selectedColor shr 8) and 0xFF
+                    val b = selectedColor and 0xFF
+                    val a = (selectedColor ushr 24) and 0xFF
+                    ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
+                        selectedColor = (a shl 24) or (newR shl 16) or (g shl 8) or b
+                    }
+                    ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
+                        selectedColor = (a shl 24) or (r shl 16) or (newG shl 8) or b
+                    }
+                    ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
+                        selectedColor = (a shl 24) or (r shl 16) or (g shl 8) or newB
+                    }
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { onClearColor(); onDismiss() }) { Text("Default") }
+                    Row {
+                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                        Spacer(Modifier.width(4.dp))
+                        TextButton(onClick = { onColorSelected(selectedColor); onDismiss() }) { Text("Apply") }
+                    }
+                }
             }
         }
     }
