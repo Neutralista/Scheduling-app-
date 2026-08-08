@@ -385,7 +385,6 @@ private fun PlanTab(
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
-    val dayHeaderFmt = remember { DateTimeFormatter.ofPattern("EEE, MMMM d", Locale.getDefault()) }
     val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()) }
     var calRefreshKey by remember { mutableIntStateOf(0) }
 
@@ -393,9 +392,6 @@ private fun PlanTab(
     var calendarExpanded by remember { mutableStateOf(false) }
     var displayMonth by remember { mutableStateOf(YearMonth.now()) }
     var eventDays by remember { mutableStateOf(emptySet<LocalDate>()) }
-    var showAddEvent     by remember { mutableStateOf(false) }
-    var showAddTask      by remember { mutableStateOf(false) }
-    var showAddBlockTask by remember { mutableStateOf(false) }
     val hasCalPermission = remember { calendarSignals.hasPermission() }
 
     // Timeline tap / detail state
@@ -582,35 +578,6 @@ private fun PlanTab(
             )
         }
 
-        // ── Selected day header ───────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val session = activeSession
-            val dayLabel = when {
-                selectedDate == today && session != null -> "Today · ${session.blockName}"
-                selectedDate == today              -> "Today · ${selectedDate.format(dayHeaderFmt)}"
-                selectedDate == today.minusDays(1) -> "Yesterday · ${selectedDate.format(dayHeaderFmt)}"
-                selectedDate == today.plusDays(1)  -> "Tomorrow · ${selectedDate.format(dayHeaderFmt)}"
-                else                               -> selectedDate.format(dayHeaderFmt)
-            }
-            Text(
-                text = dayLabel,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            TextButton(onClick = {
-                if (activeSession != null) showAddBlockTask = true else showAddTask = true
-            }) { Text("+ Task") }
-            TextButton(onClick = { showAddEvent = true }) { Text("+ Event") }
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         val sessionForToday = if (selectedDate == today) activeSession else null
         if (sessionForToday != null) {
@@ -644,21 +611,6 @@ private fun PlanTab(
                 onCalEventsChanged = { planTabCalEvents = it }
             )
         }
-    }
-
-    if (showAddEvent) {
-        AddCalendarEventSheet(
-            date = selectedDate,
-            onDismiss = { showAddEvent = false },
-            onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
-                scope.launch {
-                    val eventId = calendarSignals.createEvent(title, startMs, endMs, notes, allDay)
-                    if (eventId > 0) calPrefsStore.setReservesTime(eventId, reservesTime)
-                    calRefreshKey++
-                    showAddEvent = false
-                }
-            }
-        )
     }
 
     // ── Calendar event detail ─────────────────────────────────────────────────
@@ -759,39 +711,6 @@ private fun PlanTab(
                 }
             } else null,
         )
-    }
-
-    // ── Add task from Plan tab header ─────────────────────────────────────────
-    if (showAddTask) {
-        AddTaskSheet(
-            availableTasks = remember { taskManager.getAllTasks() },
-            calendarEvents = planTabCalEvents,
-            availableBlocks = allNamedBlocks,
-            onDismiss = { showAddTask = false },
-            onSave = { req ->
-                taskManager.submitTask(req)
-                calRefreshKey++
-                showAddTask = false
-            }
-        )
-    }
-
-    // ── Add block task from Plan tab header (session mode) ────────────────────
-    if (showAddBlockTask) {
-        val session = activeSession
-        if (session != null) {
-            AddTaskSheet(
-                forBlock = session.blockId,
-                onDismiss = { showAddBlockTask = false },
-                onSaveBlockTask = { blockTask ->
-                    namedBlockStore.saveTask(blockTask)
-                    calRefreshKey++
-                    showAddBlockTask = false
-                }
-            )
-        } else {
-            showAddBlockTask = false
-        }
     }
 
     // ── Edit task via AddTaskSheet ────────────────────────────────────────────
