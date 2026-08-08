@@ -72,23 +72,11 @@ fun TimelineEventDetailSheet(
         is TimelineDetailItem.CalEvent -> item.event.title
     }
     if (showDeleteConfirm && onDelete != null) {
-        val isTask = item is TimelineDetailItem.PlannerItem && item.task != null
-        if (isTask) {
-            val plannerItem = item as TimelineDetailItem.PlannerItem
-            TaskDeleteDialog(
-                taskTitle = deleteTitle,
-                hasChainTriggers = plannerItem.task?.triggers?.isNotEmpty() == true,
-                onSkip = onSkip,
-                onDelete = { onDelete(); onDismiss() },
-                onDismiss = { showDeleteConfirm = false }
-            )
-        } else {
-            BlockDeleteDialog(
-                itemLabel = deleteTitle,
-                onDelete = { onDelete(); onDismiss() },
-                onDismiss = { showDeleteConfirm = false }
-            )
-        }
+        TaskDeleteDialog(
+            taskTitle = deleteTitle,
+            onDelete = { onDelete(); onDismiss() },
+            onDismiss = { showDeleteConfirm = false }
+        )
     }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -158,7 +146,7 @@ fun TimelineEventDetailSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(12.dp))
 
-            // Secondary actions (close / edit / delete)
+            // Secondary actions (close / edit / skip / delete)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -168,6 +156,10 @@ fun TimelineEventDetailSheet(
                 if (onEdit != null) {
                     Spacer(Modifier.width(8.dp))
                     OutlinedButton(onClick = onEdit) { Text("Edit") }
+                }
+                if (onSkip != null) {
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { onSkip(); onDismiss() }) { Text("Skip") }
                 }
                 if (onDelete != null) {
                     Spacer(Modifier.width(8.dp))
