@@ -49,38 +49,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
-import com.waypoint.app.planner.SleepScheduleStore
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.util.Calendar
-import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun AlarmsTab(
-    alarms: AlarmSignals,
-    sleepTimesFlow: StateFlow<Pair<Long?, Long?>>
-) {
-    val context = LocalContext.current
-    val sleepStore = remember { SleepScheduleStore(context) }
-
+fun AlarmsTab(alarms: AlarmSignals) {
     val alarmList by alarms.alarmsFlow.collectAsState()
-    val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var showDialog by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<AlarmEntry?>(null) }
-
-    val initialConfig = remember { sleepStore.load() }
-    var wakeAlarmCount by remember { mutableIntStateOf(initialConfig.wakeAlarmCount) }
-    var wakeAlarmIntervalMinutes by remember { mutableIntStateOf(initialConfig.wakeAlarmIntervalMinutes) }
-    var preSleepReminderMinutes by remember { mutableIntStateOf(initialConfig.preSleepReminderMinutes) }
-    var preSleepAlarmEnabled by remember { mutableStateOf(initialConfig.preSleepAlarmEnabled) }
-    var bedtimeAlarmEnabled by remember { mutableStateOf(initialConfig.bedtimeAlarmEnabled) }
-    var gentleWakeEnabled by remember { mutableStateOf(initialConfig.gentleWakeEnabled) }
-    var mediumWakeEnabled by remember { mutableStateOf(initialConfig.mediumWakeEnabled) }
-    var wakeAlarmEnabled by remember { mutableStateOf(initialConfig.wakeAlarmEnabled) }
-
-    val (bedMs, wakeMs) = sleepTimes
-    val hasSleepTimes = bedMs != null && wakeMs != null
 
     Scaffold(
         floatingActionButton = {
@@ -95,7 +71,7 @@ fun AlarmsTab(
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
-            if (!hasSleepTimes && alarmList.isEmpty()) {
+            if (alarmList.isEmpty()) {
                 Column(
                     Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -115,181 +91,32 @@ fun AlarmsTab(
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    if (hasSleepTimes) {
-                        item {
-                            Text(
-                                "Sleep Schedule",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-                            )
-
-                            // Pre-sleep reminder setting
-                            Text(
-                                "Pre-sleep reminder",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                            )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            ) {
-                                listOf(0 to "Off", 15 to "15m", 30 to "30m", 45 to "45m", 60 to "1h").forEach { (mins, label) ->
-                                    FilterChip(
-                                        selected = preSleepReminderMinutes == mins,
-                                        onClick = {
-                                            preSleepReminderMinutes = mins
-                                            scope.launch { sleepStore.setPreSleepReminderMinutes(mins) }
-                                        },
-                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-
-                            // Wake alarm count setting
-                            Text(
-                                "Wake-up alarms",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                            )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            ) {
-                                listOf(1 to "1", 2 to "2", 3 to "3").forEach { (count, label) ->
-                                    FilterChip(
-                                        selected = wakeAlarmCount == count,
-                                        onClick = {
-                                            wakeAlarmCount = count
-                                            scope.launch { sleepStore.setWakeAlarmCount(count) }
-                                        },
-                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-
-                            // Interval setting (only relevant when count > 1)
-                            if (wakeAlarmCount > 1) {
-                                Text(
-                                    "Interval between alarms",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp, top = 8.dp)
-                                )
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                ) {
-                                    listOf(5 to "5m", 10 to "10m", 15 to "15m", 20 to "20m").forEach { (mins, label) ->
-                                        FilterChip(
-                                            selected = wakeAlarmIntervalMinutes == mins,
-                                            onClick = {
-                                                wakeAlarmIntervalMinutes = mins
-                                                scope.launch { sleepStore.setWakeAlarmIntervalMinutes(mins) }
-                                            },
-                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
-                                }
-                            } else {
-                                Spacer(Modifier.height(12.dp))
-                            }
-
-                            // Alarm rows based on current config
-                            val intervalMs = wakeAlarmIntervalMinutes * 60_000L
-
-                            if (preSleepReminderMinutes > 0) {
-                                SleepAlarmRow(
-                                    label = "Pre-sleep reminder",
-                                    epochMs = bedMs!! - preSleepReminderMinutes * 60_000L,
-                                    enabled = preSleepAlarmEnabled,
-                                    onToggle = { e ->
-                                        preSleepAlarmEnabled = e
-                                        scope.launch { sleepStore.setSleepAlarmEnabled("pre_sleep", e) }
-                                    }
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-
-                            SleepAlarmRow(
-                                label = "Bedtime",
-                                epochMs = bedMs!!,
-                                enabled = bedtimeAlarmEnabled,
-                                onToggle = { e ->
-                                    bedtimeAlarmEnabled = e
-                                    scope.launch { sleepStore.setSleepAlarmEnabled("bedtime", e) }
-                                }
-                            )
-                            Spacer(Modifier.height(8.dp))
-
-                            if (wakeAlarmCount >= 3) {
-                                SleepAlarmRow(
-                                    label = "Gentle wake (35% volume)",
-                                    epochMs = wakeMs!! - 2 * intervalMs,
-                                    enabled = gentleWakeEnabled,
-                                    onToggle = { e ->
-                                        gentleWakeEnabled = e
-                                        scope.launch { sleepStore.setSleepAlarmEnabled("gentle_wake", e) }
-                                    }
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-
-                            if (wakeAlarmCount >= 2) {
-                                SleepAlarmRow(
-                                    label = "Medium wake (70% volume)",
-                                    epochMs = wakeMs!! - intervalMs,
-                                    enabled = mediumWakeEnabled,
-                                    onToggle = { e ->
-                                        mediumWakeEnabled = e
-                                        scope.launch { sleepStore.setSleepAlarmEnabled("medium_wake", e) }
-                                    }
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-
-                            SleepAlarmRow(
-                                label = "Wake up!",
-                                epochMs = wakeMs!!,
-                                enabled = wakeAlarmEnabled,
-                                onToggle = { e ->
-                                    wakeAlarmEnabled = e
-                                    scope.launch { sleepStore.setSleepAlarmEnabled("wake_up", e) }
-                                }
-                            )
-                            Spacer(Modifier.height(16.dp))
-                        }
+                    item {
+                        Text(
+                            "Alarms",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
                     }
-                    if (alarmList.isNotEmpty()) {
-                        item {
-                            Text(
-                                "Alarms",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                            )
-                        }
-                        items(alarmList, key = { it.id }) { alarm ->
-                            AlarmRow(
-                                alarm = alarm,
-                                onToggle = { enabled ->
-                                    scope.launch {
-                                        try { alarms.setEnabled(alarm.id, enabled) }
-                                        catch (e: Throwable) { AppLogger.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
-                                    }
-                                },
-                                onEdit = { editTarget = alarm; showDialog = true },
-                                onDelete = {
-                                    scope.launch {
-                                        try { alarms.delete(alarm.id) }
-                                        catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
-                                    }
+                    items(alarmList, key = { it.id }) { alarm ->
+                        AlarmRow(
+                            alarm = alarm,
+                            onToggle = { enabled ->
+                                scope.launch {
+                                    try { alarms.setEnabled(alarm.id, enabled) }
+                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "setEnabled threw ${e.javaClass.name}: ${e.message}", e) }
                                 }
-                            )
-                            Spacer(Modifier.height(8.dp))
-                        }
+                            },
+                            onEdit = { editTarget = alarm; showDialog = true },
+                            onDelete = {
+                                scope.launch {
+                                    try { alarms.delete(alarm.id) }
+                                    catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
+                                }
+                            }
+                        )
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }
@@ -311,39 +138,6 @@ fun AlarmsTab(
                 showDialog = false
             }
         )
-    }
-}
-
-@Composable
-private fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onToggle: (Boolean) -> Unit) {
-    val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
-    val timeStr = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-    val dimmed = if (enabled) 1f else 0.45f
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (enabled) MaterialTheme.colorScheme.surfaceVariant
-                             else MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = timeStr,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dimmed)
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dimmed)
-                )
-            }
-            Switch(checked = enabled, onCheckedChange = onToggle)
-        }
     }
 }
 
