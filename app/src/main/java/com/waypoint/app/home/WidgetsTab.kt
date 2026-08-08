@@ -161,8 +161,6 @@ private fun TaskRow(
     if (showDeleteDialog) {
         TaskDeleteDialog(
             taskTitle = task.title,
-            hasChainTriggers = task.triggers.isNotEmpty(),
-            onSkip = null,
             onDelete = onDelete,
             onDismiss = { showDeleteDialog = false }
         )

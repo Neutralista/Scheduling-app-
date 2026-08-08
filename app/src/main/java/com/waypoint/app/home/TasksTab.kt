@@ -1063,8 +1063,6 @@ private fun PlannerTaskRow(
     if (showDeleteDialog) {
         TaskDeleteDialog(
             taskTitle = se.event.title,
-            hasChainTriggers = taskReq?.triggers?.isNotEmpty() == true,
-            onSkip = onSkip,
             onDelete = onDelete,
             onDismiss = { showDeleteDialog = false }
         )
@@ -1194,8 +1192,6 @@ private fun BlockedTaskRow(
     if (showDeleteDialog) {
         TaskDeleteDialog(
             taskTitle = taskTitle,
-            hasChainTriggers = hasChainTriggers,
-            onSkip = onSkip,
             onDelete = onDelete,
             onDismiss = { showDeleteDialog = false }
         )
