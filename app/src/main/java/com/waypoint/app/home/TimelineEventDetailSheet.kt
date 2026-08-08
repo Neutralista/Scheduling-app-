@@ -64,6 +64,7 @@ fun TimelineEventDetailSheet(
     onStart: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
     onBlockStart: (() -> Unit)? = null,
+    onSleepMode: (() -> Unit)? = null,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val deleteTitle = when (item) {
@@ -106,14 +107,22 @@ fun TimelineEventDetailSheet(
                     PlannerContent(item.scheduled, item.task)
             }
 
-            // Primary action buttons (start / complete / start block)
-            val hasActions = onStart != null || onComplete != null || onBlockStart != null
+            // Primary action buttons (start / complete / start block / sleep mode)
+            val hasActions = onStart != null || onComplete != null || onBlockStart != null || onSleepMode != null
             if (hasActions) {
                 Spacer(Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (onSleepMode != null) {
+                        Button(
+                            onClick = { onSleepMode(); onDismiss() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Sleep mode")
+                        }
+                    }
                     if (onBlockStart != null) {
                         Button(
                             onClick = { onBlockStart(); onDismiss() },

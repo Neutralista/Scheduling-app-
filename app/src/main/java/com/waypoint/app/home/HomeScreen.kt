@@ -89,11 +89,21 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.rememberModalBottomSheetState
 import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.ScheduledEvent
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepCheckReceiver
+import com.waypoint.app.planner.SleepSchedule
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.signal.ShiftTime
+import com.waypoint.app.ui.components.TimePickerChip
 
 @Composable
 fun HomeScreen(
@@ -393,6 +403,8 @@ private fun PlanTab(
     var selectedPlannerEvent by remember { mutableStateOf<ScheduledEvent?>(null) }
     var editingTask by remember { mutableStateOf<TaskRequest?>(null) }
     var editingCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
+    var editingBlock by remember { mutableStateOf<NamedBlock?>(null) }
+    var showEditSleep by remember { mutableStateOf(false) }
     // Latest calendar events from the timeline — forwarded to AddTaskSheet for conditions
     var planTabCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
 
@@ -675,22 +687,35 @@ private fun PlanTab(
     if (selPlanner != null) {
         val taskReq = taskManager.getAllTasks().find { it.id == selPlanner.event.id }
         val isBlockTile = selPlanner.event.id.startsWith("__block__")
+        val isSleepEvent = selPlanner.event.id.startsWith("sleep_")
         val blockTileId = if (isBlockTile) selPlanner.event.id.removePrefix("__block__") else null
         val isRunning = taskManager.getRunningExecution()?.taskId == selPlanner.event.id
         val isDone = taskManager.completions.isDone(selPlanner.event.id)
         TimelineEventDetailSheet(
             item = TimelineDetailItem.PlannerItem(selPlanner, taskReq),
             onDismiss = { selectedPlannerEvent = null },
-            onEdit = if (taskReq != null) {
-                { editingTask = taskReq; selectedPlannerEvent = null }
-            } else null,
-            onDelete = if (taskReq != null) {
-                {
+            onEdit = when {
+                taskReq != null -> { { editingTask = taskReq; selectedPlannerEvent = null } }
+                isSleepEvent -> { { showEditSleep = true; selectedPlannerEvent = null } }
+                isBlockTile && blockTileId != null -> { {
+                    editingBlock = namedBlockStore.loadBlock(blockTileId)
+                    selectedPlannerEvent = null
+                } }
+                else -> null
+            },
+            onDelete = when {
+                taskReq != null -> { {
                     taskManager.retractTask(selPlanner.event.id)
                     calRefreshKey++
                     selectedPlannerEvent = null
-                }
-            } else null,
+                } }
+                isBlockTile && blockTileId != null -> { {
+                    namedBlockStore.deleteBlock(blockTileId)
+                    calRefreshKey++
+                    selectedPlannerEvent = null
+                } }
+                else -> null
+            },
             onSkip = if (taskReq != null && !taskManager.isSkipped(selPlanner.event.id)) {
                 {
                     if (isRunning) taskManager.stopExecution(selPlanner.event.id)
@@ -724,6 +749,13 @@ private fun PlanTab(
                     if (block != null) {
                         blockSessionStore.startSession(block, selPlanner.endMillis, selectedDate)
                     }
+                }
+            } else null,
+            onSleepMode = if (isSleepEvent) {
+                {
+                    val logStore = SleepLogStore(context)
+                    logStore.enterSleepMode()
+                    SleepCheckReceiver.scheduleNextCheck(context)
                 }
             } else null,
         )
@@ -800,6 +832,130 @@ private fun PlanTab(
                 }
             }
         )
+    }
+
+    // ── Edit named block via NamedBlockSheet ──────────────────────────────────
+    val blockBeingEdited = editingBlock
+    if (blockBeingEdited != null) {
+        NamedBlockSheet(
+            initial = blockBeingEdited,
+            store = namedBlockStore,
+            onDismiss = { editingBlock = null },
+            onSaved = {
+                calRefreshKey++
+                editingBlock = null
+            }
+        )
+    }
+
+    // ── Edit sleep schedule from timeline ─────────────────────────────────────
+    if (showEditSleep) {
+        SleepEditSheet(
+            sleepStore = sleepStore,
+            registry = eventPlanner,
+            onDismiss = { showEditSleep = false; calRefreshKey++ }
+        )
+    }
+}
+
+// ── Sleep edit bottom sheet ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SleepEditSheet(
+    sleepStore: SleepScheduleStore,
+    registry: EventPlannerRegistry,
+    onDismiss: () -> Unit
+) {
+    var schedule by remember { mutableStateOf(sleepStore.load()) }
+
+    fun commit(updated: SleepSchedule) {
+        schedule = updated
+        sleepStore.syncToRegistry(registry)
+        schedule = sleepStore.load()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Sleep",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (schedule.enabled) "Enabled" else "Disabled",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = schedule.enabled,
+                        onCheckedChange = { enabled ->
+                            sleepStore.setEnabled(enabled)
+                            commit(sleepStore.load())
+                        }
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Wake",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TimePickerChip(
+                        value = schedule.preferredWakeTime.displayString,
+                        onValueChange = { text ->
+                            ShiftTime.parse(text)?.let {
+                                sleepStore.setPreferredWakeTime(it)
+                                commit(sleepStore.load())
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Bed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TimePickerChip(
+                        value = schedule.preferredBedTime.displayString,
+                        onValueChange = { text ->
+                            ShiftTime.parse(text)?.let {
+                                sleepStore.setPreferredBedTime(it)
+                                commit(sleepStore.load())
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Done") }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
     }
 }
 
