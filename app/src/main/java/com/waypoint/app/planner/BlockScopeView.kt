@@ -97,12 +97,12 @@ fun BlockScopeView(
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
+    onEditTask: ((BlockTask) -> Unit)? = null,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
     val blockColor = blockColorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
     var showColorPicker by remember { mutableStateOf(false) }
-    var colorPickTarget by remember { mutableStateOf<ScheduledEvent?>(null) }
 
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore.resolveForDate(date).map { (block, sched) ->
@@ -218,29 +218,6 @@ fun BlockScopeView(
         )
     }
 
-    val pickTarget = colorPickTarget
-    if (pickTarget != null) {
-        BsColorPickerDialog(
-            currentArgb = pickTarget.event.colorArgb,
-            onColorSelected = { argb ->
-                namedBlockStore.updateTaskColor(pickTarget.event.id, argb)
-                // force re-plan so the tile redraws with the new color
-                plan = registry.planForDate(
-                    date, namedBlockInstances = blockInstances,
-                    floatingBlocks = floatingInstances, nowMs = System.currentTimeMillis()
-                )
-            },
-            onClearColor = {
-                namedBlockStore.updateTaskColor(pickTarget.event.id, null)
-                plan = registry.planForDate(
-                    date, namedBlockInstances = blockInstances,
-                    floatingBlocks = floatingInstances, nowMs = System.currentTimeMillis()
-                )
-            },
-            onDismiss = { colorPickTarget = null }
-        )
-    }
-
     Column(modifier.fillMaxSize()) {
         BsHeader(
             session = session,
@@ -271,7 +248,10 @@ fun BlockScopeView(
                     outline = outline,
                     onSV = onSV,
                     onTaskClick = onTaskClick,
-                    onColorPick = { se -> colorPickTarget = se },
+                    onColorPick = if (onEditTask != null) ({ se ->
+                        val task = namedBlockStore.loadTask(se.event.id)
+                        if (task != null) onEditTask(task)
+                    }) else null,
                     onFreeSlotClick = onFreeSlotClick?.let { cb ->
                         { startMin: Int, endMin: Int ->
                             cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)

@@ -626,6 +626,7 @@ private fun PlanTab(
                     else planningBlockId = null
                 },
                 onTaskClick = { selectedPlannerEvent = it },
+                onEditTask = { task -> editingBlockTask = task.blockId to task },
                 onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = true }
             )
         } else {
