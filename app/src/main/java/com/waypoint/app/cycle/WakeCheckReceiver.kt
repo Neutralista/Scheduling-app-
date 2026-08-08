@@ -8,6 +8,8 @@ import android.content.Intent
 import android.os.Build
 import com.waypoint.app.AppLogger
 import com.waypoint.app.WaypointApplication
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
 
 class WakeCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -18,7 +20,16 @@ class WakeCheckReceiver : BroadcastReceiver() {
                 app.cycleTracker.updateLastActive()
                 app.cycleTracker.recordActive()
             }
-            ACTION_WAKE_CHECK -> app.cycleTracker.checkInactivity()
+            ACTION_WAKE_CHECK -> {
+                // Only run the inactivity check while sleep mode is active; cancel the
+                // alarm otherwise so it doesn't keep firing through the waking day.
+                if (SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE) {
+                    app.cycleTracker.checkInactivity()
+                } else {
+                    AppLogger.i(TAG, "onReceive: WAKE_CHECK but sleep mode is IDLE — cancelling")
+                    cancel(context)
+                }
+            }
         }
     }
 

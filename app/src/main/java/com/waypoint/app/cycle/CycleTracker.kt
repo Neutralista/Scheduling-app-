@@ -3,6 +3,8 @@ package com.waypoint.app.cycle
 import android.content.Context
 import android.os.PowerManager
 import com.waypoint.app.AppLogger
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
 import java.util.UUID
 
 class CycleTracker(private val context: Context) {
@@ -10,6 +12,7 @@ class CycleTracker(private val context: Context) {
     val store = CycleStore(context)
 
     private val prefs = context.getSharedPreferences("waypoint_cycle_tracker", Context.MODE_PRIVATE)
+    private val sleepLogStore = SleepLogStore(context)
 
     /**
      * Called every time a new cycle opens — both automatic and manual.
@@ -56,25 +59,29 @@ class CycleTracker(private val context: Context) {
                 }
             }
             else -> {
-                // No sleep onset was recorded. Only apply the fallback close if the phone
-                // has also been inactive long enough to suggest sleep occurred (detection
-                // alarm was probably missed). Without the inactivity guard this fires during
-                // normal waking hours and fragments the day into 4-hour chunks.
+                // No sleep onset was recorded. Only apply the fallback close when sleep mode
+                // is active AND the phone has been inactive long enough to suggest sleep
+                // occurred (detection alarm was probably missed). Without both guards this
+                // fires during normal waking hours and fragments the day into 4-hour chunks.
                 val openMs = now - current.wakeMillis
                 val lastActive = prefs.getLong(KEY_LAST_ACTIVE, now)
                 val inactiveDuration = now - lastActive
-                if (openMs >= MIN_NEW_CYCLE_GAP_MS && inactiveDuration >= SLEEP_INACTIVITY_MS) {
+                val sleepModeActive = sleepLogStore.getSleepModeState() != SleepModeState.IDLE
+                if (openMs >= MIN_NEW_CYCLE_GAP_MS && inactiveDuration >= SLEEP_INACTIVITY_MS && sleepModeActive) {
                     AppLogger.i(TAG, "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, inactive ${inactiveDuration / 60_000}min — closing as fallback")
                     store.save(current.copy(nextWakeMillis = now))
                     openCycle(now)
                 } else {
-                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min)")
+                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive)")
                 }
             }
         }
 
         updateLastActive(now)
-        WakeCheckReceiver.scheduleCheck(context)
+        // Only keep the periodic check alive when sleep mode is active.
+        if (sleepLogStore.getSleepModeState() != SleepModeState.IDLE) {
+            WakeCheckReceiver.scheduleCheck(context)
+        }
     }
 
     /**
