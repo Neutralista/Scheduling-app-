@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.cycle.CycleTracker
 import com.waypoint.app.planner.BlockScopeView
+import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -404,6 +405,7 @@ private fun PlanTab(
     var editingBlock by remember { mutableStateOf<NamedBlock?>(null) }
     var editingBlockTask by remember { mutableStateOf<Pair<String, BlockTask?>?>(null) }
     var showEditSleep by remember { mutableStateOf(false) }
+    var planningBlockId by remember { mutableStateOf<String?>(null) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlotFromBlock by remember { mutableStateOf(false) }
     var freeSlotAddTask by remember { mutableStateOf(false) }
@@ -568,16 +570,43 @@ private fun PlanTab(
 
 
         val sessionForToday = if (selectedDate == today) activeSession else null
-        if (sessionForToday != null) {
+        val planningSession = planningBlockId?.let { blockId ->
+            val block = namedBlockStore.loadBlock(blockId)
+            val pair = namedBlockStore.resolveForDate(selectedDate).find { it.first.id == blockId }
+            if (block != null && pair != null) {
+                val sched = pair.second
+                val startMs = selectedDate.atTime(sched.startHour, sched.startMinute)
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val endMs = if (sched.endHour >= 0) {
+                    val e = selectedDate.atTime(sched.endHour, sched.endMinute)
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    if (e > startMs) e else e + 24 * 3600_000L
+                } else startMs + block.estimatedMinutes * 60_000L
+                ActiveBlockSession(
+                    blockId = blockId,
+                    blockName = block.name,
+                    colorArgb = block.colorArgb,
+                    startedAtMs = startMs,
+                    scheduledEndMs = endMs,
+                    date = selectedDate.toString()
+                )
+            } else null
+        }
+        val displaySession = sessionForToday ?: planningSession
+        if (displaySession != null) {
             BlockScopeView(
-                session = sessionForToday,
+                session = displaySession,
+                isPlanningMode = planningSession != null && sessionForToday == null,
                 registry = eventPlanner,
                 namedBlockStore = namedBlockStore,
                 blockLogStore = blockSessionLogStore,
                 date = selectedDate,
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
-                onEndSession = { blockSessionStore.endSession() },
+                onEndSession = {
+                    if (sessionForToday != null) blockSessionStore.endSession()
+                    else planningBlockId = null
+                },
                 onTaskClick = { selectedPlannerEvent = it },
                 onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = true }
             )
@@ -807,6 +836,9 @@ private fun PlanTab(
                         blockSessionStore.startSession(block, selPlanner.endMillis, selectedDate)
                     }
                 }
+            } else null,
+            onPlan = if (blockTileId != null && activeSession == null && planningBlockId == null) {
+                { planningBlockId = blockTileId; selectedPlannerEvent = null }
             } else null,
             onSleepMode = if (isSleepEvent) {
                 {

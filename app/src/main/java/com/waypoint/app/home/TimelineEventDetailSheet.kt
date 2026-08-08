@@ -64,6 +64,7 @@ fun TimelineEventDetailSheet(
     onStart: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
     onBlockStart: (() -> Unit)? = null,
+    onPlan: (() -> Unit)? = null,
     onSleepMode: (() -> Unit)? = null,
     isSleepModeActive: Boolean = false,
 ) {
@@ -97,7 +98,7 @@ fun TimelineEventDetailSheet(
             }
 
             // Primary action buttons (start / complete / start block / sleep mode)
-            val hasActions = onStart != null || onComplete != null || onBlockStart != null || onSleepMode != null
+            val hasActions = onStart != null || onComplete != null || onBlockStart != null || onPlan != null || onSleepMode != null
             if (hasActions) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -112,12 +113,23 @@ fun TimelineEventDetailSheet(
                             Text(if (isSleepModeActive) "Stop sleep mode" else "Start sleep mode")
                         }
                     }
-                    if (onBlockStart != null) {
-                        Button(
-                            onClick = { onBlockStart(); onDismiss() },
-                            modifier = Modifier.fillMaxWidth()
+                    if (onPlan != null || onBlockStart != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("▶ Start block")
+                            if (onPlan != null) {
+                                OutlinedButton(
+                                    onClick = { onPlan(); onDismiss() },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Plan") }
+                            }
+                            if (onBlockStart != null) {
+                                Button(
+                                    onClick = { onBlockStart(); onDismiss() },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("▶ Start") }
+                            }
                         }
                     }
                     if (onStart != null) {

@@ -82,6 +82,7 @@ fun BlockScopeView(
     blockLogStore: BlockSessionLogStore? = null,
     date: LocalDate,
     refreshKey: Int = 0,
+    isPlanningMode: Boolean = false,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
@@ -184,7 +185,7 @@ fun BlockScopeView(
     val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
 
     Column(modifier.fillMaxSize()) {
-        BsHeader(session = session, blockColor = blockColor, onEndSession = onEndSession)
+        BsHeader(session = session, blockColor = blockColor, isPlanningMode = isPlanningMode, onEndSession = onEndSession)
         HorizontalDivider(color = blockColor.copy(alpha = 0.25f))
 
         val totalH = BS_HOUR_HEIGHT * totalHours
@@ -222,6 +223,7 @@ fun BlockScopeView(
 private fun BsHeader(
     session: ActiveBlockSession,
     blockColor: Color,
+    isPlanningMode: Boolean = false,
     onEndSession: () -> Unit
 ) {
     Row(
@@ -238,7 +240,7 @@ private fun BsHeader(
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = session.blockName,
+                text = if (isPlanningMode) "Planning: ${session.blockName}" else session.blockName,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = blockColor
@@ -255,7 +257,11 @@ private fun BsHeader(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, blockColor.copy(alpha = 0.55f))
         ) {
-            Text("End Block", style = MaterialTheme.typography.labelSmall, color = blockColor)
+            Text(
+                if (isPlanningMode) "Close" else "End Block",
+                style = MaterialTheme.typography.labelSmall,
+                color = blockColor
+            )
         }
     }
 }
