@@ -155,18 +155,25 @@ fun BlockScopeView(
         scrollState.animateScrollTo(with(density) { (targetMin / 60f * BS_HOUR_HEIGHT.toPx()).toInt() })
     }
 
-    // 1-second ticker: moves the now-indicator and re-plans the day
-    LaunchedEffect(viewStartMs, viewEndMs, date, refreshKey) {
+    // 1-second ticker: keeps the now-indicator moving smoothly
+    LaunchedEffect(viewStartMs, viewEndMs) {
         while (true) {
             delay(1_000L)
             val now = System.currentTimeMillis()
             nowMin = bsMsToMin(now, viewStartMs)
             isNowVisible = now in viewStartMs until viewEndMs
+        }
+    }
+
+    // 5-second ticker: re-plans the day
+    LaunchedEffect(viewStartMs, date, refreshKey) {
+        while (true) {
+            delay(5_000L)
             plan = registry.planForDate(
                 date,
                 namedBlockInstances = blockInstances,
                 floatingBlocks = floatingInstances,
-                nowMs = now
+                nowMs = System.currentTimeMillis()
             )
         }
     }
