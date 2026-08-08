@@ -97,6 +97,11 @@ class NamedBlockStore(context: Context) {
             } catch (_: Exception) { null }
         }
 
+    fun updateTaskColor(taskId: String, colorArgb: Int?) {
+        val task = loadTask(taskId) ?: return
+        saveTask(task.copy(colorArgb = colorArgb))
+    }
+
     // ── Situational task activations ──────────────────────────────────────────
 
     fun setActivation(activation: BlockTaskActivation) =

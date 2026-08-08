@@ -237,7 +237,8 @@ class EventPlannerRegistry {
                     bufferMinutes = task.bufferMinutes,
                     conditions = listOf(placementCond) + extraConds,
                     sourceWidgetId = blockEventId,
-                    zone = blockZone
+                    zone = blockZone,
+                    colorArgb = task.colorArgb
                 )
                 val dayReason = checkDayConditions(syntheticEvent, date, isWorkDay, shiftStartMs, shiftEndMs)
                 if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)

@@ -102,6 +102,7 @@ fun BlockScopeView(
     var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
     val blockColor = blockColorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
     var showColorPicker by remember { mutableStateOf(false) }
+    var colorPickTarget by remember { mutableStateOf<ScheduledEvent?>(null) }
 
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore.resolveForDate(date).map { (block, sched) ->
@@ -217,6 +218,29 @@ fun BlockScopeView(
         )
     }
 
+    val pickTarget = colorPickTarget
+    if (pickTarget != null) {
+        BsColorPickerDialog(
+            currentArgb = pickTarget.event.colorArgb,
+            onColorSelected = { argb ->
+                namedBlockStore.updateTaskColor(pickTarget.event.id, argb)
+                // force re-plan so the tile redraws with the new color
+                plan = registry.planForDate(
+                    date, namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingInstances, nowMs = System.currentTimeMillis()
+                )
+            },
+            onClearColor = {
+                namedBlockStore.updateTaskColor(pickTarget.event.id, null)
+                plan = registry.planForDate(
+                    date, namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingInstances, nowMs = System.currentTimeMillis()
+                )
+            },
+            onDismiss = { colorPickTarget = null }
+        )
+    }
+
     Column(modifier.fillMaxSize()) {
         BsHeader(
             session = session,
@@ -247,6 +271,7 @@ fun BlockScopeView(
                     outline = outline,
                     onSV = onSV,
                     onTaskClick = onTaskClick,
+                    onColorPick = { se -> colorPickTarget = se },
                     onFreeSlotClick = onFreeSlotClick?.let { cb ->
                         { startMin: Int, endMin: Int ->
                             cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)
@@ -362,6 +387,7 @@ private fun BsTimelineBody(
     outline: Color,
     onSV: Color,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
+    onColorPick: ((ScheduledEvent) -> Unit)? = null,
     onFreeSlotClick: ((startMin: Int, endMin: Int) -> Unit)? = null
 ) {
     Box(modifier.fillMaxHeight().clipToBounds()) {
@@ -435,9 +461,10 @@ private fun BsTimelineBody(
         // Task tiles
         blockSubTasks.sortedBy { it.startMillis }.forEach { se ->
             BsTaskTile(se, viewStartMs, totalMinutes,
-                bg = taskTileBg,
-                fg = taskTileFg,
-                onTaskClick = onTaskClick)
+                defaultBg = taskTileBg,
+                defaultFg = taskTileFg,
+                onTaskClick = onTaskClick,
+                onColorPick = onColorPick)
         }
 
         // Current-time indicator
@@ -497,9 +524,10 @@ private fun BsTaskTile(
     se: ScheduledEvent,
     viewStartMs: Long,
     totalMinutes: Int,
-    bg: Color,
-    fg: Color,
-    onTaskClick: ((ScheduledEvent) -> Unit)? = null
+    defaultBg: Color,
+    defaultFg: Color,
+    onTaskClick: ((ScheduledEvent) -> Unit)? = null,
+    onColorPick: ((ScheduledEvent) -> Unit)? = null
 ) {
     val seStartMin = bsMsToMin(se.startMillis, viewStartMs)
     val seEndMin   = bsMsToMin(se.endMillis,   viewStartMs)
@@ -507,6 +535,11 @@ private fun BsTaskTile(
 
     val startY = bsMinToY(seStartMin, BS_HOUR_HEIGHT)
     val eventH = (bsMinToY(seEndMin, BS_HOUR_HEIGHT) - startY - 2.dp).coerceAtLeast(24.dp)
+
+    // Per-task color overrides the default pair
+    val tileColor = se.event.colorArgb?.let { Color(it) }
+    val bg = tileColor?.copy(alpha = 0.22f) ?: defaultBg
+    val fg = tileColor ?: defaultFg
 
     Box(
         Modifier
@@ -534,6 +567,18 @@ private fun BsTaskTile(
                     color = fg.copy(alpha = 0.65f)
                 )
             }
+        }
+        // Color dot in top-right corner — tap to change tile color
+        if (onColorPick != null) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(fg.copy(alpha = 0.45f))
+                    .clickable { onColorPick(se) }
+            )
         }
     }
 }
