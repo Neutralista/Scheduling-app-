@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -490,26 +489,6 @@ private fun PlanTab(
                     Icons.Filled.KeyboardArrowRight,
                     contentDescription = "Next day",
                     modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = {
-                scope.launch {
-                    withContext(Dispatchers.IO) {
-                        sleepStore.syncToRegistry(eventPlanner)
-                        bufferStore.syncToRegistry(
-                            registry = eventPlanner,
-                            sleepStartMs = sleepTimes.first,
-                            wakeMs = sleepTimes.second
-                        )
-                    }
-                    calRefreshKey++
-                }
-            }) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "Refresh",
-                    modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
