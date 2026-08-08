@@ -56,16 +56,19 @@ class CycleTracker(private val context: Context) {
                 }
             }
             else -> {
-                // No sleep onset was recorded. If the cycle has been open long enough
-                // that a genuine sleep must have occurred (detection alarm probably missed),
-                // close it anyway so cycles don't stay open indefinitely.
+                // No sleep onset was recorded. Only apply the fallback close if the phone
+                // has also been inactive long enough to suggest sleep occurred (detection
+                // alarm was probably missed). Without the inactivity guard this fires during
+                // normal waking hours and fragments the day into 4-hour chunks.
                 val openMs = now - current.wakeMillis
-                if (openMs >= MIN_NEW_CYCLE_GAP_MS) {
-                    AppLogger.i(TAG, "recordActive: no sleep start but cycle open ${openMs / 3600_000}h — closing as fallback")
+                val lastActive = prefs.getLong(KEY_LAST_ACTIVE, now)
+                val inactiveDuration = now - lastActive
+                if (openMs >= MIN_NEW_CYCLE_GAP_MS && inactiveDuration >= SLEEP_INACTIVITY_MS) {
+                    AppLogger.i(TAG, "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, inactive ${inactiveDuration / 60_000}min — closing as fallback")
                     store.save(current.copy(nextWakeMillis = now))
                     openCycle(now)
                 } else {
-                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id}")
+                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min)")
                 }
             }
         }
