@@ -84,6 +84,11 @@ class NamedBlockStore(context: Context) {
     fun deleteTask(taskId: String) =
         tasks.edit().remove(taskId).apply()
 
+    fun loadTask(taskId: String): BlockTask? =
+        tasks.getString(taskId, null)?.let {
+            try { json.decodeFromString<BlockTask>(it) } catch (_: Exception) { null }
+        }
+
     fun loadTasksForBlock(blockId: String): List<BlockTask> =
         tasks.all.values.mapNotNull { raw ->
             try {

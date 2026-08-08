@@ -93,6 +93,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.CalendarPrefsStore
 import com.waypoint.app.planner.NamedBlock
@@ -400,6 +401,7 @@ private fun PlanTab(
     var editingTask by remember { mutableStateOf<TaskRequest?>(null) }
     var editingCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
     var editingBlock by remember { mutableStateOf<NamedBlock?>(null) }
+    var editingBlockTask by remember { mutableStateOf<Pair<String, BlockTask?>?>(null) }
     var showEditSleep by remember { mutableStateOf(false) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlotAddTask by remember { mutableStateOf(false) }
@@ -737,6 +739,11 @@ private fun PlanTab(
         val isBlockTile = selPlanner.event.id.startsWith("__block__")
         val isSleepEvent = selPlanner.event.id.startsWith("sleep_")
         val blockTileId = if (isBlockTile) selPlanner.event.id.removePrefix("__block__") else null
+        val subTaskBlockId = if (!isBlockTile && !isSleepEvent && taskReq == null)
+            selPlanner.event.sourceWidgetId?.removePrefix("__block__")?.takeIf {
+                selPlanner.event.sourceWidgetId?.startsWith("__block__") == true
+            } else null
+        val isBlockSubTask = subTaskBlockId != null
         val isRunning = taskManager.getRunningExecution()?.taskId == selPlanner.event.id
         val isDone = taskManager.completions.isDone(selPlanner.event.id)
         TimelineEventDetailSheet(
@@ -747,6 +754,10 @@ private fun PlanTab(
                 isSleepEvent -> { { showEditSleep = true; selectedPlannerEvent = null } }
                 isBlockTile && blockTileId != null -> { {
                     editingBlock = namedBlockStore.loadBlock(blockTileId)
+                    selectedPlannerEvent = null
+                } }
+                isBlockSubTask && subTaskBlockId != null -> { {
+                    editingBlockTask = subTaskBlockId to namedBlockStore.loadTask(selPlanner.event.id)
                     selectedPlannerEvent = null
                 } }
                 else -> null
@@ -762,9 +773,14 @@ private fun PlanTab(
                     calRefreshKey++
                     selectedPlannerEvent = null
                 } }
+                isBlockSubTask -> { {
+                    namedBlockStore.deleteTask(selPlanner.event.id)
+                    calRefreshKey++
+                    selectedPlannerEvent = null
+                } }
                 else -> null
             },
-            onSkip = if (taskReq != null && !taskManager.isSkipped(selPlanner.event.id)) {
+            onSkip = if ((taskReq != null || isBlockSubTask) && !taskManager.isSkipped(selPlanner.event.id)) {
                 {
                     if (isRunning) taskManager.stopExecution(selPlanner.event.id)
                     taskManager.skipTask(selPlanner.event.id)
@@ -773,7 +789,7 @@ private fun PlanTab(
                     selectedPlannerEvent = null
                 }
             } else null,
-            onStart = if (taskReq != null && !isRunning && !isDone) {
+            onStart = if ((taskReq != null || isBlockSubTask) && !isRunning && !isDone) {
                 {
                     taskManager.getRunningExecution()?.let { taskManager.stopExecution(it.taskId) }
                     taskManager.startExecution(selPlanner.event.id)
@@ -782,7 +798,7 @@ private fun PlanTab(
                     onHeaderRefresh()
                 }
             } else null,
-            onComplete = if (taskReq != null && !isDone) {
+            onComplete = if ((taskReq != null || isBlockSubTask) && !isDone) {
                 {
                     if (isRunning) taskManager.stopExecution(selPlanner.event.id)
                     taskManager.markDone(selPlanner.event.id)
@@ -822,6 +838,24 @@ private fun PlanTab(
                 taskManager.submitTask(req)
                 calRefreshKey++
                 editingTask = null
+            }
+        )
+    }
+
+    // ── Edit block task via AddTaskSheet ─────────────────────────────────────
+    val blockTaskBeingEdited = editingBlockTask
+    if (blockTaskBeingEdited != null) {
+        AddTaskSheet(
+            forBlock = blockTaskBeingEdited.first,
+            initialBlockTask = blockTaskBeingEdited.second,
+            availableTasks = remember { taskManager.getAllTasks() },
+            calendarEvents = planTabCalEvents,
+            availableBlocks = allNamedBlocks,
+            onDismiss = { editingBlockTask = null },
+            onSaveBlockTask = { task ->
+                namedBlockStore.saveTask(task)
+                calRefreshKey++
+                editingBlockTask = null
             }
         )
     }
