@@ -157,6 +157,17 @@ private fun TaskRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        TaskDeleteDialog(
+            taskTitle = task.title,
+            hasChainTriggers = task.triggers.isNotEmpty(),
+            onSkip = null,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
+
     val priorityColor = task.colorArgb?.let { Color(it) } ?: when {
         task.priority >= 9 -> Color(0xFFE53935)
         task.priority >= 7 -> Color(0xFFFF7043)
@@ -200,7 +211,7 @@ private fun TaskRow(
         IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Edit, "Edit task", modifier = Modifier.size(18.dp))
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Delete, "Delete task", modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.error)
         }

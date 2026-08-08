@@ -51,6 +51,10 @@ class TaskManagerScript(
     fun unmarkDone(taskId: String) = completions.unmarkDone(taskId)
     fun isDone(taskId: String) = completions.isDone(taskId)
 
+    fun skipTask(taskId: String) { completions.skipTask(taskId); syncToRegistry() }
+    fun unskipTask(taskId: String) { completions.unskipTask(taskId); syncToRegistry() }
+    fun isSkipped(taskId: String) = completions.isSkipped(taskId)
+
     fun startExecution(taskId: String): TaskExecution = executions.start(taskId)
     fun stopExecution(taskId: String): TaskExecution? = executions.stop(taskId)
     fun getRunningExecution(): TaskExecution? = executions.getRunning()
@@ -59,7 +63,7 @@ class TaskManagerScript(
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)
         val tasks = store.loadAll()
-        tasks.forEach { req ->
+        tasks.filter { !completions.isSkipped(it.id) }.forEach { req ->
             val effectiveDuration = if (req.useMeasuredDuration) {
                 executions.loadAll()
                     .filter { it.taskId == req.id && it.measuredMinutes != null }
@@ -98,6 +102,7 @@ class TaskManagerScript(
                 )
             )
         }
-        AppLogger.i(TAG, "syncToRegistry: registered ${tasks.size} tasks")
+        val skippedCount = tasks.count { completions.isSkipped(it.id) }
+        AppLogger.i(TAG, "syncToRegistry: registered ${tasks.size - skippedCount} tasks (${skippedCount} skipped)")
     }
 }

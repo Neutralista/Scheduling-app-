@@ -691,6 +691,15 @@ private fun PlanTab(
                     selectedPlannerEvent = null
                 }
             } else null,
+            onSkip = if (taskReq != null && !taskManager.isSkipped(selPlanner.event.id)) {
+                {
+                    if (isRunning) taskManager.stopExecution(selPlanner.event.id)
+                    taskManager.skipTask(selPlanner.event.id)
+                    calRefreshKey++
+                    onHeaderRefresh()
+                    selectedPlannerEvent = null
+                }
+            } else null,
             onStart = if (taskReq != null && !isRunning && !isDone) {
                 {
                     taskManager.getRunningExecution()?.let { taskManager.stopExecution(it.taskId) }

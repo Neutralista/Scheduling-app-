@@ -195,6 +195,14 @@ private fun ExpandableBlockCard(
     onTaskIsAlwaysToggled: (BlockTask) -> Unit
 ) {
     var expanded by remember(block.id) { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        BlockDeleteDialog(
+            itemLabel = block.name,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     val blockTasks = remember(block.id, parentRefreshKey, expanded) {
         if (expanded) namedBlockStore.loadTasksForBlock(block.id)
             .sortedWith(compareBy({ it.placement.ordinal }, { -it.priority }))
@@ -291,7 +299,7 @@ private fun ExpandableBlockCard(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Default.Delete, "Delete block",
                         modifier = Modifier.size(16.dp),
@@ -354,6 +362,14 @@ private fun BlockTaskRow(
     onDelete: () -> Unit,
     onToggleIsAlways: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        BlockDeleteDialog(
+            itemLabel = task.title,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     val placementLabel = when (task.placement) {
         BlockTaskPlacement.BEFORE -> "before"
         BlockTaskPlacement.DURING -> "during"
@@ -409,7 +425,7 @@ private fun BlockTaskRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
             )
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
             Icon(
                 Icons.Default.Delete, "Delete task",
                 modifier = Modifier.size(14.dp),
@@ -427,6 +443,14 @@ private fun FloatingTaskRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        BlockDeleteDialog(
+            itemLabel = task.title,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     val priorityColor = when {
         task.priority >= 9 -> Color(0xFFE53935)
         task.priority >= 7 -> Color(0xFFFF7043)
@@ -483,7 +507,7 @@ private fun FloatingTaskRow(
             Icon(Icons.Default.Edit, "Edit task", modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Delete, "Delete task", modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
         }

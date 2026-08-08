@@ -297,6 +297,15 @@ fun TasksTab(
                             }
                         },
                         onEdit = { editTarget = allTasks.find { it.id == se.event.id } },
+                        onSkip = {
+                            if (isRunning) {
+                                taskManager.stopExecution(se.event.id)
+                                runningExecution = null
+                            }
+                            taskManager.skipTask(se.event.id)
+                            refreshKey++
+                            onRefresh()
+                        },
                         onDelete = {
                             if (isRunning) {
                                 taskManager.stopExecution(se.event.id)
@@ -321,7 +330,14 @@ fun TasksTab(
                     items(blockedTasks, key = { "b_${it.event.id}" }) { be ->
                         BlockedTaskRow(
                             be = be,
+                            taskTitle = allTasks.find { it.id == be.event.id }?.title ?: be.event.title,
+                            hasChainTriggers = allTasks.find { it.id == be.event.id }?.triggers?.isNotEmpty() == true,
                             onEdit = { editTarget = allTasks.find { it.id == be.event.id } },
+                            onSkip = {
+                                taskManager.skipTask(be.event.id)
+                                refreshKey++
+                                onRefresh()
+                            },
                             onDelete = {
                                 taskManager.retractTask(be.event.id)
                                 refreshKey++
@@ -1040,8 +1056,19 @@ private fun PlannerTaskRow(
     onStop: () -> Unit,
     onNextSubtask: () -> Unit,
     onEdit: () -> Unit,
+    onSkip: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        TaskDeleteDialog(
+            taskTitle = se.event.title,
+            hasChainTriggers = taskReq?.triggers?.isNotEmpty() == true,
+            onSkip = onSkip,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     val primary = MaterialTheme.colorScheme.primary
     val rowBg = if (isRunning)
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
@@ -1141,7 +1168,7 @@ private fun PlannerTaskRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                 )
             }
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = { showDeleteDialog = true }) {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = "Delete task",
@@ -1155,7 +1182,24 @@ private fun PlannerTaskRow(
 // ── Blocked task row ──────────────────────────────────────────────────────────
 
 @Composable
-private fun BlockedTaskRow(be: BlockedEvent, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun BlockedTaskRow(
+    be: BlockedEvent,
+    taskTitle: String = be.event.title,
+    hasChainTriggers: Boolean = false,
+    onEdit: () -> Unit,
+    onSkip: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        TaskDeleteDialog(
+            taskTitle = taskTitle,
+            hasChainTriggers = hasChainTriggers,
+            onSkip = onSkip,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1189,7 +1233,7 @@ private fun BlockedTaskRow(be: BlockedEvent, onEdit: () -> Unit, onDelete: () ->
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
             )
         }
-        IconButton(onClick = onDelete) {
+        IconButton(onClick = { showDeleteDialog = true }) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Delete task",
