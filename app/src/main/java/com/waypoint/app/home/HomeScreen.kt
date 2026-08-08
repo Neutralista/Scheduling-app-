@@ -691,7 +691,7 @@ private fun PlanTab(
 
     // ── Add task from free slot ───────────────────────────────────────────────
     if (freeSlotAddTask) {
-        val slotBlockId = if (freeSlotFromBlock) activeSession?.blockId else null
+        val slotBlockId = if (freeSlotFromBlock) activeSession?.blockId ?: planningBlockId else null
         AddTaskSheet(
             initial = null,
             availableTasks = remember { taskManager.getAllTasks() },
