@@ -871,7 +871,7 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
 // ── Sleep alarm row ───────────────────────────────────────────────────────────
 
 @Composable
-private fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+internal fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onToggle: (Boolean) -> Unit) {
     val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
     val timeStr = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
     val dimmed = if (enabled) 1f else 0.45f

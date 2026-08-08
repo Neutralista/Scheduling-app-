@@ -184,7 +184,7 @@ fun HomeScreen(
                     onStateChange = onStateChange,
                     taskManager = taskManager
                 )
-                5 -> AlarmsTab(alarms = alarms)
+                5 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
                 6 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
                     scripts = scripts,
