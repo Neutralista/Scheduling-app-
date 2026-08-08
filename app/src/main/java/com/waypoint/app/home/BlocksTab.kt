@@ -92,9 +92,17 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
             .windowInsetsPadding(WindowInsets.navigationBars),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        item(key = "builtin_header") {
+            BlocksSectionHeader(title = "Built-in Blocks", onAdd = null)
+        }
+
         item(key = "sleep_block") {
             SleepBlockCard(sleepStore = sleepStore, registry = eventPlanner)
             Spacer(Modifier.height(4.dp))
+        }
+
+        item(key = "blocks_divider") {
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         }
 
         item(key = "blocks_header") {
@@ -528,7 +536,7 @@ private fun FloatingTaskRow(
 // ── Section header ────────────────────────────────────────────────────────────
 
 @Composable
-private fun BlocksSectionHeader(title: String, onAdd: () -> Unit) {
+private fun BlocksSectionHeader(title: String, onAdd: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -541,10 +549,12 @@ private fun BlocksSectionHeader(title: String, onAdd: () -> Unit) {
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onBackground
         )
-        TextButton(onClick = onAdd) {
-            Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(2.dp))
-            Text("Add", style = MaterialTheme.typography.labelMedium)
+        if (onAdd != null) {
+            TextButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("Add", style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }
