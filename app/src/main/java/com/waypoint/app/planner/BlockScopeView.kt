@@ -142,7 +142,9 @@ fun BlockScopeView(
     val totalHours   = (totalMinutes + 59) / 60
 
     var nowMin by remember { mutableIntStateOf(bsMsToMin(System.currentTimeMillis(), viewStartMs)) }
-    val isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
+    var isNowVisible by remember(viewStartMs, viewEndMs) {
+        mutableStateOf(System.currentTimeMillis() in viewStartMs until viewEndMs)
+    }
 
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
@@ -152,15 +154,18 @@ fun BlockScopeView(
         scrollState.animateScrollTo(with(density) { (targetMin / 60f * BS_HOUR_HEIGHT.toPx()).toInt() })
     }
 
-    LaunchedEffect(date) {
+    // 1-second ticker: moves the now-indicator and re-plans the day
+    LaunchedEffect(viewStartMs, viewEndMs, date) {
         while (true) {
-            delay(60_000L)
-            nowMin = bsMsToMin(System.currentTimeMillis(), viewStartMs)
+            delay(1_000L)
+            val now = System.currentTimeMillis()
+            nowMin = bsMsToMin(now, viewStartMs)
+            isNowVisible = now in viewStartMs until viewEndMs
             plan = registry.planForDate(
                 date,
                 namedBlockInstances = blockInstances,
                 floatingBlocks = floatingInstances,
-                nowMs = System.currentTimeMillis()
+                nowMs = now
             )
         }
     }

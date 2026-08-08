@@ -246,17 +246,19 @@ fun DayTimelineView(
         while (true) { delay(60_000L); fetchAndSync() }
     }
 
-    LaunchedEffect(viewStartMs) {
+    // 1-second ticker: moves the now-indicator and re-plans the day
+    LaunchedEffect(viewStartMs, viewEndMs) {
         while (true) {
-            delay(60_000L)
-            isNowVisible = System.currentTimeMillis() in viewStartMs until viewEndMs
+            delay(1_000L)
+            val now = System.currentTimeMillis()
+            isNowVisible = now in viewStartMs until viewEndMs
             nowMin = minutesFromViewStart(viewStartMs)
             val allCalBlocks = calEventBlocks
             val blocks = reservingBlocks
             plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
                 reservingBlocks = blocks, namedBlockInstances = blockInstances,
                 floatingBlocks = floatingBlockInstances,
-                nowMs = if (isToday) System.currentTimeMillis() else null)
+                nowMs = if (isToday) now else null)
             nextDayScheduled = registry.planForDate(date.plusDays(1),
                 calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
                 namedBlockInstances = nextDayBlockInstances,
