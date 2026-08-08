@@ -668,18 +668,26 @@ private fun PlanTab(
 
     // ── Add task from free slot ───────────────────────────────────────────────
     if (freeSlotAddTask) {
+        val slotBlockId = if (freeSlotFromBlock) activeSession?.blockId else null
         AddTaskSheet(
             initial = null,
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,
             availableBlocks = allNamedBlocks,
+            forBlock = slotBlockId,
             onDismiss = { freeSlotAddTask = false; freeSlot = null },
             onSave = { req ->
                 taskManager.submitTask(req)
                 calRefreshKey++
                 freeSlotAddTask = false
                 freeSlot = null
-            }
+            },
+            onSaveBlockTask = if (slotBlockId != null) { task ->
+                namedBlockStore.saveTask(task)
+                calRefreshKey++
+                freeSlotAddTask = false
+                freeSlot = null
+            } else null
         )
     }
 
