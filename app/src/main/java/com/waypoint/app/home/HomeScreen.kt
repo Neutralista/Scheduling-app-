@@ -99,6 +99,7 @@ import com.waypoint.app.planner.CalendarPrefsStore
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepSchedule
 import com.waypoint.app.planner.TaskRequest
@@ -822,10 +823,17 @@ private fun PlanTab(
             onSleepMode = if (isSleepEvent) {
                 {
                     val logStore = SleepLogStore(context)
-                    logStore.enterSleepMode()
-                    SleepCheckReceiver.scheduleNextCheck(context)
+                    if (logStore.getSleepModeState() != SleepModeState.IDLE) {
+                        logStore.cancelSleepMode()
+                    } else {
+                        logStore.enterSleepMode()
+                        SleepCheckReceiver.scheduleNextCheck(context)
+                    }
                 }
             } else null,
+            isSleepModeActive = isSleepEvent && remember(selPlanner) {
+                SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE
+            },
         )
     }
 

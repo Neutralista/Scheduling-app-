@@ -65,6 +65,7 @@ fun TimelineEventDetailSheet(
     onComplete: (() -> Unit)? = null,
     onBlockStart: (() -> Unit)? = null,
     onSleepMode: (() -> Unit)? = null,
+    isSleepModeActive: Boolean = false,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val deleteTitle = when (item) {
@@ -108,7 +109,7 @@ fun TimelineEventDetailSheet(
                             onClick = { onSleepMode(); onDismiss() },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Sleep mode")
+                            Text(if (isSleepModeActive) "Stop sleep mode" else "Start sleep mode")
                         }
                     }
                     if (onBlockStart != null) {
