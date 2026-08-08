@@ -43,6 +43,20 @@ data class Cycle(
                 .withHour(hour).withMinute(minute).withSecond(0).withNano(0)
                 .toInstant().toEpochMilli()
 
+        /**
+         * Rebuild millis from an existing value, replacing only the calendar date.
+         * [utcDateMs] is the UTC-midnight millis returned by Material3's DatePicker.
+         */
+        fun withDate(originalMillis: Long, utcDateMs: Long): Long {
+            val selected = Instant.ofEpochMilli(utcDateMs)
+                .atZone(java.time.ZoneOffset.UTC).toLocalDate()
+            return Instant.ofEpochMilli(originalMillis).atZone(zone)
+                .withYear(selected.year)
+                .withMonth(selected.monthValue)
+                .withDayOfMonth(selected.dayOfMonth)
+                .toInstant().toEpochMilli()
+        }
+
         fun formatDuration(ms: Long): String {
             val totalMin = (ms / 60_000L).toInt()
             val h = totalMin / 60

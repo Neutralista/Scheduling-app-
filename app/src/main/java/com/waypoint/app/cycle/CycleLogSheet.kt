@@ -15,6 +15,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -38,6 +42,7 @@ import com.waypoint.app.ui.components.TimePickerChip
 import java.time.Instant
 import java.time.ZoneId
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CycleLogSheet(
     cycle: Cycle,
@@ -178,8 +183,11 @@ fun CycleLogSheet(
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimeField(label: String, millis: Long, anchorMillis: Long?, onChanged: (Long) -> Unit) {
+    var showDatePicker by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -192,17 +200,23 @@ private fun TimeField(label: String, millis: Long, anchorMillis: Long?, onChange
                     }
                 }
             )
-            if (anchorMillis != null && Cycle.formatDate(millis) != Cycle.formatDate(anchorMillis)) {
-                Text(
-                    Cycle.formatDate(millis),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            TextButton(
+                onClick = { showDatePicker = true },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+            ) {
+                Text(Cycle.formatDate(millis), style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+
+    if (showDatePicker) {
+        DatePickerModal(initialMs = millis, onDismiss = { showDatePicker = false }) { utcMs ->
+            onChanged(Cycle.withDate(millis, utcMs))
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NullableTimeField(
     label: String,
@@ -212,6 +226,8 @@ private fun NullableTimeField(
     anchorMillis: Long,
     onChanged: (Long?) -> Unit
 ) {
+    var showDatePicker by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -231,12 +247,11 @@ private fun NullableTimeField(
                         }
                     }
                 )
-                if (Cycle.formatDate(millis) != Cycle.formatDate(anchorMillis)) {
-                    Text(
-                        Cycle.formatDate(millis),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                TextButton(
+                    onClick = { showDatePicker = true },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text(Cycle.formatDate(millis), style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(
                     onClick = { onChanged(null) },
@@ -244,6 +259,39 @@ private fun NullableTimeField(
                 ) { Text("Clear", style = MaterialTheme.typography.labelSmall) }
             }
         }
+    }
+
+    if (showDatePicker && millis != null) {
+        DatePickerModal(initialMs = millis, onDismiss = { showDatePicker = false }) { utcMs ->
+            onChanged(Cycle.withDate(millis, utcMs))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerModal(initialMs: Long, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+    // DatePicker works in UTC-midnight millis; convert local millis to UTC date millis for the initial value
+    val utcInitial = Instant.ofEpochMilli(initialMs)
+        .atZone(ZoneId.systemDefault()).toLocalDate()
+        .let { java.time.LocalDate.of(it.year, it.month, it.dayOfMonth) }
+        .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+
+    val state = rememberDatePickerState(initialSelectedDateMillis = utcInitial)
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                state.selectedDateMillis?.let { onConfirm(it) }
+                onDismiss()
+            }) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    ) {
+        DatePicker(state = state)
     }
 }
 
