@@ -47,6 +47,18 @@ class BlockSessionLogStore(context: Context) {
             ?.average()
             ?.toInt()
 
+    fun deleteEntry(blockId: String, startedAtMs: Long) {
+        val updated = loadAll().filter { !(it.blockId == blockId && it.startedAtMs == startedAtMs) }
+        prefs.edit().putString("entries", json.encodeToString(updated)).apply()
+    }
+
+    fun updateEntry(log: BlockSessionLog) {
+        val updated = loadAll().map {
+            if (it.blockId == log.blockId && it.startedAtMs == log.startedAtMs) log else it
+        }
+        prefs.edit().putString("entries", json.encodeToString(updated)).apply()
+    }
+
     fun clear() {
         prefs.edit().remove("entries").apply()
     }

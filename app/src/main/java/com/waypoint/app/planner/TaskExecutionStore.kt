@@ -114,6 +114,11 @@ class TaskExecutionStore(context: Context) {
         prefs.edit().remove(key(date, taskId)).apply()
     }
 
+    fun update(execution: TaskExecution) {
+        val date = dateOf(execution.startMillis)
+        prefs.edit().putString(key(date, execution.taskId), json.encodeToString(execution)).apply()
+    }
+
     fun clearAll() {
         prefs.edit().clear().apply()
     }

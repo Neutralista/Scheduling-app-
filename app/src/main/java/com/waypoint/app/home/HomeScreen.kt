@@ -145,7 +145,8 @@ fun HomeScreen(
     val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
 
     val context = LocalContext.current
-    val allNamedBlocks = remember { NamedBlockStore(context).loadAllBlocks() }
+    val namedBlockStore = remember { NamedBlockStore(context) }
+    val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -177,7 +178,7 @@ fun HomeScreen(
         ) { page ->
             when (page) {
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore, onHeaderRefresh = { headerRefreshKey++ })
-                1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore)
+                1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore, namedBlockStore = namedBlockStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey)
                 4 -> WidgetsTab(
