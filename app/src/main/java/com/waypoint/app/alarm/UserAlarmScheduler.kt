@@ -105,8 +105,7 @@ object UserAlarmScheduler {
             context, requestCode(alarm.id),
             Intent(UserAlarmReceiver.ACTION_FIRE).setPackage(context.packageName)
                 .putExtra(UserAlarmReceiver.EXTRA_ALARM_ID, alarm.id)
-                .putExtra(UserAlarmReceiver.EXTRA_LABEL, alarm.label)
-                .putExtra(UserAlarmReceiver.EXTRA_VIBRATE, alarm.vibrate),
+                .putExtra(UserAlarmReceiver.EXTRA_LABEL, alarm.label),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 

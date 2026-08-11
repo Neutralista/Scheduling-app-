@@ -6,13 +6,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import com.waypoint.app.MainActivity
 import com.waypoint.app.R
 
 object NotificationHelper {
 
     private const val CHANNEL_ID       = "waypoint_reminders"
-    private const val NOTIF_ID         = 1
     const val SCRIPTS_CHANNEL_ID       = "waypoint_scripts"
 
     fun createChannel(context: Context) {
@@ -27,26 +25,6 @@ object NotificationHelper {
             SCRIPTS_CHANNEL_ID, "Script notifications", NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "Notifications triggered by scripts" }
         nm(context).createNotificationChannel(channel)
-    }
-
-    fun sendDailyReminder(context: Context) {
-        val pi = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        nm(context).notify(
-            NOTIF_ID,
-            NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Waypoint")
-                .setContentText("Time to check in on your habits")
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .build()
-        )
     }
 
     fun sendScriptNotification(context: Context, config: NotificationConfig) {

@@ -44,7 +44,6 @@ class UserAlarmReceiver : BroadcastReceiver() {
         const val ACTION_FIRE    = "com.waypoint.app.USER_ALARM_FIRE"
         const val EXTRA_ALARM_ID = "alarm_id"
         const val EXTRA_LABEL    = "label"
-        const val EXTRA_VIBRATE  = "vibrate"
         private const val TAG    = "UserAlarmReceiver"
     }
 }

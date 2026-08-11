@@ -29,8 +29,6 @@ object SleepNotificationHelper {
     private const val NOTIF_PRE_SLEEP    = 100
     private const val NOTIF_BEDTIME      = 101
     private const val NOTIF_NUDGE        = 102
-    private const val NOTIF_WAKE_SOFT    = 110
-    private const val NOTIF_WAKE_MED     = 111
     private const val NOTIF_ALARM_STATUS = 120
 
     private const val NUDGE_COOLDOWN_MS = 20 * 60_000L
@@ -156,36 +154,6 @@ object SleepNotificationHelper {
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
-                .build()
-        )
-    }
-
-    // ─── Wake alarms ───────────────────────────────────────────────────────────
-
-    fun sendWakeGentleNotification(context: Context) {
-        nm(context).notify(
-            NOTIF_WAKE_SOFT,
-            NotificationCompat.Builder(context, CH_WAKE_GENTLE)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Wake up soon")
-                .setContentText("Your alarm is in 15 minutes")
-                .setContentIntent(openAppPi(context, 210))
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-        )
-    }
-
-    fun sendWakeMediumNotification(context: Context) {
-        nm(context).notify(
-            NOTIF_WAKE_MED,
-            NotificationCompat.Builder(context, CH_WAKE_MEDIUM)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Almost time to wake up")
-                .setContentText("10 minutes until your alarm")
-                .setContentIntent(openAppPi(context, 211))
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
         )
     }

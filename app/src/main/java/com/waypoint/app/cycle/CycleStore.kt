@@ -31,8 +31,4 @@ class CycleStore(context: Context) {
     /** The currently open cycle (should be at most one). */
     fun loadCurrent(): Cycle? = loadAll().firstOrNull { it.isOpen }
 
-    fun loadForMonth(year: Int, month: Int): List<Cycle> {
-        val prefix = "%04d-%02d".format(year, month)
-        return loadAll().filter { it.dateLabel.startsWith(prefix) }
-    }
 }
