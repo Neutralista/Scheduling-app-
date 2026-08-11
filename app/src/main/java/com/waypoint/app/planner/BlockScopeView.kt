@@ -98,6 +98,7 @@ fun BlockScopeView(
     onEndSession: () -> Unit,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
     onEditTask: ((BlockTask) -> Unit)? = null,
+    onColorChanged: ((Int?) -> Unit)? = null,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
@@ -208,11 +209,13 @@ fun BlockScopeView(
                 blockColorArgb = argb
                 val block = namedBlockStore.loadBlock(session.blockId)
                 if (block != null) namedBlockStore.saveBlock(block.copy(colorArgb = argb))
+                onColorChanged?.invoke(argb)
             },
             onClearColor = {
                 blockColorArgb = null
                 val block = namedBlockStore.loadBlock(session.blockId)
                 if (block != null) namedBlockStore.saveBlock(block.copy(colorArgb = null))
+                onColorChanged?.invoke(null)
             },
             onDismiss = { showColorPicker = false }
         )

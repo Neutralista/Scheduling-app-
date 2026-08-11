@@ -77,6 +77,13 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
         AppLogger.i(TAG, "endSession: measurements=${taskMeasurements.size}")
     }
 
+    fun updateColor(colorArgb: Int?) {
+        val current = loadFromPrefs() ?: return
+        val updated = current.copy(colorArgb = colorArgb)
+        prefs.edit().putString("active", json.encodeToString(updated)).apply()
+        sessionFlow.value = updated
+    }
+
     fun extendSession(extraMs: Long) {
         val current = loadFromPrefs() ?: return
         val updated = current.copy(scheduledEndMs = current.scheduledEndMs + extraMs)

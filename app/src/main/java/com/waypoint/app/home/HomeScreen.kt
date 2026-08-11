@@ -627,6 +627,7 @@ private fun PlanTab(
                 },
                 onTaskClick = { selectedPlannerEvent = it },
                 onEditTask = { task -> editingBlockTask = task.blockId to task },
+                onColorChanged = { argb -> if (sessionForToday != null) blockSessionStore.updateColor(argb) },
                 onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = true }
             )
         } else {
