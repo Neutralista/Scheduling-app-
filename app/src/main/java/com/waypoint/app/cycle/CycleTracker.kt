@@ -3,6 +3,7 @@ package com.waypoint.app.cycle
 import android.content.Context
 import android.os.PowerManager
 import com.waypoint.app.AppLogger
+import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import java.util.UUID
@@ -128,6 +129,49 @@ class CycleTracker(private val context: Context) {
         if (current.sleepStartMillis != null) return  // already recorded
         AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler)")
         store.save(current.copy(sleepStartMillis = sleepStartMs))
+    }
+
+    /**
+     * Save a manually-edited cycle. Handles:
+     * - Sleep sync: writes a SleepLogEntry when both sleep endpoints are present.
+     * - Edit propagation: when nextWakeMillis changes, updates the successor cycle's wakeMillis;
+     *   when wakeMillis changes, updates the predecessor cycle's nextWakeMillis.
+     * - Auto-start: if an open cycle is being closed, opens a new cycle at nextWakeMillis.
+     */
+    fun saveCycle(original: Cycle, updated: Cycle) {
+        store.save(updated)
+
+        // Sync sleep → SleepLogStore
+        if (updated.sleepStartMillis != null && updated.nextWakeMillis != null) {
+            sleepLogStore.saveEntry(
+                SleepLogEntry(
+                    dateIso  = Cycle.dateLabel(updated.sleepStartMillis),
+                    bedMillis  = updated.sleepStartMillis,
+                    wakeMillis = updated.nextWakeMillis
+                )
+            )
+        }
+
+        val all = store.loadAll()
+
+        // Propagate nextWakeMillis change → successor's wakeMillis
+        val oldEnd = original.nextWakeMillis
+        val newEnd = updated.nextWakeMillis
+        if (newEnd != null && newEnd != oldEnd && oldEnd != null) {
+            all.firstOrNull { it.id != updated.id && it.wakeMillis == oldEnd }
+                ?.let { store.save(it.copy(wakeMillis = newEnd)) }
+        }
+
+        // Propagate wakeMillis change → predecessor's nextWakeMillis
+        if (updated.wakeMillis != original.wakeMillis) {
+            all.firstOrNull { it.id != updated.id && it.nextWakeMillis == original.wakeMillis }
+                ?.let { store.save(it.copy(nextWakeMillis = updated.wakeMillis)) }
+        }
+
+        // Auto-open successor when closing an open cycle (if none already exists)
+        if (original.isOpen && !updated.isOpen && newEnd != null && store.loadCurrent() == null) {
+            openCycle(newEnd)
+        }
     }
 
     /** Manually open a new cycle right now — used when the user taps "Start cycle". */

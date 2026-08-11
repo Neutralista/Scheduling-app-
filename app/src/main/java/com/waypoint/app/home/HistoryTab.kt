@@ -56,8 +56,6 @@ import com.waypoint.app.planner.BlockSessionLog
 import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.BlockTaskMeasurement
 import com.waypoint.app.planner.NamedBlockStore
-import com.waypoint.app.planner.SleepLogEntry
-import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.ui.components.TimePickerChip
@@ -155,13 +153,6 @@ fun HistoryTab(
         }
     }
 
-    val sleepLogStore = remember { SleepLogStore(context) }
-    val sleepEntries = remember(combinedKey) { sleepLogStore.loadRecent(60) }
-    val sleepAvgMins = remember(sleepEntries) {
-        if (sleepEntries.isEmpty()) null
-        else sleepEntries.map { ((it.wakeMillis - it.bedMillis) / 60_000L).toInt() }.average().toInt()
-    }
-
     val allCycles = remember(combinedKey) { cycleTracker.store.loadAll() }
     val currentCycle = remember(allCycles) { allCycles.firstOrNull { it.isOpen } }
     val historyCycles = remember(allCycles) { allCycles.filter { !it.isOpen } }
@@ -174,15 +165,13 @@ fun HistoryTab(
     var drillTaskTarget by remember { mutableStateOf<TaskSummary?>(null) }
     var measurementDrillTarget by remember { mutableStateOf<Pair<String, List<MeasurementRecord>>?>(null) }
     var editSession by remember { mutableStateOf<BlockSessionLog?>(null) }
-    var editSleepEntry by remember { mutableStateOf<SleepLogEntry?>(null) }
     var editCycle by remember { mutableStateOf<Cycle?>(null) }
 
     val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
     val tertiary = MaterialTheme.colorScheme.tertiary
 
     // ── Unified list ──────────────────────────────────────────────────────────
-    if (blockGroups.isEmpty() && taskSummaries.isEmpty() && sleepEntries.isEmpty() && allCycles.isEmpty()) {
+    if (blockGroups.isEmpty() && taskSummaries.isEmpty() && allCycles.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 "No history yet.\n\nCompleted sessions, tasks, and sleep entries will appear here.",
@@ -199,6 +188,61 @@ fun HistoryTab(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
     ) {
+
+        // ── Cycles section ────────────────────────────────────────────────────
+        if (allCycles.isNotEmpty() || true) { // always show so user can start one
+            item("cycles_label") {
+                SectionLabel(text = "Cycles")
+            }
+            item("cycles_header") {
+                HistorySectionHeader(
+                    title = "Cycles",
+                    subtitle = if (allCycles.isEmpty()) "No cycles yet"
+                               else "${allCycles.size} ${if (allCycles.size == 1) "cycle" else "cycles"}" +
+                                   if (currentCycle != null) " · active now" else "",
+                    accentColor = tertiary,
+                    expanded = "cycles" in expandedIds,
+                    onToggle = { expandedIds = expandedIds.toggle("cycles") },
+                    trailingButton = if (currentCycle == null) ({
+                        TextButton(
+                            onClick = { cycleTracker.manualStart(); localKey++ },
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) { Text("Start", style = MaterialTheme.typography.labelSmall) }
+                    }) else null
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            }
+
+            if ("cycles" in expandedIds) {
+                if (currentCycle != null) {
+                    item("cycle_active") {
+                        CycleRow(
+                            cycle = currentCycle,
+                            isActive = true,
+                            tick = tick,
+                            onClick = { editCycle = currentCycle }
+                        )
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(start = 16.dp)
+                        )
+                    }
+                }
+                items(historyCycles, key = { "cycle_${it.id}" }) { cycle ->
+                    CycleRow(
+                        cycle = cycle,
+                        isActive = false,
+                        tick = 0,
+                        onClick = { editCycle = cycle }
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(start = 16.dp)
+                    )
+                }
+                item("cycles_space") { Spacer(Modifier.height(4.dp)) }
+            }
+        }
 
         // ── Blocks section ────────────────────────────────────────────────────
         if (blockGroups.isNotEmpty()) {
@@ -316,101 +360,6 @@ fun HistoryTab(
             }
         }
 
-        // ── Sleep section ─────────────────────────────────────────────────────
-        if (sleepEntries.isNotEmpty()) {
-            item("sleep_label") {
-                SectionLabel(text = "Sleep")
-            }
-            item("sleep_header") {
-                HistorySectionHeader(
-                    title = "Sleep",
-                    subtitle = buildString {
-                        append("${sleepEntries.size} ${if (sleepEntries.size == 1) "entry" else "entries"}")
-                        sleepAvgMins?.let { avg ->
-                            val h = avg / 60; val m = avg % 60
-                            append(" · avg ${if (m == 0) "${h}h" else "${h}h ${m}m"}")
-                        }
-                    },
-                    accentColor = secondary,
-                    expanded = "sleep" in expandedIds,
-                    onToggle = { expandedIds = expandedIds.toggle("sleep") }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            }
-
-            if ("sleep" in expandedIds) {
-                items(sleepEntries, key = { "sleep_${it.dateIso}" }) { entry ->
-                    SleepLogRow(
-                        entry = entry,
-                        onEdit = { editSleepEntry = entry },
-                        onDelete = {
-                            sleepLogStore.deleteEntry(entry.dateIso)
-                            localKey++
-                        }
-                    )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(start = 16.dp)
-                    )
-                }
-                item("sleep_space") { Spacer(Modifier.height(4.dp)) }
-            }
-        }
-
-        // ── Cycles section ────────────────────────────────────────────────────
-        if (allCycles.isNotEmpty() || true) { // always show cycles so user can start one
-            item("cycles_label") {
-                SectionLabel(text = "Cycles")
-            }
-            item("cycles_header") {
-                HistorySectionHeader(
-                    title = "Cycles",
-                    subtitle = if (allCycles.isEmpty()) "No cycles yet"
-                               else "${allCycles.size} ${if (allCycles.size == 1) "cycle" else "cycles"}" +
-                                   if (currentCycle != null) " · active now" else "",
-                    accentColor = tertiary,
-                    expanded = "cycles" in expandedIds,
-                    onToggle = { expandedIds = expandedIds.toggle("cycles") },
-                    trailingButton = if (currentCycle == null) ({
-                        TextButton(
-                            onClick = { cycleTracker.manualStart(); localKey++ },
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) { Text("Start", style = MaterialTheme.typography.labelSmall) }
-                    }) else null
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            }
-
-            if ("cycles" in expandedIds) {
-                if (currentCycle != null) {
-                    item("cycle_active") {
-                        CycleRow(
-                            cycle = currentCycle,
-                            isActive = true,
-                            tick = tick,
-                            onClick = { editCycle = currentCycle }
-                        )
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                            modifier = Modifier.padding(start = 16.dp)
-                        )
-                    }
-                }
-                items(historyCycles, key = { "cycle_${it.id}" }) { cycle ->
-                    CycleRow(
-                        cycle = cycle,
-                        isActive = false,
-                        tick = 0,
-                        onClick = { editCycle = cycle }
-                    )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(start = 16.dp)
-                    )
-                }
-                item("cycles_space") { Spacer(Modifier.height(4.dp)) }
-            }
-        }
     }
 
     // ── Dialogs ───────────────────────────────────────────────────────────────
@@ -485,24 +434,12 @@ fun HistoryTab(
         )
     }
 
-    editSleepEntry?.let { entry ->
-        EditSleepEntrySheet(
-            entry = entry,
-            onDismiss = { editSleepEntry = null },
-            onSave = { newBed, newWake ->
-                sleepLogStore.saveEntry(entry.copy(bedMillis = newBed, wakeMillis = newWake))
-                editSleepEntry = null
-                localKey++
-            }
-        )
-    }
-
     editCycle?.let { cycle ->
         CycleLogSheet(
             cycle = cycle,
             onDismiss = { editCycle = null },
             onSave = { updated ->
-                cycleTracker.store.save(updated)
+                cycleTracker.saveCycle(cycle, updated)
                 editCycle = null
                 localKey++
             },
@@ -848,93 +785,26 @@ private fun EditTaskExecutionSheet(
 
 // ── Sleep rows ────────────────────────────────────────────────────────────────
 
-@Composable
-private fun SleepLogRow(entry: SleepLogEntry, onEdit: () -> Unit, onDelete: () -> Unit) {
-    val durationMins = ((entry.wakeMillis - entry.bedMillis) / 60_000L).toInt()
-    val h = durationMins / 60; val m = durationMins % 60
-    val durText = if (m == 0) "${h}h" else "${h}h ${m}m"
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(vertical = 6.dp)) {
-            Text(text = entry.dateIso, style = MaterialTheme.typography.bodySmall)
-            Text(
-                text = "${fmtMs(entry.bedMillis)} – ${fmtMs(entry.wakeMillis)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
-        }
-        Text(text = durText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-        }
-        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-        }
-    }
-}
-
-@Composable
-private fun EditSleepEntrySheet(
-    entry: SleepLogEntry,
-    onDismiss: () -> Unit,
-    onSave: (bedMillis: Long, wakeMillis: Long) -> Unit
-) {
-    val bedCal  = remember(entry) { Calendar.getInstance().apply { timeInMillis = entry.bedMillis } }
-    val wakeCal = remember(entry) { Calendar.getInstance().apply { timeInMillis = entry.wakeMillis } }
-    var bedTime  by remember { mutableStateOf("%02d:%02d".format(bedCal.get(Calendar.HOUR_OF_DAY), bedCal.get(Calendar.MINUTE))) }
-    var wakeTime by remember { mutableStateOf("%02d:%02d".format(wakeCal.get(Calendar.HOUR_OF_DAY), wakeCal.get(Calendar.MINUTE))) }
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 6.dp, modifier = Modifier.padding(horizontal = 32.dp)) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text("Edit Sleep Entry", style = MaterialTheme.typography.titleMedium)
-                Text(entry.dateIso, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Bed", style = MaterialTheme.typography.bodyMedium)
-                    TimePickerChip(value = bedTime, onValueChange = { bedTime = it })
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Wake", style = MaterialTheme.typography.bodyMedium)
-                    TimePickerChip(value = wakeTime, onValueChange = { wakeTime = it })
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    TextButton(onClick = { onSave(setTimeOnMs(entry.bedMillis, bedTime), setTimeOnMs(entry.wakeMillis, wakeTime)) }) { Text("Save") }
-                }
-            }
-        }
-    }
-}
-
 // ── Cycle rows ────────────────────────────────────────────────────────────────
 
 @Composable
 private fun CycleRow(cycle: Cycle, isActive: Boolean, tick: Int, onClick: () -> Unit) {
     val now = System.currentTimeMillis()
-    val durationMs = if (isActive) {
+    val awakeDurationMs = if (isActive) {
         remember(tick) { (cycle.sleepStartMillis ?: now) - cycle.wakeMillis }
     } else {
-        cycle.totalDurationMs
+        cycle.awakeDurationMs
     }
-    val h = (durationMs / 3_600_000L).toInt()
-    val m = ((durationMs % 3_600_000L) / 60_000L).toInt()
-    val durText = if (h > 0) "${h}h ${m}m" else "${m}m"
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(vertical = 6.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (isActive) {
                     Text(
@@ -947,14 +817,26 @@ private fun CycleRow(cycle: Cycle, isActive: Boolean, tick: Int, onClick: () -> 
                 }
                 Text(text = Cycle.formatDate(cycle.wakeMillis), style = MaterialTheme.typography.bodySmall)
             }
+            // Wake → sleep → next wake timeline
             Text(
-                text = "Wake ${Cycle.formatTime(cycle.wakeMillis)}" +
-                    (cycle.sleepStartMillis?.let { "  · Sleep ${Cycle.formatTime(it)}" } ?: ""),
+                text = buildString {
+                    append("Wake ${Cycle.formatTime(cycle.wakeMillis)}")
+                    cycle.sleepStartMillis?.let { append("  →  sleep ${Cycle.formatTime(it)}") }
+                    cycle.nextWakeMillis?.let { append("  →  wake ${Cycle.formatTime(it)}") }
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
+            // Awake + sleep durations
+            val awakeText = Cycle.formatDuration(awakeDurationMs)
+            val sleepText = cycle.sleepDurationMs?.let { Cycle.formatDuration(it) }
+            Text(
+                text = if (sleepText != null) "Awake $awakeText  ·  slept $sleepText"
+                       else "Awake $awakeText",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
         }
-        Text(text = durText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
     }
 }
