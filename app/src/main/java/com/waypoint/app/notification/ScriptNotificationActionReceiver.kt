@@ -56,8 +56,10 @@ class ScriptNotificationActionReceiver : BroadcastReceiver() {
 
 private fun tabNameToIndex(tab: String) = when (tab) {
     "plan"     -> 0
-    "scripts"  -> 1
-    "widgets"  -> 2
-    "settings" -> 3
+    "history"  -> 1
+    "tasks"    -> 2
+    "blocks"   -> 3
+    "alarms"   -> 4
+    "settings" -> 5
     else       -> 0
 }

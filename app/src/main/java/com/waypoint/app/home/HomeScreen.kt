@@ -127,10 +127,9 @@ fun HomeScreen(
     onPermissionGranted: () -> Unit,
     initialTab: Int = 0
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 7 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
     var drawerOpen by remember { mutableStateOf(false) }
-    val widgets = remember(scripts) { scripts.filter { it.hasWidget } }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
     val headerPlan = remember(headerRefreshKey) { eventPlanner.planToday() }
@@ -142,7 +141,7 @@ fun HomeScreen(
     val tasksTotal = plannerScheduled.size
     val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
-    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
+    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
 
     val context = LocalContext.current
     val namedBlockStore = remember { NamedBlockStore(context) }
@@ -161,7 +160,7 @@ fun HomeScreen(
             contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 0.dp
         ) {
-            listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
+            listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -181,14 +180,8 @@ fun HomeScreen(
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore, namedBlockStore = namedBlockStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey)
-                4 -> WidgetsTab(
-                    widgets = widgets,
-                    statesById = statesById,
-                    onStateChange = onStateChange,
-                    taskManager = taskManager
-                )
-                5 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                6 -> SettingsTab(
+                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                5 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
                     scripts = scripts,
                     statesById = statesById,
