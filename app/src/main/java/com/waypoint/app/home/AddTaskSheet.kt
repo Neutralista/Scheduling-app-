@@ -769,24 +769,28 @@ fun AddTaskSheet(
                                         ConstraintTag("Before $beforeTime") { beforeTime = null }
                                     afterTaskIds.forEach { tid ->
                                         val name = if (tid == TASK_REF_SLEEP) "Sleep"
-                                                   else chainTargets.find { it.id == tid }?.title ?: tid
+                                                   else chainTargets.find { it.id == tid }?.title
+                                                       ?: availableTasks.find { it.id == tid }?.title
+                                                       ?: "Deleted task"
                                         ConstraintTag("After $name") { afterTaskIds = afterTaskIds - tid }
                                     }
                                     beforeTaskIds.forEach { tid ->
                                         val name = if (tid == TASK_REF_SLEEP) "Sleep"
-                                                   else chainTargets.find { it.id == tid }?.title ?: tid
+                                                   else chainTargets.find { it.id == tid }?.title
+                                                       ?: availableTasks.find { it.id == tid }?.title
+                                                       ?: "Deleted task"
                                         ConstraintTag("Before $name") { beforeTaskIds = beforeTaskIds - tid }
                                     }
                                     afterCalEventIds.forEach { evtId ->
-                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: "Calendar event"
                                         ConstraintTag("After $name") { afterCalEventIds = afterCalEventIds - evtId }
                                     }
                                     beforeCalEventIds.forEach { evtId ->
-                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: "Calendar event"
                                         ConstraintTag("Before $name") { beforeCalEventIds = beforeCalEventIds - evtId }
                                     }
                                     duringCalEventId?.let { evtId ->
-                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: evtId
+                                        val name = todayCalEvents.find { it.eventId == evtId }?.title ?: "Calendar event"
                                         ConstraintTag("During $name") { duringCalEventId = null }
                                     }
                                     taskRecurrenceRule?.let { r ->
@@ -802,16 +806,18 @@ fun AddTaskSheet(
                                     }
                                     if (!isBlockMode) {
                                         afterBlockId?.let { bId ->
-                                            val name = availableBlocks.find { it.id == bId }?.name ?: bId
+                                            val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
                                             ConstraintTag("After $name") { afterBlockId = null }
                                         }
                                         beforeBlockId?.let { bId ->
-                                            val name = availableBlocks.find { it.id == bId }?.name ?: bId
+                                            val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
                                             ConstraintTag("Before $name") { beforeBlockId = null }
                                         }
                                         if (dayRelation != DayRelation.ANY) {
                                             dayRelationTaskIds.forEach { tid ->
-                                                val name = chainTargets.find { it.id == tid }?.title ?: tid
+                                                val name = chainTargets.find { it.id == tid }?.title
+                                                    ?: availableTasks.find { it.id == tid }?.title
+                                                    ?: "Deleted task"
                                                 val prefix = if (dayRelation == DayRelation.SAME_DAY_AS) "Same day as" else "Not with"
                                                 ConstraintTag("$prefix $name") {
                                                     val next = dayRelationTaskIds - tid
@@ -1331,7 +1337,7 @@ fun AddTaskSheet(
                                 triggers.forEachIndexed { i, trigger ->
                                     val targetTitle = chainTargets.find { it.id == trigger.chainTaskId }?.title
                                         ?: availableTasks.find { it.id == trigger.chainTaskId }?.title
-                                        ?: trigger.chainTaskId
+                                        ?: "Deleted task"
                                     val eventLabel = if (trigger.event == TriggerEvent.TASK_COMPLETED) "On finish" else "On start"
                                     val deadlineLabel = if (trigger.deadlineMinutes > 0) " · ${trigger.deadlineMinutes}m deadline" else ""
                                     Row(

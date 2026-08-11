@@ -383,6 +383,12 @@ class EventPlannerRegistry {
             val blockMustStartAfter = afterBlock?.let { cond ->
                 allBlockInstances.find { it.block.id == cond.blockId }?.estimatedEndMs
             }
+            if (beforeBlock != null && blockMustEndBefore == null) {
+                blocked += BlockedEvent(event, "Named block not scheduled today"); continue
+            }
+            if (afterBlock != null && blockMustStartAfter == null) {
+                blocked += BlockedEvent(event, "Named block not scheduled today"); continue
+            }
             val effectiveMustEndBefore = listOfNotNull(
                 mustEndBefore, calMustEndBefore, blockMustEndBefore
             ).minOrNull()
