@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.cycle.Cycle
@@ -518,20 +519,20 @@ fun HistoryTab(
 
 @Composable
 private fun SectionLabel(text: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp)) {
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
         )
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
