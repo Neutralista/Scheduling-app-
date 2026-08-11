@@ -116,13 +116,17 @@ fun DayTimelineView(
         namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val activeTasks = namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore)
             val endMs = if (sched.endHour >= 0) {
                 val e = date.atTime(sched.endHour, sched.endMinute)
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
-            } else startMs + block.estimatedMinutes * 60_000L
-            NamedBlockInstance(block, startMs, endMs,
-                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
+            } else {
+                val durMins = if (block.useTotalTaskDuration && activeTasks.isNotEmpty())
+                    activeTasks.sumOf { it.durationMinutes } else block.estimatedMinutes
+                startMs + durMins * 60_000L
+            }
+            NamedBlockInstance(block, startMs, endMs, activeTasks)
         } ?: emptyList()
     }
     val floatingBlockInstances = remember(date, refreshKey) {
@@ -145,13 +149,17 @@ fun DayTimelineView(
         namedBlockStore?.resolveForDate(nextDate)?.map { (block, sched) ->
             val startMs = nextDate.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val activeTasks = namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore)
             val endMs = if (sched.endHour >= 0) {
                 val e = nextDate.atTime(sched.endHour, sched.endMinute)
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
-            } else startMs + block.estimatedMinutes * 60_000L
-            NamedBlockInstance(block, startMs, endMs,
-                namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore))
+            } else {
+                val durMins = if (block.useTotalTaskDuration && activeTasks.isNotEmpty())
+                    activeTasks.sumOf { it.durationMinutes } else block.estimatedMinutes
+                startMs + durMins * 60_000L
+            }
+            NamedBlockInstance(block, startMs, endMs, activeTasks)
         } ?: emptyList()
     }
     val nextDayFloatingInstances = remember(date, refreshKey) {

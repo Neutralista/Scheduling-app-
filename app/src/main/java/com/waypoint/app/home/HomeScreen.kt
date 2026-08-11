@@ -599,7 +599,7 @@ private fun PlanTab(
                     val e = selectedDate.atTime(sched.endHour, sched.endMinute)
                         .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                     if (e > startMs) e else e + 24 * 3600_000L
-                } else startMs + block.estimatedMinutes * 60_000L
+                } else startMs + namedBlockStore.effectiveDurationMinutes(block, selectedDate) * 60_000L
                 ActiveBlockSession(
                     blockId = blockId,
                     blockName = block.name,

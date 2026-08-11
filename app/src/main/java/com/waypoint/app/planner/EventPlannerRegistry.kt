@@ -141,7 +141,9 @@ class EventPlannerRegistry {
                 }
             }
             if (!eligible) continue
-            val durationMs = inst.block.estimatedMinutes * 60_000L
+            val effectiveDurMins = if (inst.block.useTotalTaskDuration && inst.activeTasks.isNotEmpty())
+                inst.activeTasks.sumOf { it.durationMinutes } else inst.block.estimatedMinutes
+            val durationMs = effectiveDurMins * 60_000L
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
             val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
             val afterBlockCond  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }
@@ -184,7 +186,7 @@ class EventPlannerRegistry {
                     PlannerEvent(
                         id = "__block__${inst.block.id}",
                         title = inst.block.name,
-                        durationMinutes = inst.block.estimatedMinutes,
+                        durationMinutes = effectiveDurMins,
                         priority = inst.block.priority,
                         category = EventCategory.BLOCK
                     ),
@@ -205,7 +207,7 @@ class EventPlannerRegistry {
             val blockPlannerEvent = PlannerEvent(
                 id = blockEventId,
                 title = inst.block.name,
-                durationMinutes = inst.block.estimatedMinutes,
+                durationMinutes = ((inst.estimatedEndMs - inst.scheduledStartMs) / 60_000L).toInt(),
                 priority = 8,
                 category = EventCategory.BLOCK,
                 fixedStartMillis = inst.scheduledStartMs,

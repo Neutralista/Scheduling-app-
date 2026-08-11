@@ -141,4 +141,16 @@ class NamedBlockStore(context: Context) {
             }
         }
     }
+
+    /**
+     * Returns the effective duration in minutes for [block] on [date].
+     * When [NamedBlock.useTotalTaskDuration] is true, sums only the tasks
+     * active on that date (respecting day-of-week and situational conditions).
+     * Falls back to [NamedBlock.estimatedMinutes] when the active sum is zero.
+     */
+    fun effectiveDurationMinutes(block: NamedBlock, date: LocalDate): Int {
+        if (!block.useTotalTaskDuration) return block.estimatedMinutes
+        val taskTotal = resolveActiveTasks(block.id, date).sumOf { it.durationMinutes }
+        return taskTotal.takeIf { it > 0 } ?: block.estimatedMinutes
+    }
 }

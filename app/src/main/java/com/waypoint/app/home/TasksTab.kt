@@ -194,7 +194,7 @@ fun TasksTab(
                         val e = today.atTime(sched.endHour, sched.endMinute)
                             .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                         if (e > startMs) e else e + 24 * 3600_000L
-                    } else startMs + block.estimatedMinutes * 60_000L
+                    } else startMs + namedBlockStore.effectiveDurationMinutes(block, today) * 60_000L
                     BlockStartCard(
                         blockName = block.name,
                         colorArgb = block.colorArgb,
