@@ -153,9 +153,9 @@ fun HistoryTab(
         }
     }
 
-    val allCycles = remember(combinedKey) { cycleTracker.store.loadAll() }
-    val currentCycle = remember(allCycles) { allCycles.firstOrNull { it.isOpen } }
-    val historyCycles = remember(allCycles) { allCycles.filter { !it.isOpen } }
+    val allCycles = cycleTracker.store.loadAll()
+    val currentCycle = allCycles.firstOrNull { it.isOpen }
+    val historyCycles = allCycles.filter { !it.isOpen }
 
     // Tick every minute for live cycle duration
     var tick by remember { mutableIntStateOf(0) }
@@ -791,7 +791,9 @@ private fun EditTaskExecutionSheet(
 private fun CycleRow(cycle: Cycle, isActive: Boolean, tick: Int, onClick: () -> Unit) {
     val now = System.currentTimeMillis()
     val awakeDurationMs = if (isActive) {
-        remember(tick) { (cycle.sleepStartMillis ?: now) - cycle.wakeMillis }
+        remember(tick, cycle.wakeMillis, cycle.sleepStartMillis) {
+            (cycle.sleepStartMillis ?: now) - cycle.wakeMillis
+        }
     } else {
         cycle.awakeDurationMs
     }
