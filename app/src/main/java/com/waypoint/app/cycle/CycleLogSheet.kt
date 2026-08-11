@@ -35,7 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.ui.components.TimePickerChip
@@ -100,37 +102,55 @@ fun CycleLogSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Wake up
+                    // ── Awake period ──────────────────────────────────────────
+                    SheetSectionLabel("Awake")
+
                     TimeField(label = "Woke up", millis = wakeMs, anchorMillis = null) {
                         wakeMs = it
                     }
 
-                    // Fell asleep
+                    // ── Sleep period ──────────────────────────────────────────
+                    SheetSectionLabel("Sleep")
+
                     NullableTimeField(
-                        label      = "Fell asleep",
-                        millis     = sleepMs,
-                        addLabel   = "+ Log sleep",
-                        defaultMs  = {
+                        label        = "Fell asleep",
+                        millis       = sleepMs,
+                        addLabel     = "+ Log sleep onset",
+                        defaultMs    = {
                             Instant.ofEpochMilli(wakeMs)
                                 .atZone(ZoneId.systemDefault())
                                 .withHour(22).withMinute(0).withSecond(0).withNano(0)
                                 .toInstant().toEpochMilli()
                         },
                         anchorMillis = wakeMs,
-                        onChanged  = { sleepMs = it }
+                        onChanged    = { sleepMs = it }
                     )
 
-                    // Next wake / close
                     NullableTimeField(
-                        label     = if (cycle.isOpen) "Close cycle at" else "Next wake",
-                        millis    = nextWakeMs,
-                        addLabel  = if (cycle.isOpen) "+ Close cycle" else "+ Set next wake",
-                        defaultMs = { wakeMs + 24 * 3600_000L },
-                        anchorMillis = wakeMs,
-                        onChanged = { nextWakeMs = it }
+                        label        = if (cycle.isOpen) "Close cycle / next wake" else "Next wake",
+                        millis       = nextWakeMs,
+                        addLabel     = if (cycle.isOpen) "+ Close cycle" else "+ Set next wake",
+                        defaultMs    = {
+                            (sleepMs ?: wakeMs) + 8 * 3600_000L
+                        },
+                        anchorMillis = sleepMs ?: wakeMs,
+                        onChanged    = { nextWakeMs = it }
                     )
 
-                    // Summary
+                    // Sleep duration hint
+                    val sleepDurMs = run {
+                        val s = sleepMs; val n = nextWakeMs
+                        if (s != null && n != null && n > s) n - s else null
+                    }
+                    if (sleepDurMs != null) {
+                        Text(
+                            text = "Sleep duration: ${Cycle.formatDuration(sleepDurMs)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        )
+                    }
+
+                    // ── Summary ───────────────────────────────────────────────
                     val preview = cycle.copy(
                         wakeMillis       = wakeMs,
                         sleepStartMillis = sleepMs,
@@ -182,6 +202,24 @@ fun CycleLogSheet(
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+@Composable
+private fun SheetSectionLabel(text: String) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
