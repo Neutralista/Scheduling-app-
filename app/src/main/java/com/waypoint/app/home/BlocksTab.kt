@@ -76,7 +76,7 @@ private val BLOCKS_DAY_ABBREVS = mapOf(
 )
 
 @Composable
-fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry) {
+fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry, externalRefreshKey: Int = 0) {
     val context = LocalContext.current
     val namedBlockStore = remember { NamedBlockStore(context) }
     val sleepStore = remember { SleepScheduleStore(context) }
@@ -89,7 +89,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
     var editBlockTask by remember { mutableStateOf<BlockTask?>(null) }
 
     var taskRefreshKey by remember { mutableIntStateOf(0) }
-    val allTasks = remember(taskRefreshKey) { taskManager.getAllTasks() }
+    val allTasks = remember(taskRefreshKey, externalRefreshKey) { taskManager.getAllTasks() }
     var showAddTask by remember { mutableStateOf(false) }
     var editTask by remember { mutableStateOf<TaskRequest?>(null) }
 
