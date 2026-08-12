@@ -1,6 +1,8 @@
 package com.waypoint.app.home
 
 import com.waypoint.app.AppLogger
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -50,9 +53,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.AlarmEntry
@@ -60,6 +63,7 @@ import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepScheduleStore
+import com.waypoint.app.ui.components.TimePickerDialog
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -389,8 +393,7 @@ private fun AlarmEditDialog(
     var label by remember { mutableStateOf(initial?.label ?: "") }
     var repeatDays by remember { mutableStateOf(initial?.repeatDays ?: emptySet()) }
     var vibrate by remember { mutableStateOf(initial?.vibrate ?: true) }
-    var hourText by remember { mutableStateOf("%02d".format(initial?.hour ?: 7)) }
-    var minuteText by remember { mutableStateOf("%02d".format(initial?.minute ?: 0)) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var blockSyncEnabled by remember { mutableStateOf(initial?.blockSyncEnabled ?: false) }
     var linkedBlockId by remember { mutableStateOf(initial?.linkedBlockId) }
     var blockDropdownExpanded by remember { mutableStateOf(false) }
@@ -403,37 +406,19 @@ private fun AlarmEditDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showTimePicker = true }
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = hourText,
-                        onValueChange = { v ->
-                            hourText = v
-                            v.toIntOrNull()?.coerceIn(0, 23)?.let { hour = it }
-                        },
-                        label = { Text("HH") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Next
-                        ),
-                        modifier = Modifier.width(72.dp)
-                    )
-                    Text(":", style = MaterialTheme.typography.headlineMedium)
-                    OutlinedTextField(
-                        value = minuteText,
-                        onValueChange = { v ->
-                            minuteText = v
-                            v.toIntOrNull()?.coerceIn(0, 59)?.let { minute = it }
-                        },
-                        label = { Text("MM") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Next
-                        ),
-                        modifier = Modifier.width(72.dp)
+                    Text(
+                        text = "%02d:%02d".format(hour, minute),
+                        style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -535,15 +520,13 @@ private fun AlarmEditDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val h = hourText.toIntOrNull()?.coerceIn(0, 23) ?: hour
-                val m = minuteText.toIntOrNull()?.coerceIn(0, 59) ?: minute
                 val syncOn = blockSyncEnabled && linkedBlockId != null
                 onSave(
                     AlarmEntry(
                         id = initial?.id ?: "",
                         label = label.trim(),
-                        hour = h,
-                        minute = m,
+                        hour = hour,
+                        minute = minute,
                         enabled = initial?.enabled ?: true,
                         repeatDays = repeatDays,
                         vibrate = vibrate,
@@ -557,4 +540,17 @@ private fun AlarmEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    if (showTimePicker) {
+        TimePickerDialog(
+            initialHour = hour,
+            initialMinute = minute,
+            onDismiss = { showTimePicker = false },
+            onConfirm = { h, m ->
+                hour = h
+                minute = m
+                showTimePicker = false
+            }
+        )
+    }
 }
