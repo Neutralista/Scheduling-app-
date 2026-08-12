@@ -41,6 +41,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 
@@ -164,11 +165,22 @@ fun HomeScreen(
             tasksTotal = tasksTotal,
             onMenuClick = { drawerOpen = true }
         )
+        val accentColor = MaterialTheme.colorScheme.error
         ScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.primary,
-            edgePadding = 0.dp
+            edgePadding = 0.dp,
+            indicator = { tabPositions ->
+                if (pagerState.currentPage < tabPositions.size) {
+                    Box(
+                        Modifier
+                            .tabIndicatorOffset(tabPositions[pagerState.currentPage])
+                            .height(2.dp)
+                            .background(accentColor)
+                    )
+                }
+            }
         ) {
             listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
                 .forEachIndexed { i, label ->
@@ -282,6 +294,7 @@ private fun AppHeader(
     onMenuClick: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
+    val accent = MaterialTheme.colorScheme.error
     val bg = MaterialTheme.colorScheme.background
     val outline = MaterialTheme.colorScheme.outline
 
@@ -348,7 +361,7 @@ private fun AppHeader(
                     if (progressFraction > 0f) {
                         Box(
                             Modifier.fillMaxWidth(progressFraction).height(4.dp)
-                                .background(primary)
+                                .background(if (allDone) accent else primary)
                         )
                     }
                 }

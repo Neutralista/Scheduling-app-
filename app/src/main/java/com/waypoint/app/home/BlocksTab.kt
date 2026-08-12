@@ -478,7 +478,7 @@ private fun FloatingTaskRow(
         )
     }
     val priorityColor = when {
-        task.priority >= 9 -> Color(0xFFE53935)
+        task.priority >= 9 -> MaterialTheme.colorScheme.error
         task.priority >= 7 -> Color(0xFFFF7043)
         task.priority >= 4 -> Color(0xFFFFA726)
         else               -> Color(0xFF78909C)

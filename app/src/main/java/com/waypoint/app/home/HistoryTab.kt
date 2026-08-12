@@ -812,7 +812,7 @@ private fun CycleRow(cycle: Cycle, isActive: Boolean, tick: Int, onClick: () -> 
                     Text(
                         text = "Active",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.Medium
                     )
                     Text("·", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))

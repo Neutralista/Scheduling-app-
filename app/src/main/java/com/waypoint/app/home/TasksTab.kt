@@ -882,17 +882,24 @@ private fun SleepTaskRow(
                 sleepState == SleepModeState.MONITORING -> "Monitoring"
                 else -> "Sleep"
             }
+            val isMonitoring = sleepState == SleepModeState.MONITORING
             Surface(
                 shape = RoundedCornerShape(50),
-                color = if (badgeLogged) MaterialTheme.colorScheme.surface
-                        else MaterialTheme.colorScheme.secondaryContainer
+                color = when {
+                    badgeLogged  -> MaterialTheme.colorScheme.surface
+                    isMonitoring -> MaterialTheme.colorScheme.errorContainer
+                    else         -> MaterialTheme.colorScheme.secondaryContainer
+                }
             ) {
                 Text(
                     text = badgeText,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (badgeLogged) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.onSecondaryContainer
+                    color = when {
+                        badgeLogged  -> MaterialTheme.colorScheme.onSurfaceVariant
+                        isMonitoring -> MaterialTheme.colorScheme.onErrorContainer
+                        else         -> MaterialTheme.colorScheme.onSecondaryContainer
+                    }
                 )
             }
         }

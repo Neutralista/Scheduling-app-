@@ -199,10 +199,11 @@ fun BlockScopeView(
         }
     }
 
-    val outline   = MaterialTheme.colorScheme.outlineVariant
-    val onSV      = MaterialTheme.colorScheme.onSurfaceVariant
-    val secCont   = MaterialTheme.colorScheme.secondaryContainer
-    val onSecCont = MaterialTheme.colorScheme.onSecondaryContainer
+    val outline      = MaterialTheme.colorScheme.outlineVariant
+    val onSV         = MaterialTheme.colorScheme.onSurfaceVariant
+    val secCont      = MaterialTheme.colorScheme.secondaryContainer
+    val onSecCont    = MaterialTheme.colorScheme.onSecondaryContainer
+    val nowLineColor = MaterialTheme.colorScheme.error
     // Tile colors: use block color when one is set, otherwise fall back to Material defaults
     val taskTileBg = if (blockColorArgb != null) blockColor.copy(alpha = 0.18f) else secCont.copy(alpha = 0.35f)
     val taskTileFg = if (blockColorArgb != null) blockColor else onSecCont
@@ -467,14 +468,14 @@ private fun BsTimelineBody(
             val nowY = bsMinToY(clampedNow, BS_HOUR_HEIGHT)
             Text(
                 text = bsFmt(viewStartMs + clampedNow * 60_000L),
-                color = Color(0xFFE53935),
+                color = nowLineColor,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 modifier = Modifier.bsYOffset(nowY - 20.dp).padding(start = 2.dp)
             )
             Canvas(Modifier.bsYOffset(nowY - 4.dp).fillMaxWidth().height(8.dp)) {
                 val cy = size.height / 2f
-                drawCircle(Color(0xFFE53935), 4.dp.toPx(), Offset(0f, cy))
-                drawLine(Color(0xFFE53935), Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
+                drawCircle(nowLineColor, 4.dp.toPx(), Offset(0f, cy))
+                drawLine(nowLineColor, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 1.5.dp.toPx())
             }
         }
     }

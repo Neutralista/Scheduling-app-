@@ -291,7 +291,7 @@ fun DayTimelineView(
     val terCont        = MaterialTheme.colorScheme.tertiaryContainer
     val onSecCont      = MaterialTheme.colorScheme.onSecondaryContainer
     val onTerCont      = MaterialTheme.colorScheme.onTertiaryContainer
-    val indicatorColor = Color(0xFFE53935)
+    val indicatorColor = MaterialTheme.colorScheme.error
 
     val totalH = hourHeight * TOTAL_HOURS
 
