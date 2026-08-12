@@ -75,51 +75,51 @@ private val StandardLight = lightColorScheme(
     scrim                  = Color(0xFF000000),
 )
 
-// ── Belamour — dark palette (deep navy / Belamour blue / coral red) ───────────
+// ── Belamour — dark palette (deep navy / #2FA1DE cerulean / coral red) ────────
 
 private val BelamourDark = darkColorScheme(
-    primary                = Color(0xFF5EAEE8),  // Belamour blue, lightened for dark surfaces
-    onPrimary              = Color(0xFF00182E),  // very dark navy
-    primaryContainer       = Color(0xFF153C60),  // dark Belamour container
-    onPrimaryContainer     = Color(0xFFADD5F8),  // light Belamour blue
-    secondary              = Color(0xFF8EC4E8),  // softer Belamour blue
-    onSecondary            = Color(0xFF00182E),
-    secondaryContainer     = Color(0xFF0D2D45),
-    onSecondaryContainer   = Color(0xFFB8D8F2),
-    tertiary               = Color(0xFF80C7D4),  // cool teal accent
+    primary                = Color(0xFF2FA1DE),  // Belamour cerulean blue
+    onPrimary              = Color(0xFF001525),  // very dark navy
+    primaryContainer       = Color(0xFF0D3B58),  // dark cerulean container
+    onPrimaryContainer     = Color(0xFFADE0F8),  // pale sky blue
+    secondary              = Color(0xFF82C8E8),  // softer cerulean
+    onSecondary            = Color(0xFF001525),
+    secondaryContainer     = Color(0xFF0A2E48),
+    onSecondaryContainer   = Color(0xFFB8DFF5),
+    tertiary               = Color(0xFF80CCD4),  // cool teal
     onTertiary             = Color(0xFF002830),
     tertiaryContainer      = Color(0xFF0A3040),
-    onTertiaryContainer    = Color(0xFFB8E2EE),
+    onTertiaryContainer    = Color(0xFFB8E5EE),
     error                  = Color(0xFFEF5350),  // coral red
     onError                = Color(0xFF200000),
     errorContainer         = Color(0xFF4A0F0F),
     onErrorContainer       = Color(0xFFFFABAB),
-    background             = Color(0xFF0A1520),  // deep Belamour navy
-    onBackground           = Color(0xFFD4E8FF),  // pale blue-white text
-    surface                = Color(0xFF0E1F30),  // dark navy surface
-    onSurface              = Color(0xFFD4E8FF),
-    surfaceVariant         = Color(0xFF152840),  // slightly lighter navy
-    onSurfaceVariant       = Color(0xFF7AAED0),  // muted Belamour blue
-    outline                = Color(0xFF224E70),  // dark blue border
-    outlineVariant         = Color(0xFF183858),
-    inverseSurface         = Color(0xFFD4E8FF),
+    background             = Color(0xFF0A1520),  // deep navy
+    onBackground           = Color(0xFFD0E8FF),  // pale cerulean text
+    surface                = Color(0xFF0D1E30),  // dark navy surface
+    onSurface              = Color(0xFFD0E8FF),
+    surfaceVariant         = Color(0xFF142840),  // slightly lighter navy
+    onSurfaceVariant       = Color(0xFF78B8D8),  // muted cerulean
+    outline                = Color(0xFF1A5E80),  // dark cerulean border
+    outlineVariant         = Color(0xFF134260),
+    inverseSurface         = Color(0xFFD0E8FF),
     inverseOnSurface       = Color(0xFF0A1520),
-    inversePrimary         = Color(0xFF1E70B8),
+    inversePrimary         = Color(0xFF1683BA),
     scrim                  = Color(0xFF000000),
 )
 
 // ── Belamour — light palette ──────────────────────────────────────────────────
 
 private val BelamourLight = lightColorScheme(
-    primary                = Color(0xFF1E70B8),  // Belamour label blue (exact)
+    primary                = Color(0xFF1683BA),  // #2FA1DE darkened for light-bg contrast
     onPrimary              = Color(0xFFFFFFFF),
-    primaryContainer       = Color(0xFFBCD9F5),  // light Belamour blue container
-    onPrimaryContainer     = Color(0xFF003760),
-    secondary              = Color(0xFF2A6CA8),  // slightly darker Belamour blue
+    primaryContainer       = Color(0xFFBBE2F8),  // pale sky blue container
+    onPrimaryContainer     = Color(0xFF003A55),
+    secondary              = Color(0xFF2077A8),  // medium cerulean
     onSecondary            = Color(0xFFFFFFFF),
-    secondaryContainer     = Color(0xFFCCE5F8),
-    onSecondaryContainer   = Color(0xFF00355A),
-    tertiary               = Color(0xFF007A8A),  // teal complement
+    secondaryContainer     = Color(0xFFCCE8F8),
+    onSecondaryContainer   = Color(0xFF003850),
+    tertiary               = Color(0xFF007A8A),  // teal
     onTertiary             = Color(0xFFFFFFFF),
     tertiaryContainer      = Color(0xFFB2E0E8),
     onTertiaryContainer    = Color(0xFF003540),
@@ -127,17 +127,17 @@ private val BelamourLight = lightColorScheme(
     onError                = Color(0xFFFFFFFF),
     errorContainer         = Color(0xFFFFDAD6),
     onErrorContainer       = Color(0xFF410002),
-    background             = Color(0xFFEBF4FF),  // pale Belamour-tinted white
-    onBackground           = Color(0xFF081828),  // deep navy text
+    background             = Color(0xFFE8F5FF),  // pale sky-blue white
+    onBackground           = Color(0xFF071525),  // deep navy text
     surface                = Color(0xFFFFFFFF),
-    onSurface              = Color(0xFF081828),
-    surfaceVariant         = Color(0xFFD8ECFC),  // light Belamour tint
-    onSurfaceVariant       = Color(0xFF365E7A),  // medium slate-blue
-    outline                = Color(0xFF4878A0),  // Belamour blue border
-    outlineVariant         = Color(0xFF9EC5E0),
-    inverseSurface         = Color(0xFF081828),
-    inverseOnSurface       = Color(0xFFEBF4FF),
-    inversePrimary         = Color(0xFF5EAEE8),
+    onSurface              = Color(0xFF071525),
+    surfaceVariant         = Color(0xFFD0EAF8),  // light cerulean tint
+    onSurfaceVariant       = Color(0xFF2A5E7A),  // medium slate
+    outline                = Color(0xFF3A7CA8),  // cerulean border
+    outlineVariant         = Color(0xFF92C8E8),
+    inverseSurface         = Color(0xFF071525),
+    inverseOnSurface       = Color(0xFFE8F5FF),
+    inversePrimary         = Color(0xFF2FA1DE),
     scrim                  = Color(0xFF000000),
 )
 

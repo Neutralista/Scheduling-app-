@@ -31,11 +31,11 @@ val BELAMOUR_THEME = AppTheme(
     id = "belamour",
     name = "Belamour",
     isBuiltIn = true,
-    darkPrimaryArgb = 0xFF5EAEE8.toInt(),   // lightened Belamour blue for dark surfaces
+    darkPrimaryArgb = 0xFF2FA1DE.toInt(),    // Belamour sky blue
     darkBackgroundArgb = 0xFF0A1520.toInt(), // deep navy
     darkAccentArgb = 0xFFEF5350.toInt(),     // coral red
-    lightPrimaryArgb = 0xFF1E70B8.toInt(),   // Belamour label blue
-    lightBackgroundArgb = 0xFFEBF4FF.toInt(),// pale blue-white
+    lightPrimaryArgb = 0xFF1683BA.toInt(),   // Belamour blue darkened for light-bg contrast
+    lightBackgroundArgb = 0xFFE8F5FF.toInt(),// pale sky-blue white
     lightAccentArgb = 0xFFD32F2F.toInt(),    // crimson
 )
 
