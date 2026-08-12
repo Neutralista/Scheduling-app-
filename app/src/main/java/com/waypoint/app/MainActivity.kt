@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,7 +87,10 @@ class MainActivity : ComponentActivity() {
             val pendingTab by pendingTabFlow.collectAsState()
             val selectedThemeId by app.themeStore.selectedThemeIdFlow.collectAsState()
             val appTheme = remember(selectedThemeId) { app.themeStore.resolveTheme(selectedThemeId) }
-            WaypointTheme(appTheme = appTheme, blockColorArgb = activeSession?.colorArgb) {
+            val darkModeOverride by app.themeStore.darkModeOverrideFlow.collectAsState()
+            val systemDark = isSystemInDarkTheme()
+            val isDark = darkModeOverride ?: systemDark
+            WaypointTheme(darkTheme = isDark, appTheme = appTheme, blockColorArgb = activeSession?.colorArgb) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Skip the debug screen entirely when init succeeded
                     var initComplete by remember { mutableStateOf(app.startupCrash == null) }

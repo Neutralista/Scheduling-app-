@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -298,6 +299,7 @@ fun SettingsTab(
 @Composable
 private fun ThemesSection(themeStore: ThemeStore) {
     val selectedId by themeStore.selectedThemeIdFlow.collectAsState()
+    val darkOverride by themeStore.darkModeOverrideFlow.collectAsState()
     var customThemes by remember { mutableStateOf(themeStore.loadCustomThemes()) }
     var showAddSheet by remember { mutableStateOf(false) }
 
@@ -349,6 +351,28 @@ private fun ThemesSection(themeStore: ThemeStore) {
                 Text("Custom", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+
+    Spacer(Modifier.height(14.dp))
+
+    Text(
+        text = "Appearance",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            "System" to null,
+            "Light"  to false,
+            "Dark"   to true,
+        ).forEach { (label, value) ->
+            FilterChip(
+                selected = darkOverride == value,
+                onClick = { themeStore.setDarkModeOverride(value) },
+                label = { Text(label) }
+            )
         }
     }
 

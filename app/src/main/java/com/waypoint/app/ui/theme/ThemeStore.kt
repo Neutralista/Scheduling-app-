@@ -16,9 +16,15 @@ class ThemeStore(context: Context) {
         prefs.getString("selected_id", "standard") ?: "standard"
     )
 
+    // null = follow OS, true = always dark, false = always light
+    val darkModeOverrideFlow = MutableStateFlow(
+        prefs.getString("dark_mode", null)?.let { it == "dark" }
+    )
+
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "selected_id") {
-            selectedThemeIdFlow.value = prefs.getString("selected_id", "standard") ?: "standard"
+        when (key) {
+            "selected_id" -> selectedThemeIdFlow.value = prefs.getString("selected_id", "standard") ?: "standard"
+            "dark_mode" -> darkModeOverrideFlow.value = prefs.getString("dark_mode", null)?.let { it == "dark" }
         }
     }
 
@@ -28,6 +34,11 @@ class ThemeStore(context: Context) {
 
     fun selectTheme(id: String) {
         prefs.edit().putString("selected_id", id).apply()
+    }
+
+    fun setDarkModeOverride(dark: Boolean?) {
+        if (dark == null) prefs.edit().remove("dark_mode").apply()
+        else prefs.edit().putString("dark_mode", if (dark) "dark" else "light").apply()
     }
 
     fun loadCustomThemes(): List<AppTheme> {
