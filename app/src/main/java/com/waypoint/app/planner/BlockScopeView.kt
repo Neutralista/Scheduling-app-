@@ -203,7 +203,6 @@ fun BlockScopeView(
     val onSV         = MaterialTheme.colorScheme.onSurfaceVariant
     val secCont      = MaterialTheme.colorScheme.secondaryContainer
     val onSecCont    = MaterialTheme.colorScheme.onSecondaryContainer
-    val nowLineColor = MaterialTheme.colorScheme.error
     // Tile colors: use block color when one is set, otherwise fall back to Material defaults
     val taskTileBg = if (blockColorArgb != null) blockColor.copy(alpha = 0.18f) else secCont.copy(alpha = 0.35f)
     val taskTileFg = if (blockColorArgb != null) blockColor else onSecCont
@@ -379,6 +378,7 @@ private fun BsTimelineBody(
     onColorPick: ((ScheduledEvent) -> Unit)? = null,
     onFreeSlotClick: ((startMin: Int, endMin: Int) -> Unit)? = null
 ) {
+    val nowLineColor = MaterialTheme.colorScheme.error
     Box(modifier.fillMaxHeight().clipToBounds()) {
 
         // Grid lines
