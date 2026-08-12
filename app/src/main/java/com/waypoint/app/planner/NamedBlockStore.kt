@@ -150,7 +150,9 @@ class NamedBlockStore(context: Context) {
      */
     fun effectiveDurationMinutes(block: NamedBlock, date: LocalDate): Int {
         if (!block.useTotalTaskDuration) return block.estimatedMinutes
-        val taskTotal = resolveActiveTasks(block.id, date).sumOf { it.durationMinutes }
+        val taskTotal = resolveActiveTasks(block.id, date)
+            .filter { it.placement == BlockTaskPlacement.DURING }
+            .sumOf { it.durationMinutes }
         return taskTotal.takeIf { it > 0 } ?: block.estimatedMinutes
     }
 }

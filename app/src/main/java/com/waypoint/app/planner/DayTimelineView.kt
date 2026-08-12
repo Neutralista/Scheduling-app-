@@ -122,8 +122,9 @@ fun DayTimelineView(
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
             } else {
-                val durMins = if (block.useTotalTaskDuration && activeTasks.isNotEmpty())
-                    activeTasks.sumOf { it.durationMinutes } else block.estimatedMinutes
+                val durMins = if (block.useTotalTaskDuration && activeTasks.any { it.placement == BlockTaskPlacement.DURING })
+                    activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.sumOf { it.durationMinutes }
+                    else block.estimatedMinutes
                 startMs + durMins * 60_000L
             }
             NamedBlockInstance(block, startMs, endMs, activeTasks)
@@ -155,8 +156,9 @@ fun DayTimelineView(
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
             } else {
-                val durMins = if (block.useTotalTaskDuration && activeTasks.isNotEmpty())
-                    activeTasks.sumOf { it.durationMinutes } else block.estimatedMinutes
+                val durMins = if (block.useTotalTaskDuration && activeTasks.any { it.placement == BlockTaskPlacement.DURING })
+                    activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.sumOf { it.durationMinutes }
+                    else block.estimatedMinutes
                 startMs + durMins * 60_000L
             }
             NamedBlockInstance(block, startMs, endMs, activeTasks)
@@ -462,9 +464,15 @@ private fun TimelineBody(
         out
     }
 
-    // Block sub-tasks are shown inside their parent block tile; exclude them from standalone rendering.
-    val visibleScheduled = mergedScheduled.filter {
-        it.event.sourceWidgetId?.startsWith("__block__") != true
+    // DURING sub-tasks render inside the parent block tile.
+    // BEFORE/AFTER sub-tasks render as standalone events at their actual timeline positions.
+    val duringSubTaskIds: Set<String> = (blockInstances + nextDayBlockInstances)
+        .flatMap { inst -> inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.map { it.id } }
+        .toSet()
+    val visibleScheduled = mergedScheduled.filter { se ->
+        val sourceId = se.event.sourceWidgetId ?: return@filter true
+        if (!sourceId.startsWith("__block__")) return@filter true
+        se.event.id !in duringSubTaskIds
     }
 
     // Compute free time windows (gaps ≥ 15 min between occupied ranges).
@@ -501,9 +509,9 @@ private fun TimelineBody(
         windows
     }
 
-    // Group block sub-tasks by parent block id so we can render them inside the tile
+    // Group DURING block sub-tasks by parent block id so we can render them inside the tile
     val blockSubTasksMap = mergedScheduled
-        .filter { it.event.sourceWidgetId?.startsWith("__block__") == true }
+        .filter { it.event.sourceWidgetId?.startsWith("__block__") == true && it.event.id in duringSubTaskIds }
         .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
 
     Box(modifier.fillMaxHeight().clipToBounds()) {

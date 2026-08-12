@@ -115,8 +115,9 @@ fun BlockScopeView(
                     .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 if (e > startMs) e else e + 24 * 3600_000L
             } else {
-                val durMins = if (block.useTotalTaskDuration && activeTasks.isNotEmpty())
-                    activeTasks.sumOf { it.durationMinutes } else block.estimatedMinutes
+                val durMins = if (block.useTotalTaskDuration && activeTasks.any { it.placement == BlockTaskPlacement.DURING })
+                    activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.sumOf { it.durationMinutes }
+                    else block.estimatedMinutes
                 startMs + durMins * 60_000L
             }
             NamedBlockInstance(block, startMs, endMs, activeTasks)

@@ -141,8 +141,9 @@ class EventPlannerRegistry {
                 }
             }
             if (!eligible) continue
-            val effectiveDurMins = if (inst.block.useTotalTaskDuration && inst.activeTasks.isNotEmpty())
-                inst.activeTasks.sumOf { it.durationMinutes } else inst.block.estimatedMinutes
+            val effectiveDurMins = if (inst.block.useTotalTaskDuration && inst.activeTasks.any { it.placement == BlockTaskPlacement.DURING })
+                inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.sumOf { it.durationMinutes }
+                else inst.block.estimatedMinutes
             val durationMs = effectiveDurMins * 60_000L
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
             val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
