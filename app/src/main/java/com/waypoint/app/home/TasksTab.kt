@@ -1,6 +1,9 @@
 package com.waypoint.app.home
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -62,6 +68,7 @@ import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
+import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.SleepCalendarSync
@@ -83,6 +90,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Calendar
 import java.util.Locale
 
@@ -206,6 +214,8 @@ fun TasksTab(
                 }
             }
         }
+
+        ScheduledBlocksDropdown(namedBlockStore = namedBlockStore, refreshKey = refreshKey)
 
         val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty()
         if (!hasAny) {
@@ -787,6 +797,146 @@ private fun BlockSessionCard(
             }
         }
         Spacer(Modifier.height(4.dp))
+    }
+}
+
+// ── Scheduled blocks dropdown (14-day fixed-schedule overview) ────────────────
+
+@Composable
+private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey: Int) {
+    val fixedBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks().filter { !it.isFloating } }
+    if (fixedBlocks.isEmpty()) return
+
+    var expanded by remember { mutableStateOf(false) }
+    val today = remember { LocalDate.now() }
+    val next14 = remember { (0..13).map { today.plusDays(it.toLong()) } }
+    val resolvedByDate = remember(refreshKey) {
+        next14.associateWith { d -> namedBlockStore.resolveForDate(d) }
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Scheduled blocks",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "${fixedBlocks.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+        }
+
+        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+            Column(Modifier.padding(bottom = 10.dp)) {
+                fixedBlocks.forEach { block ->
+                    BlockScheduleSection(block = block, next14 = next14, resolvedByDate = resolvedByDate)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlockScheduleSection(
+    block: NamedBlock,
+    next14: List<LocalDate>,
+    resolvedByDate: Map<LocalDate, List<Pair<NamedBlock, NamedBlockSchedule>>>
+) {
+    val accent = block.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+            Text(
+                text = block.name,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = accent
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(next14) { date ->
+                val sched = resolvedByDate[date]?.find { it.first.id == block.id }?.second
+                MiniDayChip(date = date, schedule = sched, accent = accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniDayChip(date: LocalDate, schedule: NamedBlockSchedule?, accent: Color) {
+    val scheduled = schedule != null
+    val dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    val timeLabel = schedule?.let { s ->
+        val start = "%02d:%02d".format(s.startHour, s.startMinute)
+        if (s.endHour >= 0) "$start–%02d:%02d".format(s.endHour, s.endMinute) else start
+    } ?: "Off"
+
+    Column(
+        Modifier
+            .width(58.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (scheduled) accent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = if (scheduled) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = dayName,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = if (scheduled) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "${date.dayOfMonth}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (scheduled) 0.85f else 0.4f)
+        )
+        Text(
+            text = timeLabel,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            color = if (scheduled) accent.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            maxLines = 1
+        )
     }
 }
 
