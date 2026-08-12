@@ -301,6 +301,7 @@ private fun ThemesSection(themeStore: ThemeStore) {
     val darkOverride by themeStore.darkModeOverrideFlow.collectAsState()
     var customThemes by remember { mutableStateOf(themeStore.loadCustomThemes()) }
     var showAddSheet by remember { mutableStateOf(false) }
+    var editTarget by remember { mutableStateOf<AppTheme?>(null) }
 
     Text(
         text = "Themes",
@@ -324,6 +325,7 @@ private fun ThemesSection(themeStore: ThemeStore) {
                 theme = theme,
                 isSelected = selectedId == theme.id,
                 onClick = { themeStore.selectTheme(theme.id) },
+                onEdit = { editTarget = theme },
                 onDelete = if (!theme.isBuiltIn) {
                     {
                         themeStore.deleteCustomTheme(theme.id)
@@ -386,6 +388,19 @@ private fun ThemesSection(themeStore: ThemeStore) {
             }
         )
     }
+
+    if (editTarget != null) {
+        CustomThemeSheet(
+            initial = editTarget,
+            onDismiss = { editTarget = null },
+            onSave = { theme ->
+                themeStore.saveCustomTheme(theme)
+                themeStore.selectTheme(theme.id)
+                customThemes = themeStore.loadCustomThemes()
+                editTarget = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -393,6 +408,7 @@ private fun ThemeCard(
     theme: AppTheme,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onEdit: () -> Unit = {},
     onDelete: (() -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -443,33 +459,53 @@ private fun ThemeCard(
                 }
             }
         }
-        if (onDelete != null) {
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd),
+            horizontalArrangement = Arrangement.End
+        ) {
             Text(
-                text = "×",
+                text = "✎",
                 style = MaterialTheme.typography.labelMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.6f),
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clickable(onClick = onDelete)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .clickable(onClick = onEdit)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             )
+            if (onDelete != null) {
+                Text(
+                    text = "×",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .clickable(onClick = onDelete)
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun CustomThemeSheet(
+    initial: AppTheme? = null,
     onDismiss: () -> Unit,
     onSave: (AppTheme) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var darkPrimaryArgb by remember { mutableIntStateOf(0xFF4FC3F7.toInt()) }
-    var darkBackgroundArgb by remember { mutableIntStateOf(0xFF0B1623.toInt()) }
-    var darkAccentArgb by remember { mutableIntStateOf(0xFFEF5350.toInt()) }
-    var lightPrimaryArgb by remember { mutableIntStateOf(0xFF1565C0.toInt()) }
-    var lightBackgroundArgb by remember { mutableIntStateOf(0xFFEFF5FF.toInt()) }
-    var lightAccentArgb by remember { mutableIntStateOf(0xFFD32F2F.toInt()) }
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var darkPrimaryArgb by remember { mutableIntStateOf(initial?.darkPrimaryArgb ?: 0xFF4FC3F7.toInt()) }
+    var darkBackgroundArgb by remember { mutableIntStateOf(initial?.darkBackgroundArgb ?: 0xFF0B1623.toInt()) }
+    var darkAccentArgb by remember { mutableIntStateOf(initial?.darkAccentArgb ?: 0xFFEF5350.toInt()) }
+    var lightPrimaryArgb by remember { mutableIntStateOf(initial?.lightPrimaryArgb ?: 0xFF1565C0.toInt()) }
+    var lightBackgroundArgb by remember { mutableIntStateOf(initial?.lightBackgroundArgb ?: 0xFFEFF5FF.toInt()) }
+    var lightAccentArgb by remember { mutableIntStateOf(initial?.lightAccentArgb ?: 0xFFD32F2F.toInt()) }
     var nameError by remember { mutableStateOf(false) }
+
+    val isForking = initial?.isBuiltIn == true
+    val title = when {
+        initial == null -> "Custom Theme"
+        isForking -> "Fork Theme"
+        else -> "Edit Theme"
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -493,15 +529,16 @@ private fun CustomThemeSheet(
                 ) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Text(
-                        text = "Custom Theme",
+                        text = title,
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f).padding(start = 4.dp)
                     )
                     TextButton(onClick = {
                         if (name.isBlank()) { nameError = true; return@TextButton }
+                        val savedId = if (initial != null && !isForking) initial.id else UUID.randomUUID().toString()
                         onSave(
                             AppTheme(
-                                id = UUID.randomUUID().toString(),
+                                id = savedId,
                                 name = name.trim(),
                                 isBuiltIn = false,
                                 darkPrimaryArgb = darkPrimaryArgb,
