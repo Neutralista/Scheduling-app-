@@ -2,14 +2,16 @@ package com.waypoint.app.ui.theme
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class ThemeStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences("wp_theme", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("wp_theme", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
     val selectedThemeIdFlow = MutableStateFlow(
@@ -30,12 +32,21 @@ class ThemeStore(context: Context) {
 
     init {
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        // Migration v1: force Belamour as the default on first install or first update after this change.
-        // Once theme_version >= 1 the user's own selection is never overwritten.
-        if (prefs.getInt("theme_version", 0) < 1) {
+        // Force Belamour as the default every time the installed app version changes —
+        // fresh install or any update. Detected by comparing the running app's version
+        // code against the last one we saw; the user's own selection is left alone for
+        // the rest of that version's lifetime and only reset again on the next
+        // install/update.
+        val currentVersionCode = try {
+            val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
+            else @Suppress("DEPRECATION") info.versionCode.toLong()
+        } catch (_: Exception) { -1L }
+        val lastSeenVersionCode = prefs.getLong("last_seen_version_code", -1L)
+        if (currentVersionCode != lastSeenVersionCode) {
             prefs.edit()
                 .putString("selected_id", "belamour")
-                .putInt("theme_version", 1)
+                .putLong("last_seen_version_code", currentVersionCode)
                 .apply()
         }
     }
