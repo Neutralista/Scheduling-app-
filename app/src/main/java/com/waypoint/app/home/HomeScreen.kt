@@ -125,10 +125,18 @@ fun HomeScreen(
     onRemoveScript: (String) -> Unit,
     onResetScript: (String) -> Unit,
     onPermissionGranted: () -> Unit,
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    externalTabRequest: Int? = null,
+    onTabNavigated: () -> Unit = {}
 ) {
     val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(externalTabRequest) {
+        val tab = externalTabRequest ?: return@LaunchedEffect
+        pagerState.animateScrollToPage(tab)
+        onTabNavigated()
+    }
     var drawerOpen by remember { mutableStateOf(false) }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 

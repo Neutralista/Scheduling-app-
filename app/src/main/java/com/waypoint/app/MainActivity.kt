@@ -1,6 +1,7 @@
 package com.waypoint.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,10 +24,20 @@ import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.ui.theme.WaypointTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private val pendingTabFlow = MutableStateFlow<Int?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val tab = intent.getIntExtra("tab", -1)
+        if (tab >= 0) pendingTabFlow.value = tab
+    }
 
     private val viewModel: HomeViewModel by viewModels {
         val app = application as WaypointApplication
@@ -69,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val activeSession by app.env.blockSessionStore.sessionFlow.collectAsState()
+            val pendingTab by pendingTabFlow.collectAsState()
             WaypointTheme(blockColorArgb = activeSession?.colorArgb) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Skip the debug screen entirely when init succeeded
@@ -99,7 +112,9 @@ class MainActivity : ComponentActivity() {
                             onRemoveScript = viewModel::removeUserScript,
                             onResetScript = viewModel::resetBuiltInScript,
                             onPermissionGranted = viewModel::onPermissionGranted,
-                            initialTab = initialTab
+                            initialTab = initialTab,
+                            externalTabRequest = pendingTab,
+                            onTabNavigated = { pendingTabFlow.value = null }
                         )
                     }
                 }

@@ -448,9 +448,15 @@ private fun BsTimelineBody(
 
         // Task tiles
         blockSubTasks.sortedBy { it.startMillis }.forEach { se ->
+            val placementLabel = when {
+                se.endMillis <= scheduledStartMs -> "before block"
+                se.startMillis >= scheduledEndMs -> "after block"
+                else -> null
+            }
             BsTaskTile(se, viewStartMs, totalMinutes,
                 defaultBg = taskTileBg,
                 defaultFg = taskTileFg,
+                placementLabel = placementLabel,
                 onTaskClick = onTaskClick,
                 onColorPick = onColorPick)
         }
@@ -514,6 +520,7 @@ private fun BsTaskTile(
     totalMinutes: Int,
     defaultBg: Color,
     defaultFg: Color,
+    placementLabel: String? = null,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
     onColorPick: ((ScheduledEvent) -> Unit)? = null
 ) {
@@ -541,6 +548,14 @@ private fun BsTaskTile(
             .border(1.dp, fg.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            if (placementLabel != null) {
+                Text(
+                    placementLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = fg.copy(alpha = 0.55f),
+                    letterSpacing = 0.5.sp
+                )
+            }
             Text(
                 se.event.title,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
