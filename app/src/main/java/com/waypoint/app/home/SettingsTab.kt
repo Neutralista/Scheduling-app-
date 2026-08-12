@@ -42,7 +42,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -56,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,7 +66,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -464,18 +463,13 @@ private fun CustomThemeSheet(
     onSave: (AppTheme) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
-    var darkPrimary by remember { mutableStateOf("4FC3F7") }
-    var darkBackground by remember { mutableStateOf("0B1623") }
-    var darkAccent by remember { mutableStateOf("EF5350") }
-    var lightPrimary by remember { mutableStateOf("1565C0") }
-    var lightBackground by remember { mutableStateOf("EFF5FF") }
-    var lightAccent by remember { mutableStateOf("D32F2F") }
+    var darkPrimaryArgb by remember { mutableIntStateOf(0xFF4FC3F7.toInt()) }
+    var darkBackgroundArgb by remember { mutableIntStateOf(0xFF0B1623.toInt()) }
+    var darkAccentArgb by remember { mutableIntStateOf(0xFFEF5350.toInt()) }
+    var lightPrimaryArgb by remember { mutableIntStateOf(0xFF1565C0.toInt()) }
+    var lightBackgroundArgb by remember { mutableIntStateOf(0xFFEFF5FF.toInt()) }
+    var lightAccentArgb by remember { mutableIntStateOf(0xFFD32F2F.toInt()) }
     var nameError by remember { mutableStateOf(false) }
-
-    fun parseArgb(hex: String): Int =
-        runCatching {
-            android.graphics.Color.parseColor("#${hex.padEnd(6, '0')}") or 0xFF000000.toInt()
-        }.getOrDefault(0xFF888888.toInt())
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -510,12 +504,12 @@ private fun CustomThemeSheet(
                                 id = UUID.randomUUID().toString(),
                                 name = name.trim(),
                                 isBuiltIn = false,
-                                darkPrimaryArgb = parseArgb(darkPrimary),
-                                darkBackgroundArgb = parseArgb(darkBackground),
-                                darkAccentArgb = parseArgb(darkAccent),
-                                lightPrimaryArgb = parseArgb(lightPrimary),
-                                lightBackgroundArgb = parseArgb(lightBackground),
-                                lightAccentArgb = parseArgb(lightAccent),
+                                darkPrimaryArgb = darkPrimaryArgb,
+                                darkBackgroundArgb = darkBackgroundArgb,
+                                darkAccentArgb = darkAccentArgb,
+                                lightPrimaryArgb = lightPrimaryArgb,
+                                lightBackgroundArgb = lightBackgroundArgb,
+                                lightAccentArgb = lightAccentArgb,
                             )
                         )
                     }) { Text("Save") }
@@ -543,16 +537,16 @@ private fun CustomThemeSheet(
                     Spacer(Modifier.height(20.dp))
                     ThemeColorSection(
                         title = "Dark mode",
-                        primaryHex = darkPrimary, onPrimaryChange = { darkPrimary = it },
-                        backgroundHex = darkBackground, onBackgroundChange = { darkBackground = it },
-                        accentHex = darkAccent, onAccentChange = { darkAccent = it }
+                        primaryArgb = darkPrimaryArgb, onPrimaryChange = { darkPrimaryArgb = it },
+                        backgroundArgb = darkBackgroundArgb, onBackgroundChange = { darkBackgroundArgb = it },
+                        accentArgb = darkAccentArgb, onAccentChange = { darkAccentArgb = it }
                     )
                     Spacer(Modifier.height(20.dp))
                     ThemeColorSection(
                         title = "Light mode",
-                        primaryHex = lightPrimary, onPrimaryChange = { lightPrimary = it },
-                        backgroundHex = lightBackground, onBackgroundChange = { lightBackground = it },
-                        accentHex = lightAccent, onAccentChange = { lightAccent = it }
+                        primaryArgb = lightPrimaryArgb, onPrimaryChange = { lightPrimaryArgb = it },
+                        backgroundArgb = lightBackgroundArgb, onBackgroundChange = { lightBackgroundArgb = it },
+                        accentArgb = lightAccentArgb, onAccentChange = { lightAccentArgb = it }
                     )
                     Spacer(Modifier.height(32.dp))
                 }
@@ -564,81 +558,61 @@ private fun CustomThemeSheet(
 @Composable
 private fun ThemeColorSection(
     title: String,
-    primaryHex: String, onPrimaryChange: (String) -> Unit,
-    backgroundHex: String, onBackgroundChange: (String) -> Unit,
-    accentHex: String, onAccentChange: (String) -> Unit,
+    primaryArgb: Int, onPrimaryChange: (Int) -> Unit,
+    backgroundArgb: Int, onBackgroundChange: (Int) -> Unit,
+    accentArgb: Int, onAccentChange: (Int) -> Unit,
 ) {
-    fun parseColor(hex: String): Color = runCatching {
-        Color(android.graphics.Color.parseColor("#${hex.padEnd(6, '0')}") or 0xFF000000.toInt())
-    }.getOrElse { Color.Gray }
-
     Text(
         text = title,
         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
         color = MaterialTheme.colorScheme.onBackground
     )
     Spacer(Modifier.height(10.dp))
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.padding(bottom = 12.dp)
-    ) {
-        listOf(
-            "Primary" to primaryHex,
-            "Background" to backgroundHex,
-            "Accent" to accentHex
-        ).forEach { (label, hex) ->
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(parseColor(hex))
-                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-    ThemeHexField("Primary", primaryHex, onPrimaryChange)
-    Spacer(Modifier.height(8.dp))
-    ThemeHexField("Background", backgroundHex, onBackgroundChange)
-    Spacer(Modifier.height(8.dp))
-    ThemeHexField("Accent", accentHex, onAccentChange)
+    ThemeColorSliders("Primary", primaryArgb, onPrimaryChange)
+    Spacer(Modifier.height(12.dp))
+    ThemeColorSliders("Background", backgroundArgb, onBackgroundChange)
+    Spacer(Modifier.height(12.dp))
+    ThemeColorSliders("Accent", accentArgb, onAccentChange)
 }
 
 @Composable
-private fun ThemeHexField(label: String, value: String, onChange: (String) -> Unit) {
-    val previewColor = runCatching {
-        Color(android.graphics.Color.parseColor("#${value.padEnd(6, '0')}") or 0xFF000000.toInt())
-    }.getOrElse { Color.Gray }
-
-    OutlinedTextField(
-        value = value,
-        onValueChange = { s ->
-            onChange(s.filter { it.isLetterOrDigit() }.take(6).uppercase())
-        },
-        label = { Text(label) },
-        prefix = { Text("#", style = MaterialTheme.typography.bodyMedium) },
-        trailingIcon = {
-            Box(
-                Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(previewColor)
-                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
-            )
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-        modifier = Modifier.fillMaxWidth()
-    )
+private fun ThemeColorSliders(label: String, argb: Int, onChange: (Int) -> Unit) {
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(bottom = 4.dp)
+    ) {
+        Box(
+            Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color(argb))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "#%06X".format(argb and 0xFFFFFF),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+    }
+    ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
+        onChange(0xFF000000.toInt() or (newR shl 16) or (g shl 8) or b)
+    }
+    ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
+        onChange(0xFF000000.toInt() or (r shl 16) or (newG shl 8) or b)
+    }
+    ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
+        onChange(0xFF000000.toInt() or (r shl 16) or (g shl 8) or newB)
+    }
 }
 
 // ── Log viewer ────────────────────────────────────────────────────────────────
