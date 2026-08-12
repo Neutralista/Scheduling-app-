@@ -13,7 +13,7 @@ class ThemeStore(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
     val selectedThemeIdFlow = MutableStateFlow(
-        prefs.getString("selected_id", "standard") ?: "standard"
+        prefs.getString("selected_id", "belamour") ?: "belamour"
     )
 
     // null = follow OS, true = always dark, false = always light
@@ -23,13 +23,21 @@ class ThemeStore(context: Context) {
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
-            "selected_id" -> selectedThemeIdFlow.value = prefs.getString("selected_id", "standard") ?: "standard"
+            "selected_id" -> selectedThemeIdFlow.value = prefs.getString("selected_id", "belamour") ?: "belamour"
             "dark_mode" -> darkModeOverrideFlow.value = prefs.getString("dark_mode", null)?.let { it == "dark" }
         }
     }
 
     init {
         prefs.registerOnSharedPreferenceChangeListener(listener)
+        // Migration v1: force Belamour as the default on first install or first update after this change.
+        // Once theme_version >= 1 the user's own selection is never overwritten.
+        if (prefs.getInt("theme_version", 0) < 1) {
+            prefs.edit()
+                .putString("selected_id", "belamour")
+                .putInt("theme_version", 1)
+                .apply()
+        }
     }
 
     fun selectTheme(id: String) {
@@ -54,7 +62,7 @@ class ThemeStore(context: Context) {
     fun deleteCustomTheme(id: String) {
         val remaining = loadCustomThemes().filter { it.id != id }
         prefs.edit().putString("custom_themes", json.encodeToString(remaining)).apply()
-        if (selectedThemeIdFlow.value == id) selectTheme("standard")
+        if (selectedThemeIdFlow.value == id) selectTheme("belamour")
     }
 
     fun resolveTheme(id: String): AppTheme =
