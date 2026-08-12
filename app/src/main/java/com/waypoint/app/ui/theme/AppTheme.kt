@@ -27,16 +27,16 @@ val STANDARD_THEME = AppTheme(
     lightAccentArgb = 0xFFCC0000.toInt(),
 )
 
-val OCEAN_THEME = AppTheme(
-    id = "ocean",
-    name = "Ocean",
+val BELAMOUR_THEME = AppTheme(
+    id = "belamour",
+    name = "Belamour",
     isBuiltIn = true,
-    darkPrimaryArgb = 0xFF4FC3F7.toInt(),
-    darkBackgroundArgb = 0xFF0B1623.toInt(),
-    darkAccentArgb = 0xFFEF5350.toInt(),
-    lightPrimaryArgb = 0xFF1565C0.toInt(),
-    lightBackgroundArgb = 0xFFEFF5FF.toInt(),
-    lightAccentArgb = 0xFFD32F2F.toInt(),
+    darkPrimaryArgb = 0xFF5EAEE8.toInt(),   // lightened Belamour blue for dark surfaces
+    darkBackgroundArgb = 0xFF0A1520.toInt(), // deep navy
+    darkAccentArgb = 0xFFEF5350.toInt(),     // coral red
+    lightPrimaryArgb = 0xFF1E70B8.toInt(),   // Belamour label blue
+    lightBackgroundArgb = 0xFFEBF4FF.toInt(),// pale blue-white
+    lightAccentArgb = 0xFFD32F2F.toInt(),    // crimson
 )
 
-val BUILT_IN_THEMES: List<AppTheme> = listOf(STANDARD_THEME, OCEAN_THEME)
+val BUILT_IN_THEMES: List<AppTheme> = listOf(STANDARD_THEME, BELAMOUR_THEME)
