@@ -23,6 +23,8 @@ import com.waypoint.app.home.DebugLaunchScreen
 import com.waypoint.app.home.HomeScreen
 import com.waypoint.app.home.HomeViewModel
 import com.waypoint.app.planner.BlockSessionStore
+import com.waypoint.app.ui.theme.AppTheme
+import com.waypoint.app.ui.theme.ThemeStore
 import com.waypoint.app.ui.theme.WaypointTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -82,7 +84,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val activeSession by app.env.blockSessionStore.sessionFlow.collectAsState()
             val pendingTab by pendingTabFlow.collectAsState()
-            WaypointTheme(blockColorArgb = activeSession?.colorArgb) {
+            val selectedThemeId by app.themeStore.selectedThemeIdFlow.collectAsState()
+            val appTheme = remember(selectedThemeId) { app.themeStore.resolveTheme(selectedThemeId) }
+            WaypointTheme(appTheme = appTheme, blockColorArgb = activeSession?.colorArgb) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Skip the debug screen entirely when init succeeded
                     var initComplete by remember { mutableStateOf(app.startupCrash == null) }
@@ -104,6 +108,7 @@ class MainActivity : ComponentActivity() {
                             sleepTimesFlow = app.env.sleepStore.scheduledTimesFlow,
                             blockSessionStore = app.env.blockSessionStore,
                             blockSessionLogStore = app.env.blockSessionLogStore,
+                            themeStore = app.themeStore,
                             scripts = scripts,
                             statesById = statesById,
                             onStateChange = viewModel::onStateChange,

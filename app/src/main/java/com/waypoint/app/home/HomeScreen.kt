@@ -69,6 +69,7 @@ import com.waypoint.app.cycle.CycleTracker
 import com.waypoint.app.planner.BlockScopeView
 import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
+import com.waypoint.app.ui.theme.ThemeStore
 import com.waypoint.app.planner.DayTimelineView
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlockStore
@@ -117,6 +118,7 @@ fun HomeScreen(
     sleepTimesFlow: StateFlow<Pair<Long?, Long?>>,
     blockSessionStore: BlockSessionStore,
     blockSessionLogStore: com.waypoint.app.planner.BlockSessionLogStore? = null,
+    themeStore: ThemeStore? = null,
     scripts: List<AppScript>,
     statesById: Map<String, ScriptState>,
     onStateChange: (scriptId: String, newState: ScriptState) -> Unit,
@@ -191,6 +193,7 @@ fun HomeScreen(
                 4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
                 5 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
+                    themeStore = themeStore,
                     scripts = scripts,
                     statesById = statesById,
                     onStateChange = onStateChange,

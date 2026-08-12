@@ -19,6 +19,7 @@ import com.waypoint.app.script.ScriptStore
 import com.waypoint.app.script.SleepScheduleScript
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.RealScriptEnvironment
+import com.waypoint.app.ui.theme.ThemeStore
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
@@ -47,6 +48,8 @@ class WaypointApplication : Application() {
         private set
     lateinit var cycleTracker: CycleTracker
         private set
+    lateinit var themeStore: ThemeStore
+        private set
 
     private val appScope = MainScope()
 
@@ -71,6 +74,8 @@ class WaypointApplication : Application() {
             } catch (_: Throwable) {}
             defaultExceptionHandler?.uncaughtException(thread, throwable)
         }
+
+        themeStore = ThemeStore(applicationContext)
 
         var currentStep = "init"
         try {
