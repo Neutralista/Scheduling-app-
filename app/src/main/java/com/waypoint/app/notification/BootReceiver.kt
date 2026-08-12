@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.waypoint.app.WaypointApplication
+import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.UserAlarmScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 app.env.sleepStore.syncToRegistry(app.env.eventPlanner)
+                AlarmBlockSync.sync(context)
                 UserAlarmScheduler.scheduleAll(context, app.env.alarms.getAll())
                 app.scheduleBlockAlarms(context)
             } finally {

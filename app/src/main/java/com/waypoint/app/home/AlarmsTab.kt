@@ -2,6 +2,7 @@ package com.waypoint.app.home
 
 import com.waypoint.app.AppLogger
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,11 +24,16 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -49,6 +55,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.planner.NamedBlock
+import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepScheduleStore
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -62,6 +70,8 @@ fun AlarmsTab(
 ) {
     val context = LocalContext.current
     val sleepStore = remember { SleepScheduleStore(context) }
+    val blockStore = remember { NamedBlockStore(context) }
+    val syncableBlocks = remember { blockStore.loadAllBlocks().filter { !it.isFloating } }
     val alarmList by alarms.alarmsFlow.collectAsState()
     val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
@@ -223,6 +233,7 @@ fun AlarmsTab(
     if (showDialog) {
         AlarmEditDialog(
             initial = editTarget,
+            syncableBlocks = syncableBlocks,
             onDismiss = { showDialog = false },
             onSave = { entry ->
                 scope.launch {
@@ -245,6 +256,7 @@ private fun AlarmRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val isSynced = alarm.blockSyncEnabled && alarm.linkedBlockId != null
     Card(
         onClick = onEdit,
         modifier = Modifier.fillMaxWidth(),
@@ -280,6 +292,14 @@ private fun AlarmRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
+                if (isSynced) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "⟳ block sync",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
+                }
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(
@@ -290,7 +310,10 @@ private fun AlarmRow(
                 )
             }
             Spacer(Modifier.width(4.dp))
-            Switch(checked = alarm.enabled, onCheckedChange = onToggle)
+            Switch(
+                checked = alarm.enabled,
+                onCheckedChange = if (isSynced) null else onToggle
+            )
         }
     }
 }
@@ -298,6 +321,7 @@ private fun AlarmRow(
 @Composable
 private fun AlarmEditDialog(
     initial: AlarmEntry?,
+    syncableBlocks: List<NamedBlock>,
     onDismiss: () -> Unit,
     onSave: (AlarmEntry) -> Unit
 ) {
@@ -308,6 +332,11 @@ private fun AlarmEditDialog(
     var vibrate by remember { mutableStateOf(initial?.vibrate ?: true) }
     var hourText by remember { mutableStateOf("%02d".format(initial?.hour ?: 7)) }
     var minuteText by remember { mutableStateOf("%02d".format(initial?.minute ?: 0)) }
+    var blockSyncEnabled by remember { mutableStateOf(initial?.blockSyncEnabled ?: false) }
+    var linkedBlockId by remember { mutableStateOf(initial?.linkedBlockId) }
+    var blockDropdownExpanded by remember { mutableStateOf(false) }
+
+    val selectedBlockName = syncableBlocks.find { it.id == linkedBlockId }?.name ?: "None"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -387,12 +416,69 @@ private fun AlarmEditDialog(
                     Text("Vibrate", style = MaterialTheme.typography.bodyMedium)
                     Switch(checked = vibrate, onCheckedChange = { vibrate = it })
                 }
+
+                if (syncableBlocks.isNotEmpty()) {
+                    HorizontalDivider()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Sync with block", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Auto-enable when block is scheduled",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = blockSyncEnabled,
+                            onCheckedChange = { blockSyncEnabled = it }
+                        )
+                    }
+
+                    if (blockSyncEnabled) {
+                        ExposedDropdownMenuBox(
+                            expanded = blockDropdownExpanded,
+                            onExpandedChange = { blockDropdownExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedBlockName,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Block") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = blockDropdownExpanded)
+                                },
+                                modifier = Modifier
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = blockDropdownExpanded,
+                                onDismissRequest = { blockDropdownExpanded = false }
+                            ) {
+                                syncableBlocks.forEach { block ->
+                                    DropdownMenuItem(
+                                        text = { Text(block.name) },
+                                        onClick = {
+                                            linkedBlockId = block.id
+                                            blockDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 val h = hourText.toIntOrNull()?.coerceIn(0, 23) ?: hour
                 val m = minuteText.toIntOrNull()?.coerceIn(0, 59) ?: minute
+                val syncOn = blockSyncEnabled && linkedBlockId != null
                 onSave(
                     AlarmEntry(
                         id = initial?.id ?: "",
@@ -401,7 +487,9 @@ private fun AlarmEditDialog(
                         minute = m,
                         enabled = initial?.enabled ?: true,
                         repeatDays = repeatDays,
-                        vibrate = vibrate
+                        vibrate = vibrate,
+                        linkedBlockId = if (syncOn) linkedBlockId else null,
+                        blockSyncEnabled = syncOn
                     )
                 )
             }) { Text("Save") }

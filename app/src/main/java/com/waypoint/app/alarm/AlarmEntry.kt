@@ -11,7 +11,11 @@ data class AlarmEntry(
     val enabled: Boolean = true,
     /** ISO day numbers: 1=Mon … 7=Sun. Empty = one-shot (disables after firing). */
     val repeatDays: Set<Int> = emptySet(),
-    val vibrate: Boolean = true
+    val vibrate: Boolean = true,
+    /** Block id to sync with. Null = no block sync. */
+    val linkedBlockId: String? = null,
+    /** Whether block-sync is active. When true, enabled is driven by resolveForDate each day. */
+    val blockSyncEnabled: Boolean = false
 ) {
     val displayTime: String get() = "%02d:%02d".format(hour, minute)
 

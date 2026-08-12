@@ -124,6 +124,7 @@ class WaypointApplication : Application() {
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
             scheduleBlockAlarms(this)
+            com.waypoint.app.alarm.AlarmBlockSync.sync(this)
             initSteps += InitStep(currentStep, true)
 
         } catch (e: Throwable) {
