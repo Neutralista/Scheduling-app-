@@ -4,8 +4,9 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -164,19 +166,27 @@ private fun GradientSlider(
 ) {
     val trackHeight = 14.dp
     val thumbRadius = 9.dp
+    // pointerInput(Unit) launches its gesture-detection coroutine once and never
+    // restarts it (the key never changes), so it would otherwise keep calling a
+    // stale onValueChange captured from the first composition. rememberUpdatedState
+    // keeps it reading the latest callback without needing to key on it (which
+    // would tear down and restart the gesture loop on every value change).
+    val latestOnValueChange = rememberUpdatedState(onValueChange)
     Canvas(
         modifier
             .fillMaxWidth()
             .height(28.dp)
             .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    onValueChange((offset.x / size.width).coerceIn(0f, 1f))
-                }
-            }
-            .pointerInput(Unit) {
-                detectDragGestures { change, _ ->
-                    change.consume()
-                    onValueChange((change.position.x / size.width).coerceIn(0f, 1f))
+                // A single unified press-then-drag loop: two separate pointerInput
+                // blocks (one for tap, one for drag) race over the same touch events
+                // and cause jumpy, inconsistent updates.
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    latestOnValueChange.value((down.position.x / size.width).coerceIn(0f, 1f))
+                    drag(down.id) { change ->
+                        latestOnValueChange.value((change.position.x / size.width).coerceIn(0f, 1f))
+                        change.consume()
+                    }
                 }
             }
     ) {
