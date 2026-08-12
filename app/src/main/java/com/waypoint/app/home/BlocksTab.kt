@@ -140,11 +140,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
                     namedBlockStore = namedBlockStore,
                     parentRefreshKey = refreshKey,
                     onEdit = { editBlock = block },
-                    onDelete = {
-                        namedBlockStore.deleteBlock(block.id)
-                        AlarmBlockSync.sync(context)
-                        refreshKey++
-                    },
+                    onDelete = { namedBlockStore.deleteBlock(block.id); refreshKey++ },
                     onAddTask = { addTaskForBlockId = block.id },
                     onEditTask = { editBlockTask = it },
                     onDeleteTask = { taskId -> namedBlockStore.deleteTask(taskId); refreshKey++ },

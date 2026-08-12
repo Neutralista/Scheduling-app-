@@ -1,12 +1,13 @@
 package com.waypoint.app.planner
 
 import android.content.Context
+import com.waypoint.app.alarm.AlarmBlockSync
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-class NamedBlockStore(context: Context) {
+class NamedBlockStore(private val context: Context) {
 
     private val blocks   = context.getSharedPreferences("wp_named_blocks",       Context.MODE_PRIVATE)
     private val schedules = context.getSharedPreferences("wp_block_schedules",    Context.MODE_PRIVATE)
@@ -18,8 +19,10 @@ class NamedBlockStore(context: Context) {
 
     // ── Block definitions ─────────────────────────────────────────────────────
 
-    fun saveBlock(block: NamedBlock) =
+    fun saveBlock(block: NamedBlock) {
         blocks.edit().putString(block.id, json.encodeToString(block)).apply()
+        AlarmBlockSync.sync(context)
+    }
 
     fun deleteBlock(blockId: String) {
         blocks.edit().remove(blockId).apply()
@@ -32,6 +35,7 @@ class NamedBlockStore(context: Context) {
         activations.edit().apply {
             activations.all.keys.filter { it.startsWith("$blockId|") }.forEach { remove(it) }
         }.apply()
+        AlarmBlockSync.sync(context)
     }
 
     fun loadAllBlocks(): List<NamedBlock> = blocks.all.values.mapNotNull { raw ->
@@ -46,8 +50,10 @@ class NamedBlockStore(context: Context) {
 
     // ── Per-date schedules ────────────────────────────────────────────────────
 
-    fun setSchedule(schedule: NamedBlockSchedule) =
+    fun setSchedule(schedule: NamedBlockSchedule) {
         schedules.edit().putString("${schedule.blockId}|${schedule.date}", json.encodeToString(schedule)).apply()
+        AlarmBlockSync.sync(context)
+    }
 
     fun getSchedule(blockId: String, date: LocalDate): NamedBlockSchedule? =
         schedules.getString("$blockId|${date.format(dateFmt)}", null)?.let {

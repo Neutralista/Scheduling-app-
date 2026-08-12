@@ -65,7 +65,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.cycle.CycleTracker
 import com.waypoint.app.planner.BlockScopeView
@@ -828,7 +827,6 @@ private fun PlanTab(
                 } }
                 isBlockTile && blockTileId != null -> { {
                     namedBlockStore.deleteBlock(blockTileId)
-                    AlarmBlockSync.sync(context)
                     calRefreshKey++
                     selectedPlannerEvent = null
                 } }
