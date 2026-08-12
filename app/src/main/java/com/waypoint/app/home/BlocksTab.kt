@@ -30,13 +30,20 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -64,6 +71,7 @@ import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.SleepAlarmSync
 import com.waypoint.app.planner.SleepSchedule
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskRequest
@@ -82,6 +90,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
     val sleepStore = remember { SleepScheduleStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
     val allBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks() }
+    val syncableBlocks = remember(refreshKey) { allBlocks.filter { !it.isFloating } }
 
     var showAddBlock by remember { mutableStateOf(false) }
     var editBlock by remember { mutableStateOf<NamedBlock?>(null) }
@@ -104,7 +113,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
         }
 
         item(key = "sleep_block") {
-            SleepBlockCard(sleepStore = sleepStore, registry = eventPlanner)
+            SleepBlockCard(sleepStore = sleepStore, registry = eventPlanner, syncableBlocks = syncableBlocks)
             Spacer(Modifier.height(4.dp))
         }
 
@@ -581,7 +590,11 @@ private fun BlocksEmptyHint(text: String) {
 // ── Sleep block card ──────────────────────────────────────────────────────────
 
 @Composable
-private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlannerRegistry) {
+private fun SleepBlockCard(
+    sleepStore: SleepScheduleStore,
+    registry: EventPlannerRegistry,
+    syncableBlocks: List<NamedBlock> = emptyList()
+) {
     var schedule by remember { mutableStateOf(sleepStore.load()) }
     var expanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -810,6 +823,12 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
                                 onToggle = { e ->
                                     preSleepAlarmEnabled = e
                                     scope.launch { sleepStore.setSleepAlarmEnabled("pre_sleep", e) }
+                                },
+                                syncableBlocks = syncableBlocks,
+                                sync = schedule.preSleepSync,
+                                onSyncChange = { newSync ->
+                                    sleepStore.setSleepAlarmSync("pre_sleep", newSync)
+                                    schedule = sleepStore.load()
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -822,6 +841,12 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
                             onToggle = { e ->
                                 bedtimeAlarmEnabled = e
                                 scope.launch { sleepStore.setSleepAlarmEnabled("bedtime", e) }
+                            },
+                            syncableBlocks = syncableBlocks,
+                            sync = schedule.bedtimeSync,
+                            onSyncChange = { newSync ->
+                                sleepStore.setSleepAlarmSync("bedtime", newSync)
+                                schedule = sleepStore.load()
                             }
                         )
                         Spacer(Modifier.height(8.dp))
@@ -834,6 +859,12 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
                                 onToggle = { e ->
                                     gentleWakeEnabled = e
                                     scope.launch { sleepStore.setSleepAlarmEnabled("gentle_wake", e) }
+                                },
+                                syncableBlocks = syncableBlocks,
+                                sync = schedule.gentleWakeSync,
+                                onSyncChange = { newSync ->
+                                    sleepStore.setSleepAlarmSync("gentle_wake", newSync)
+                                    schedule = sleepStore.load()
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -847,6 +878,12 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
                                 onToggle = { e ->
                                     mediumWakeEnabled = e
                                     scope.launch { sleepStore.setSleepAlarmEnabled("medium_wake", e) }
+                                },
+                                syncableBlocks = syncableBlocks,
+                                sync = schedule.mediumWakeSync,
+                                onSyncChange = { newSync ->
+                                    sleepStore.setSleepAlarmSync("medium_wake", newSync)
+                                    schedule = sleepStore.load()
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -859,6 +896,12 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
                             onToggle = { e ->
                                 wakeAlarmEnabled = e
                                 scope.launch { sleepStore.setSleepAlarmEnabled("wake_up", e) }
+                            },
+                            syncableBlocks = syncableBlocks,
+                            sync = schedule.wakeUpSync,
+                            onSyncChange = { newSync ->
+                                sleepStore.setSleepAlarmSync("wake_up", newSync)
+                                schedule = sleepStore.load()
                             }
                         )
                     }
@@ -871,10 +914,21 @@ private fun SleepBlockCard(sleepStore: SleepScheduleStore, registry: EventPlanne
 // ── Sleep alarm row ───────────────────────────────────────────────────────────
 
 @Composable
-internal fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+internal fun SleepAlarmRow(
+    label: String,
+    epochMs: Long,
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    syncableBlocks: List<NamedBlock> = emptyList(),
+    sync: SleepAlarmSync = SleepAlarmSync(),
+    onSyncChange: (SleepAlarmSync) -> Unit = {}
+) {
     val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
     val timeStr = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+    val isSynced = sync.blockSyncEnabled && sync.linkedBlockId != null
     val dimmed = if (enabled) 1f else 0.45f
+    var showEditDialog by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -899,10 +953,117 @@ internal fun SleepAlarmRow(label: String, epochMs: Long, enabled: Boolean, onTog
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dimmed)
                 )
+                if (isSynced) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "⟳ block sync",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
+                }
             }
-            Switch(checked = enabled, onCheckedChange = onToggle)
+            if (syncableBlocks.isNotEmpty()) {
+                IconButton(onClick = { showEditDialog = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Edit sync for $label",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            Switch(checked = enabled, onCheckedChange = if (isSynced) null else onToggle)
         }
     }
+
+    if (showEditDialog) {
+        SleepAlarmSyncDialog(
+            label = label,
+            syncableBlocks = syncableBlocks,
+            initial = sync,
+            onDismiss = { showEditDialog = false },
+            onSave = { newSync ->
+                onSyncChange(newSync)
+                showEditDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SleepAlarmSyncDialog(
+    label: String,
+    syncableBlocks: List<NamedBlock>,
+    initial: SleepAlarmSync,
+    onDismiss: () -> Unit,
+    onSave: (SleepAlarmSync) -> Unit
+) {
+    var blockSyncEnabled by remember { mutableStateOf(initial.blockSyncEnabled) }
+    var linkedBlockId by remember { mutableStateOf(initial.linkedBlockId) }
+    var expanded by remember { mutableStateOf(false) }
+    val selectedBlockName = syncableBlocks.find { it.id == linkedBlockId }?.name ?: "None"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sync \"$label\"") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Sync with block", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Auto-enable when block is scheduled",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = blockSyncEnabled, onCheckedChange = { blockSyncEnabled = it })
+                }
+                if (blockSyncEnabled) {
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = selectedBlockName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Block") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                            },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            syncableBlocks.forEach { block ->
+                                DropdownMenuItem(
+                                    text = { Text(block.name) },
+                                    onClick = {
+                                        linkedBlockId = block.id
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val syncOn = blockSyncEnabled && linkedBlockId != null
+                onSave(SleepAlarmSync(linkedBlockId = if (syncOn) linkedBlockId else null, blockSyncEnabled = syncOn))
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 // ── Shared duration label ─────────────────────────────────────────────────────

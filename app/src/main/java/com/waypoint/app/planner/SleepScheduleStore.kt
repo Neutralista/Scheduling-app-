@@ -20,6 +20,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
+data class SleepAlarmSync(
+    /** Block id to sync with. Null = no block sync. */
+    val linkedBlockId: String? = null,
+    /** Whether block-sync is active for this sleep alarm. */
+    val blockSyncEnabled: Boolean = false
+)
+
+@Serializable
 data class SleepSchedule(
     val preferredWakeTime: ShiftTime = ShiftTime(7, 0),
     val preferredBedTime: ShiftTime = ShiftTime(23, 0),
@@ -34,7 +42,12 @@ data class SleepSchedule(
     val bedtimeAlarmEnabled: Boolean = true,
     val gentleWakeEnabled: Boolean = true,
     val mediumWakeEnabled: Boolean = true,
-    val wakeAlarmEnabled: Boolean = true
+    val wakeAlarmEnabled: Boolean = true,
+    val preSleepSync: SleepAlarmSync = SleepAlarmSync(),
+    val bedtimeSync: SleepAlarmSync = SleepAlarmSync(),
+    val gentleWakeSync: SleepAlarmSync = SleepAlarmSync(),
+    val mediumWakeSync: SleepAlarmSync = SleepAlarmSync(),
+    val wakeUpSync: SleepAlarmSync = SleepAlarmSync()
 )
 
 data class EffectiveSleepTimes(
@@ -94,6 +107,18 @@ class SleepScheduleStore(private val context: Context) {
         }
         save(updated)
         rescheduleFromStored()
+    }
+    fun setSleepAlarmSync(key: String, sync: SleepAlarmSync) {
+        val s = load()
+        val updated = when (key) {
+            "pre_sleep"   -> s.copy(preSleepSync = sync)
+            "bedtime"     -> s.copy(bedtimeSync = sync)
+            "gentle_wake" -> s.copy(gentleWakeSync = sync)
+            "medium_wake" -> s.copy(mediumWakeSync = sync)
+            "wake_up"     -> s.copy(wakeUpSync = sync)
+            else          -> return
+        }
+        save(updated)
     }
     fun resetToDefaults() = save(SleepSchedule())
 

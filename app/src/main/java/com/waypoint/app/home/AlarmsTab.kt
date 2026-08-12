@@ -88,6 +88,11 @@ fun AlarmsTab(
     var gentleWakeEnabled by remember { mutableStateOf(initialConfig.gentleWakeEnabled) }
     var mediumWakeEnabled by remember { mutableStateOf(initialConfig.mediumWakeEnabled) }
     var wakeAlarmEnabled by remember { mutableStateOf(initialConfig.wakeAlarmEnabled) }
+    var preSleepSync by remember { mutableStateOf(initialConfig.preSleepSync) }
+    var bedtimeSync by remember { mutableStateOf(initialConfig.bedtimeSync) }
+    var gentleWakeSync by remember { mutableStateOf(initialConfig.gentleWakeSync) }
+    var mediumWakeSync by remember { mutableStateOf(initialConfig.mediumWakeSync) }
+    var wakeUpSync by remember { mutableStateOf(initialConfig.wakeUpSync) }
 
     val (bedMs, wakeMs) = sleepTimes
     val hasSleepTimes = bedMs != null && wakeMs != null
@@ -143,6 +148,12 @@ fun AlarmsTab(
                                     onToggle = { e ->
                                         preSleepAlarmEnabled = e
                                         scope.launch { sleepStore.setSleepAlarmEnabled("pre_sleep", e) }
+                                    },
+                                    syncableBlocks = syncableBlocks,
+                                    sync = preSleepSync,
+                                    onSyncChange = { newSync ->
+                                        preSleepSync = newSync
+                                        scope.launch { sleepStore.setSleepAlarmSync("pre_sleep", newSync) }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -155,6 +166,12 @@ fun AlarmsTab(
                                 onToggle = { e ->
                                     bedtimeAlarmEnabled = e
                                     scope.launch { sleepStore.setSleepAlarmEnabled("bedtime", e) }
+                                },
+                                syncableBlocks = syncableBlocks,
+                                sync = bedtimeSync,
+                                onSyncChange = { newSync ->
+                                    bedtimeSync = newSync
+                                    scope.launch { sleepStore.setSleepAlarmSync("bedtime", newSync) }
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -167,6 +184,12 @@ fun AlarmsTab(
                                     onToggle = { e ->
                                         gentleWakeEnabled = e
                                         scope.launch { sleepStore.setSleepAlarmEnabled("gentle_wake", e) }
+                                    },
+                                    syncableBlocks = syncableBlocks,
+                                    sync = gentleWakeSync,
+                                    onSyncChange = { newSync ->
+                                        gentleWakeSync = newSync
+                                        scope.launch { sleepStore.setSleepAlarmSync("gentle_wake", newSync) }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -180,6 +203,12 @@ fun AlarmsTab(
                                     onToggle = { e ->
                                         mediumWakeEnabled = e
                                         scope.launch { sleepStore.setSleepAlarmEnabled("medium_wake", e) }
+                                    },
+                                    syncableBlocks = syncableBlocks,
+                                    sync = mediumWakeSync,
+                                    onSyncChange = { newSync ->
+                                        mediumWakeSync = newSync
+                                        scope.launch { sleepStore.setSleepAlarmSync("medium_wake", newSync) }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -192,6 +221,12 @@ fun AlarmsTab(
                                 onToggle = { e ->
                                     wakeAlarmEnabled = e
                                     scope.launch { sleepStore.setSleepAlarmEnabled("wake_up", e) }
+                                },
+                                syncableBlocks = syncableBlocks,
+                                sync = wakeUpSync,
+                                onSyncChange = { newSync ->
+                                    wakeUpSync = newSync
+                                    scope.launch { sleepStore.setSleepAlarmSync("wake_up", newSync) }
                                 }
                             )
                             Spacer(Modifier.height(16.dp))
