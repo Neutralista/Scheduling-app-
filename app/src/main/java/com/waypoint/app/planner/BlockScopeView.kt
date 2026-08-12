@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.waypoint.app.home.BLOCK_COLORS
-import com.waypoint.app.home.ColorChannelSlider
+import com.waypoint.app.ui.components.HsvColorPicker
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -645,19 +645,11 @@ private fun BsColorPickerDialog(
                 }
 
                 if (isCustom) {
-                    val r = (selectedColor shr 16) and 0xFF
-                    val g = (selectedColor shr 8) and 0xFF
-                    val b = selectedColor and 0xFF
-                    val a = (selectedColor ushr 24) and 0xFF
-                    ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
-                        selectedColor = (a shl 24) or (newR shl 16) or (g shl 8) or b
-                    }
-                    ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
-                        selectedColor = (a shl 24) or (r shl 16) or (newG shl 8) or b
-                    }
-                    ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
-                        selectedColor = (a shl 24) or (r shl 16) or (g shl 8) or newB
-                    }
+                    HsvColorPicker(
+                        argb = selectedColor,
+                        onColorChange = { selectedColor = it },
+                        showAlpha = false
+                    )
                 }
 
                 Row(

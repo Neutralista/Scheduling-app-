@@ -79,6 +79,7 @@ import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.HealthConnectAvailability
+import com.waypoint.app.ui.components.HsvColorPicker
 import com.waypoint.app.ui.theme.AppTheme
 import com.waypoint.app.ui.theme.BUILT_IN_THEMES
 import com.waypoint.app.ui.theme.ThemeStore
@@ -614,9 +615,6 @@ private fun ThemeColorSection(
 
 @Composable
 private fun ThemeColorSliders(label: String, argb: Int, onChange: (Int) -> Unit) {
-    val r = (argb shr 16) and 0xFF
-    val g = (argb shr 8) and 0xFF
-    val b = argb and 0xFF
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -641,15 +639,11 @@ private fun ThemeColorSliders(label: String, argb: Int, onChange: (Int) -> Unit)
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
     }
-    ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
-        onChange(0xFF000000.toInt() or (newR shl 16) or (g shl 8) or b)
-    }
-    ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
-        onChange(0xFF000000.toInt() or (r shl 16) or (newG shl 8) or b)
-    }
-    ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
-        onChange(0xFF000000.toInt() or (r shl 16) or (g shl 8) or newB)
-    }
+    HsvColorPicker(
+        argb = argb,
+        onColorChange = { onChange(0xFF000000.toInt() or (it and 0x00FFFFFF)) },
+        showAlpha = false
+    )
 }
 
 // ── Log viewer ────────────────────────────────────────────────────────────────

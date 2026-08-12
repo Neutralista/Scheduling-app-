@@ -33,8 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -70,6 +68,8 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.ui.components.ColorPreviewSwatch
+import com.waypoint.app.ui.components.HsvColorPicker
 import com.waypoint.app.ui.components.RecurrencePicker
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
@@ -499,23 +499,13 @@ fun AddTaskSheet(
                         }
                         if (isCustomTaskColor && taskColor != null) {
                             val tc = taskColor!!
-                            val r = (tc shr 16) and 0xFF
-                            val g = (tc shr 8) and 0xFF
-                            val b = tc and 0xFF
-                            val a = (tc ushr 24) and 0xFF
 
                             Spacer(Modifier.height(4.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(
-                                    Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(tc))
-                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                                )
+                                ColorPreviewSwatch(argb = tc, modifier = Modifier.size(40.dp))
                                 Text(
                                     "#%08X".format(tc),
                                     style = MaterialTheme.typography.bodySmall,
@@ -523,18 +513,11 @@ fun AddTaskSheet(
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
-                            ColorChannelSlider("R", r, Color(0xFFE57373)) { newR ->
-                                taskColor = (a shl 24) or (newR shl 16) or (g shl 8) or b
-                            }
-                            ColorChannelSlider("G", g, Color(0xFF66BB6A)) { newG ->
-                                taskColor = (a shl 24) or (r shl 16) or (newG shl 8) or b
-                            }
-                            ColorChannelSlider("B", b, Color(0xFF42A5F5)) { newB ->
-                                taskColor = (a shl 24) or (r shl 16) or (g shl 8) or newB
-                            }
-                            ColorChannelSlider("A", a, MaterialTheme.colorScheme.onSurfaceVariant) { newA ->
-                                taskColor = (newA shl 24) or (r shl 16) or (g shl 8) or b
-                            }
+                            HsvColorPicker(
+                                argb = tc,
+                                onColorChange = { taskColor = it },
+                                showAlpha = true
+                            )
                         }
                     }
 
