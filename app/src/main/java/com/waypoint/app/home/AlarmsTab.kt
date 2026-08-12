@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
 import com.waypoint.app.planner.NamedBlock
@@ -153,7 +154,11 @@ fun AlarmsTab(
                                     sync = preSleepSync,
                                     onSyncChange = { newSync ->
                                         preSleepSync = newSync
-                                        scope.launch { sleepStore.setSleepAlarmSync("pre_sleep", newSync) }
+                                        scope.launch {
+                                            sleepStore.setSleepAlarmSync("pre_sleep", newSync)
+                                            AlarmBlockSync.sync(context)
+                                            preSleepAlarmEnabled = sleepStore.load().preSleepAlarmEnabled
+                                        }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -171,7 +176,11 @@ fun AlarmsTab(
                                 sync = bedtimeSync,
                                 onSyncChange = { newSync ->
                                     bedtimeSync = newSync
-                                    scope.launch { sleepStore.setSleepAlarmSync("bedtime", newSync) }
+                                    scope.launch {
+                                        sleepStore.setSleepAlarmSync("bedtime", newSync)
+                                        AlarmBlockSync.sync(context)
+                                        bedtimeAlarmEnabled = sleepStore.load().bedtimeAlarmEnabled
+                                    }
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -189,7 +198,11 @@ fun AlarmsTab(
                                     sync = gentleWakeSync,
                                     onSyncChange = { newSync ->
                                         gentleWakeSync = newSync
-                                        scope.launch { sleepStore.setSleepAlarmSync("gentle_wake", newSync) }
+                                        scope.launch {
+                                            sleepStore.setSleepAlarmSync("gentle_wake", newSync)
+                                            AlarmBlockSync.sync(context)
+                                            gentleWakeEnabled = sleepStore.load().gentleWakeEnabled
+                                        }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -208,7 +221,11 @@ fun AlarmsTab(
                                     sync = mediumWakeSync,
                                     onSyncChange = { newSync ->
                                         mediumWakeSync = newSync
-                                        scope.launch { sleepStore.setSleepAlarmSync("medium_wake", newSync) }
+                                        scope.launch {
+                                            sleepStore.setSleepAlarmSync("medium_wake", newSync)
+                                            AlarmBlockSync.sync(context)
+                                            mediumWakeEnabled = sleepStore.load().mediumWakeEnabled
+                                        }
                                     }
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -226,7 +243,11 @@ fun AlarmsTab(
                                 sync = wakeUpSync,
                                 onSyncChange = { newSync ->
                                     wakeUpSync = newSync
-                                    scope.launch { sleepStore.setSleepAlarmSync("wake_up", newSync) }
+                                    scope.launch {
+                                        sleepStore.setSleepAlarmSync("wake_up", newSync)
+                                        AlarmBlockSync.sync(context)
+                                        wakeAlarmEnabled = sleepStore.load().wakeAlarmEnabled
+                                    }
                                 }
                             )
                             Spacer(Modifier.height(16.dp))
@@ -275,6 +296,7 @@ fun AlarmsTab(
                 scope.launch {
                     try {
                         if (entry.id.isBlank()) alarms.add(entry) else alarms.update(entry)
+                        AlarmBlockSync.sync(context)
                     } catch (e: Throwable) {
                         AppLogger.e("AlarmsTab", "save threw ${e.javaClass.name}: ${e.message}", e)
                     }

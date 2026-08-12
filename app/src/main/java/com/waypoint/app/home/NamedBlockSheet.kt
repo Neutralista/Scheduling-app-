@@ -107,6 +107,7 @@ fun NamedBlockSheet(
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val blockId = remember { initial?.id ?: UUID.randomUUID().toString() }
 
     var name by remember { mutableStateOf(initial?.name ?: "") }
@@ -312,6 +313,7 @@ fun NamedBlockSheet(
                             }
                         }
                         tasks.forEach { store.saveTask(it) }
+                        com.waypoint.app.alarm.AlarmBlockSync.sync(context)
                         onSaved()
                     }) { Text("Save") }
                 }

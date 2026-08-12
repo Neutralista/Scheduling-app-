@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -139,7 +140,11 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
                     namedBlockStore = namedBlockStore,
                     parentRefreshKey = refreshKey,
                     onEdit = { editBlock = block },
-                    onDelete = { namedBlockStore.deleteBlock(block.id); refreshKey++ },
+                    onDelete = {
+                        namedBlockStore.deleteBlock(block.id)
+                        AlarmBlockSync.sync(context)
+                        refreshKey++
+                    },
                     onAddTask = { addTaskForBlockId = block.id },
                     onEditTask = { editBlockTask = it },
                     onDeleteTask = { taskId -> namedBlockStore.deleteTask(taskId); refreshKey++ },
@@ -598,6 +603,7 @@ private fun SleepBlockCard(
     var schedule by remember { mutableStateOf(sleepStore.load()) }
     var expanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val syncContext = LocalContext.current
     val sleepTimes by sleepStore.scheduledTimesFlow.collectAsState()
     val (bedMs, wakeMs) = sleepTimes
 
@@ -828,6 +834,7 @@ private fun SleepBlockCard(
                                 sync = schedule.preSleepSync,
                                 onSyncChange = { newSync ->
                                     sleepStore.setSleepAlarmSync("pre_sleep", newSync)
+                                    AlarmBlockSync.sync(syncContext)
                                     schedule = sleepStore.load()
                                 }
                             )
@@ -846,6 +853,7 @@ private fun SleepBlockCard(
                             sync = schedule.bedtimeSync,
                             onSyncChange = { newSync ->
                                 sleepStore.setSleepAlarmSync("bedtime", newSync)
+                                AlarmBlockSync.sync(syncContext)
                                 schedule = sleepStore.load()
                             }
                         )
@@ -864,6 +872,7 @@ private fun SleepBlockCard(
                                 sync = schedule.gentleWakeSync,
                                 onSyncChange = { newSync ->
                                     sleepStore.setSleepAlarmSync("gentle_wake", newSync)
+                                    AlarmBlockSync.sync(syncContext)
                                     schedule = sleepStore.load()
                                 }
                             )
@@ -883,6 +892,7 @@ private fun SleepBlockCard(
                                 sync = schedule.mediumWakeSync,
                                 onSyncChange = { newSync ->
                                     sleepStore.setSleepAlarmSync("medium_wake", newSync)
+                                    AlarmBlockSync.sync(syncContext)
                                     schedule = sleepStore.load()
                                 }
                             )
@@ -901,6 +911,7 @@ private fun SleepBlockCard(
                             sync = schedule.wakeUpSync,
                             onSyncChange = { newSync ->
                                 sleepStore.setSleepAlarmSync("wake_up", newSync)
+                                AlarmBlockSync.sync(syncContext)
                                 schedule = sleepStore.load()
                             }
                         )
