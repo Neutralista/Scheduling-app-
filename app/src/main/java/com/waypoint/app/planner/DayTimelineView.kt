@@ -44,6 +44,7 @@ import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.planner.CalendarPrefsStore
 import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -309,6 +310,7 @@ fun DayTimelineView(
                 )
                 TimelineBody(
                     modifier = Modifier.weight(1f),
+                    date = date,
                     viewStartMs = viewStartMs,
                     viewEndMs = viewEndMs,
                     totalHours = TOTAL_HOURS,
@@ -418,6 +420,7 @@ private fun HourLabelsColumn(
 @Composable
 private fun TimelineBody(
     modifier: Modifier = Modifier,
+    date: LocalDate,
     viewStartMs: Long,
     viewEndMs: Long,
     totalHours: Int,
@@ -569,7 +572,10 @@ private fun TimelineBody(
             viewStartMs = viewStartMs,
             totalMinutes = totalMinutes,
             hourHeight = hourHeight,
-            sleepSchedule = sleepSchedule
+            sleepSchedule = sleepSchedule,
+            date = date,
+            blockInstances = blockInstances,
+            nextDayBlockInstances = nextDayBlockInstances
         )
 
         // Current-time indicator
@@ -831,7 +837,10 @@ private fun AlarmMarkersSection(
     viewStartMs: Long,
     totalMinutes: Int,
     hourHeight: Dp,
-    sleepSchedule: SleepSchedule?
+    sleepSchedule: SleepSchedule?,
+    date: LocalDate,
+    blockInstances: List<NamedBlockInstance>,
+    nextDayBlockInstances: List<NamedBlockInstance>
 ) {
     val sleepBlock = mergedScheduled.firstOrNull {
         it.event.category == EventCategory.SLEEP && !it.event.isLogged
@@ -839,22 +848,43 @@ private fun AlarmMarkersSection(
     val s = sleepSchedule ?: return
     val intervalMs = s.wakeAlarmIntervalMinutes * 60_000L
 
-    // Only alarms that are actually active right now (respects manual toggles
-    // and any block-sync overrides applied by AlarmBlockSync) get a marker.
-    val alarmPoints = buildList {
-        if (s.preSleepAlarmEnabled && s.preSleepReminderMinutes > 0) {
-            add(AlarmMarkerPoint(sleepBlock.startMillis - s.preSleepReminderMinutes * 60_000L, "Pre-sleep", false))
+    // A block-synced alarm's real on/off state depends on whether its linked block
+    // is scheduled on the calendar day the alarm actually falls on — not on whatever
+    // AlarmBlockSync last computed for "today". Resolve per-marker against the block
+    // instances already loaded for this viewed date and the next.
+    val zone = ZoneId.systemDefault()
+    val blockIdsOnDate = blockInstances.map { it.block.id }.toSet()
+    val blockIdsNextDay = nextDayBlockInstances.map { it.block.id }.toSet()
+    fun isActive(manualEnabled: Boolean, sync: SleepAlarmSync, epochMs: Long): Boolean {
+        if (!sync.blockSyncEnabled || sync.linkedBlockId == null) return manualEnabled
+        val markerDate = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+        val idsForDate = when (markerDate) {
+            date -> blockIdsOnDate
+            date.plusDays(1) -> blockIdsNextDay
+            else -> emptySet()
         }
-        if (s.bedtimeAlarmEnabled) {
+        return sync.linkedBlockId in idsForDate
+    }
+
+    // Only alarms that are actually active on this date (respects manual toggles
+    // and block-sync resolved against this date's own schedule) get a marker.
+    val alarmPoints = buildList {
+        val preSleepMs = sleepBlock.startMillis - s.preSleepReminderMinutes * 60_000L
+        if (s.preSleepReminderMinutes > 0 && isActive(s.preSleepAlarmEnabled, s.preSleepSync, preSleepMs)) {
+            add(AlarmMarkerPoint(preSleepMs, "Pre-sleep", false))
+        }
+        if (isActive(s.bedtimeAlarmEnabled, s.bedtimeSync, sleepBlock.startMillis)) {
             add(AlarmMarkerPoint(sleepBlock.startMillis, "Bedtime", false))
         }
-        if (s.wakeAlarmCount >= 3 && s.gentleWakeEnabled) {
-            add(AlarmMarkerPoint(sleepBlock.endMillis - 2 * intervalMs, "Gentle wake", false))
+        val gentleMs = sleepBlock.endMillis - 2 * intervalMs
+        if (s.wakeAlarmCount >= 3 && isActive(s.gentleWakeEnabled, s.gentleWakeSync, gentleMs)) {
+            add(AlarmMarkerPoint(gentleMs, "Gentle wake", false))
         }
-        if (s.wakeAlarmCount >= 2 && s.mediumWakeEnabled) {
-            add(AlarmMarkerPoint(sleepBlock.endMillis - intervalMs, "Medium wake", false))
+        val mediumMs = sleepBlock.endMillis - intervalMs
+        if (s.wakeAlarmCount >= 2 && isActive(s.mediumWakeEnabled, s.mediumWakeSync, mediumMs)) {
+            add(AlarmMarkerPoint(mediumMs, "Medium wake", false))
         }
-        if (s.wakeAlarmEnabled) {
+        if (isActive(s.wakeAlarmEnabled, s.wakeUpSync, sleepBlock.endMillis)) {
             add(AlarmMarkerPoint(sleepBlock.endMillis, "Wake up", true))
         }
     }
