@@ -70,6 +70,7 @@ import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.occursOn
 import com.waypoint.app.planner.ScheduledEvent
 import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepCheckReceiver
@@ -83,6 +84,7 @@ import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
+import com.waypoint.app.ui.components.TimePickerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -800,19 +802,67 @@ private fun BlockSessionCard(
     }
 }
 
-// ── Scheduled blocks dropdown (14-day fixed-schedule overview) ────────────────
+// ── Scheduled blocks dropdown (14-day fixed-schedule overview, editable) ──────
+
+private val scheduleDateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+private data class ResolvedDay(
+    val enabled: Boolean,
+    val startHour: Int,
+    val startMinute: Int,
+    val endHour: Int,
+    val endMinute: Int
+)
+
+private fun resolveDayForBlock(namedBlockStore: NamedBlockStore, block: NamedBlock, date: LocalDate): ResolvedDay {
+    val override = namedBlockStore.getSchedule(block.id, date)
+    val isRecurring = block.recurrenceRule?.occursOn(date) ?: (date.dayOfWeek.value in block.recurringDays)
+    return ResolvedDay(
+        enabled = override?.enabled ?: isRecurring,
+        startHour = override?.startHour ?: block.defaultStartHour,
+        startMinute = override?.startMinute ?: block.defaultStartMinute,
+        endHour = override?.endHour?.takeIf { it != -1 } ?: block.defaultEndHour,
+        endMinute = override?.endMinute ?: block.defaultEndMinute
+    )
+}
+
+private fun writeDaySchedule(
+    namedBlockStore: NamedBlockStore,
+    block: NamedBlock,
+    date: LocalDate,
+    resolved: ResolvedDay,
+    enabled: Boolean = resolved.enabled,
+    startHour: Int = resolved.startHour,
+    startMinute: Int = resolved.startMinute
+) {
+    namedBlockStore.setSchedule(
+        NamedBlockSchedule(
+            blockId = block.id,
+            date = date.format(scheduleDateFmt),
+            enabled = enabled,
+            startHour = startHour,
+            startMinute = startMinute,
+            endHour = resolved.endHour,
+            endMinute = resolved.endMinute
+        )
+    )
+}
 
 @Composable
 private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey: Int) {
+    var localRefreshKey by remember { mutableIntStateOf(0) }
     val fixedBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks().filter { !it.isFloating } }
     if (fixedBlocks.isEmpty()) return
 
     var expanded by remember { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
     val next14 = remember { (0..13).map { today.plusDays(it.toLong()) } }
-    val resolvedByDate = remember(refreshKey) {
-        next14.associateWith { d -> namedBlockStore.resolveForDate(d) }
+    val resolvedByBlock = remember(refreshKey, localRefreshKey, fixedBlocks) {
+        fixedBlocks.associate { block ->
+            block.id to next14.associateWith { date -> resolveDayForBlock(namedBlockStore, block, date) }
+        }
     }
+    var editingTarget by remember { mutableStateOf<Pair<NamedBlock, LocalDate>?>(null) }
 
     Column(
         Modifier
@@ -851,10 +901,39 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
         AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
             Column(Modifier.padding(bottom = 10.dp)) {
                 fixedBlocks.forEach { block ->
-                    BlockScheduleSection(block = block, next14 = next14, resolvedByDate = resolvedByDate)
+                    BlockScheduleSection(
+                        block = block,
+                        next14 = next14,
+                        resolvedDays = resolvedByBlock[block.id] ?: emptyMap(),
+                        onToggleDay = { date ->
+                            val r = resolvedByBlock[block.id]?.get(date)
+                            if (r != null) {
+                                writeDaySchedule(namedBlockStore, block, date, r, enabled = !r.enabled)
+                                localRefreshKey++
+                            }
+                        },
+                        onEditDay = { date -> editingTarget = block to date }
+                    )
                 }
             }
         }
+    }
+
+    val target = editingTarget
+    if (target != null) {
+        val (targetBlock, targetDate) = target
+        val r = resolvedByBlock[targetBlock.id]?.get(targetDate)
+            ?: ResolvedDay(false, targetBlock.defaultStartHour, targetBlock.defaultStartMinute, targetBlock.defaultEndHour, targetBlock.defaultEndMinute)
+        TimePickerDialog(
+            initialHour = r.startHour,
+            initialMinute = r.startMinute,
+            onDismiss = { editingTarget = null },
+            onConfirm = { h, m ->
+                writeDaySchedule(namedBlockStore, targetBlock, targetDate, r, enabled = true, startHour = h, startMinute = m)
+                localRefreshKey++
+                editingTarget = null
+            }
+        )
     }
 }
 
@@ -862,7 +941,9 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
 private fun BlockScheduleSection(
     block: NamedBlock,
     next14: List<LocalDate>,
-    resolvedByDate: Map<LocalDate, List<Pair<NamedBlock, NamedBlockSchedule>>>
+    resolvedDays: Map<LocalDate, ResolvedDay>,
+    onToggleDay: (LocalDate) -> Unit,
+    onEditDay: (LocalDate) -> Unit
 ) {
     val accent = block.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
@@ -890,25 +971,38 @@ private fun BlockScheduleSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(next14) { date ->
-                val sched = resolvedByDate[date]?.find { it.first.id == block.id }?.second
-                MiniDayChip(date = date, schedule = sched, accent = accent)
+                val r = resolvedDays[date]
+                    ?: ResolvedDay(false, block.defaultStartHour, block.defaultStartMinute, block.defaultEndHour, block.defaultEndMinute)
+                MiniDayChip(
+                    date = date,
+                    resolved = r,
+                    accent = accent,
+                    onToggle = { onToggleDay(date) },
+                    onEditTime = { onEditDay(date) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MiniDayChip(date: LocalDate, schedule: NamedBlockSchedule?, accent: Color) {
-    val scheduled = schedule != null
+private fun MiniDayChip(
+    date: LocalDate,
+    resolved: ResolvedDay,
+    accent: Color,
+    onToggle: () -> Unit,
+    onEditTime: () -> Unit
+) {
+    val scheduled = resolved.enabled
     val dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val timeLabel = schedule?.let { s ->
-        val start = "%02d:%02d".format(s.startHour, s.startMinute)
-        if (s.endHour >= 0) "$start–%02d:%02d".format(s.endHour, s.endMinute) else start
-    } ?: "Off"
+    val timeLabel = if (scheduled) {
+        val start = "%02d:%02d".format(resolved.startHour, resolved.startMinute)
+        if (resolved.endHour >= 0) "$start–%02d:%02d".format(resolved.endHour, resolved.endMinute) else start
+    } else "Off"
 
     Column(
         Modifier
-            .width(58.dp)
+            .width(64.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (scheduled) accent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
             .border(
@@ -916,6 +1010,7 @@ private fun MiniDayChip(date: LocalDate, schedule: NamedBlockSchedule?, accent: 
                 color = if (scheduled) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(10.dp)
             )
+            .clickable(onClick = onToggle)
             .padding(vertical = 6.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -933,9 +1028,18 @@ private fun MiniDayChip(date: LocalDate, schedule: NamedBlockSchedule?, accent: 
         )
         Text(
             text = timeLabel,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            color = if (scheduled) accent.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+            color = if (scheduled) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
             maxLines = 1
+        )
+        Icon(
+            Icons.Default.Edit,
+            contentDescription = "Edit start time",
+            tint = if (scheduled) accent.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            modifier = Modifier
+                .padding(top = 1.dp)
+                .size(13.dp)
+                .clickable(onClick = onEditTime)
         )
     }
 }
