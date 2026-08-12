@@ -255,6 +255,14 @@ class EventPlannerRegistry {
         // Use remainingWithBlocks as the working set from here on
         remaining.clear(); remaining.addAll(remainingWithBlocks)
 
+        // Historical slots: free time between cycleStartMs and planStartMs that has already
+        // passed relative to nowMs. Regular tasks cannot be scheduled here, but BEFORE block
+        // tasks need this window — their deadline is the block start, which may be in the past
+        // when planStartMs > blockStartMs (i.e. the session is already active).
+        val historicalSlots: MutableList<Pair<Long, Long>> = if (planStartMs > cycleStartMs)
+            subtractIntervals(cycleStartMs, planStartMs, fixedIntervalsWithBlocks).toMutableList()
+            else mutableListOf()
+
         // ── Build dependency graph ────────────────────────────────────────────
         //
         // Edge A → B means "A must be scheduled before B".
@@ -575,6 +583,35 @@ class EventPlannerRegistry {
                         placed = true
                         break@outer
                     }
+                }
+            }
+
+            // BEFORE block tasks: if the main pass failed because planStartMs > blockStartMs
+            // (i.e. the block has already started), fall back to historical slots.
+            if (!placed && beforeBlock != null && historicalSlots.isNotEmpty()) {
+                for (i in historicalSlots.indices.reversed()) {
+                    val (slotStart, slotEnd) = historicalSlots[i]
+                    val lo = maxOf(
+                        slotStart,
+                        effectiveMustStartAfter ?: slotStart,
+                        tw?.let { toMs(it.startHour, it.startMin) } ?: slotStart
+                    )
+                    val hi = minOf(
+                        slotEnd,
+                        effectiveMustEndBefore ?: slotEnd,
+                        tw?.let { toMs(it.endHour, it.endMin) } ?: slotEnd
+                    )
+                    val fitStart = hi - durationMs
+                    if (fitStart < lo) continue
+                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                    historicalSlots.removeAt(i)
+                    val segs = buildList {
+                        if (fitStart > slotStart) add(slotStart to fitStart)
+                        if (fitStart + durationMs < slotEnd) add((fitStart + durationMs) to slotEnd)
+                    }
+                    historicalSlots.addAll(i, segs)
+                    placed = true
+                    break
                 }
             }
 
