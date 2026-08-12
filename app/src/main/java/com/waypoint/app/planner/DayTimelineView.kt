@@ -103,6 +103,7 @@ fun DayTimelineView(
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
+    sleepSchedule: SleepSchedule? = null,
     activeBlockId: String? = null,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
@@ -322,6 +323,7 @@ fun DayTimelineView(
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     isToday = isToday,
+                    sleepSchedule = sleepSchedule,
                     activeBlockId = activeBlockId,
                     onBlockStart = onBlockStart,
                     outline = outline,
@@ -430,6 +432,7 @@ private fun TimelineBody(
     nowMin: Int,
     isNowVisible: Boolean,
     isToday: Boolean,
+    sleepSchedule: SleepSchedule?,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     outline: Color,
@@ -565,7 +568,8 @@ private fun TimelineBody(
             mergedScheduled = visibleScheduled,
             viewStartMs = viewStartMs,
             totalMinutes = totalMinutes,
-            hourHeight = hourHeight
+            hourHeight = hourHeight,
+            sleepSchedule = sleepSchedule
         )
 
         // Current-time indicator
@@ -819,53 +823,100 @@ private fun PlannerEventBlock(
     }
 }
 
+private data class AlarmMarkerPoint(val epochMs: Long, val label: String, val emphasized: Boolean)
+
 @Composable
 private fun AlarmMarkersSection(
     mergedScheduled: List<ScheduledEvent>,
     viewStartMs: Long,
     totalMinutes: Int,
-    hourHeight: Dp
+    hourHeight: Dp,
+    sleepSchedule: SleepSchedule?
 ) {
     val sleepBlock = mergedScheduled.firstOrNull {
         it.event.category == EventCategory.SLEEP && !it.event.isLogged
     } ?: return
+    val s = sleepSchedule ?: return
+    val intervalMs = s.wakeAlarmIntervalMinutes * 60_000L
 
-    val alarmAccent = Color(0xFFF59E0B)
-    val alarmPoints = listOf(
-        sleepBlock.startMillis - 30 * 60_000L to "Pre-sleep",
-        sleepBlock.endMillis   - 15 * 60_000L to "Gentle",
-        sleepBlock.endMillis   - 10 * 60_000L to "Alarm",
-        sleepBlock.endMillis                   to "Ring",
-    )
-    alarmPoints.forEach { (alarmMs, label) ->
-        val alarmMin = msToMin(alarmMs, viewStartMs)
+    // Only alarms that are actually active right now (respects manual toggles
+    // and any block-sync overrides applied by AlarmBlockSync) get a marker.
+    val alarmPoints = buildList {
+        if (s.preSleepAlarmEnabled && s.preSleepReminderMinutes > 0) {
+            add(AlarmMarkerPoint(sleepBlock.startMillis - s.preSleepReminderMinutes * 60_000L, "Pre-sleep", false))
+        }
+        if (s.bedtimeAlarmEnabled) {
+            add(AlarmMarkerPoint(sleepBlock.startMillis, "Bedtime", false))
+        }
+        if (s.wakeAlarmCount >= 3 && s.gentleWakeEnabled) {
+            add(AlarmMarkerPoint(sleepBlock.endMillis - 2 * intervalMs, "Gentle wake", false))
+        }
+        if (s.wakeAlarmCount >= 2 && s.mediumWakeEnabled) {
+            add(AlarmMarkerPoint(sleepBlock.endMillis - intervalMs, "Medium wake", false))
+        }
+        if (s.wakeAlarmEnabled) {
+            add(AlarmMarkerPoint(sleepBlock.endMillis, "Wake up", true))
+        }
+    }
+    if (alarmPoints.isEmpty()) return
+
+    val alarmAccent = MaterialTheme.colorScheme.primary
+
+    alarmPoints.forEach { point ->
+        val alarmMin = msToMin(point.epochMs, viewStartMs)
         if (alarmMin !in 0..totalMinutes) return@forEach
         val alarmY = minToY(alarmMin, hourHeight)
-        Canvas(Modifier.yOffset(alarmY).fillMaxWidth().height(1.dp)) {
+        val lineAlpha = if (point.emphasized) 0.55f else 0.32f
+        val dotAlpha = if (point.emphasized) 0.95f else 0.6f
+
+        Canvas(Modifier.yOffset(alarmY - 3.dp).fillMaxWidth().height(6.dp)) {
+            val cy = size.height / 2f
+            drawCircle(alarmAccent.copy(alpha = dotAlpha), 2.6.dp.toPx(), Offset(0f, cy))
             drawLine(
-                color = alarmAccent.copy(alpha = 0.5f),
-                start = Offset(0f, 0f),
-                end = Offset(size.width, 0f),
+                color = alarmAccent.copy(alpha = lineAlpha),
+                start = Offset(7.dp.toPx(), cy),
+                end = Offset(size.width, cy),
                 strokeWidth = 1.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 3.dp.toPx()))
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
             )
         }
         Row(
-            Modifier.yOffset(alarmY - 8.dp).fillMaxWidth().padding(end = 6.dp),
+            Modifier.yOffset(alarmY - 10.dp).fillMaxWidth().padding(end = 6.dp),
             horizontalArrangement = Arrangement.End
         ) {
             Box(
                 Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(alarmAccent.copy(alpha = 0.12f))
-                    .border(1.dp, alarmAccent.copy(alpha = 0.28f), RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(alarmAccent.copy(alpha = if (point.emphasized) 0.16f else 0.09f))
+                    .border(
+                        1.dp,
+                        alarmAccent.copy(alpha = if (point.emphasized) 0.45f else 0.24f),
+                        RoundedCornerShape(7.dp)
+                    )
             ) {
-                Text(
-                    "$label · ${fmtMs(alarmMs)}",
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = alarmAccent.copy(alpha = 0.9f)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "🔔",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp)
+                    )
+                    Text(
+                        point.label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = if (point.emphasized) FontWeight.SemiBold else FontWeight.Medium
+                        ),
+                        color = alarmAccent.copy(alpha = if (point.emphasized) 1f else 0.85f)
+                    )
+                    Text(
+                        fmtMs(point.epochMs),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = alarmAccent.copy(alpha = 0.6f)
+                    )
+                }
             }
         }
     }

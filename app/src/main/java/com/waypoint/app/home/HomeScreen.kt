@@ -658,6 +658,7 @@ private fun PlanTab(
                 date = selectedDate,
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
+                sleepSchedule = sleepStore.load(),
                 activeBlockId = activeSession?.blockId,
                 onBlockStart = { blockId, endMs ->
                     val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
