@@ -8,8 +8,11 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,10 +47,12 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -55,6 +61,7 @@ import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.planner.CalendarPrefsStore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -85,6 +92,10 @@ private fun msToMin(ms: Long, viewStartMs: Long): Int =
 private fun fmtMs(ms: Long): String =
     Calendar.getInstance().apply { timeInMillis = ms }
         .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
+
+/** Rounds a raw drag delta (in minutes) to the nearest 5-minute increment. */
+private fun snapMinutesDelta(rawMinutes: Float): Int =
+    (kotlin.math.round(rawMinutes / 5f) * 5f).toInt()
 
 /** Positions a child at an absolute y offset within its parent Box via layout. */
 private fun Modifier.yOffset(y: Dp): Modifier = layout { measurable, constraints ->
@@ -124,8 +135,15 @@ fun DayTimelineView(
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
+    val zone = remember { ZoneId.systemDefault() }
+    val scope = rememberCoroutineScope()
 
-    val blockInstances = remember(date, refreshKey) {
+    // Bumped after an in-place drag/resize edit (calendar event or named block) commits, so
+    // the memoized instance/plan blocks below recompute without waiting on a refresh from
+    // the parent screen.
+    var localRefreshKey by remember { mutableIntStateOf(0) }
+
+    val blockInstances = remember(date, refreshKey, localRefreshKey) {
         namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -155,7 +173,7 @@ fun DayTimelineView(
     var isNowVisible by remember(viewStartMs, viewEndMs) {
         mutableStateOf(System.currentTimeMillis() in viewStartMs until viewEndMs)
     }
-    val nextDayBlockInstances = remember(date, refreshKey) {
+    val nextDayBlockInstances = remember(date, refreshKey, localRefreshKey) {
         val nextDate = date.plusDays(1)
         namedBlockStore?.resolveForDate(nextDate)?.map { (block, sched) ->
             val startMs = nextDate.atTime(sched.startHour, sched.startMinute)
@@ -179,12 +197,12 @@ fun DayTimelineView(
         } ?: emptyList()
     }
 
-    var plan by remember(date, refreshKey) {
+    var plan by remember(date, refreshKey, localRefreshKey) {
         mutableStateOf(registry.planForDate(date, namedBlockInstances = blockInstances,
             floatingBlocks = floatingBlockInstances,
             nowMs = if (isToday) System.currentTimeMillis() else null))
     }
-    var nextDayScheduled by remember(date, refreshKey) {
+    var nextDayScheduled by remember(date, refreshKey, localRefreshKey) {
         mutableStateOf(registry.planForDate(date.plusDays(1), namedBlockInstances = nextDayBlockInstances,
             floatingBlocks = nextDayFloatingInstances).scheduled)
     }
@@ -230,35 +248,79 @@ fun DayTimelineView(
         }
     }
 
-    LaunchedEffect(date, refreshKey) {
-        suspend fun fetchAndSync() {
-            if (calendarSignals?.hasPermission() == true) {
-                val today   = calendarSignals.eventsForDate(date)
-                val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
-                val combined = today + nextDay
-                calEvents = combined
-                val allCalBlocks = combined
-                    .filter { !it.allDay && it.title != "Sleep" }
-                    .associate { it.eventId to (it.startMillis to it.endMillis) }
-                calEventBlocks = allCalBlocks
-                val blocks = combined
-                    .filter { evt ->
-                        !evt.allDay && evt.title != "Sleep" &&
-                            (calendarPrefsStore == null || calendarPrefsStore.reservesTime(evt.eventId))
-                    }
-                    .map { it.startMillis to it.endMillis }
-                reservingBlocks = blocks
-                plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
-                    reservingBlocks = blocks, namedBlockInstances = blockInstances,
-                    floatingBlocks = floatingBlockInstances,
-                    nowMs = if (isToday) System.currentTimeMillis() else null)
-                nextDayScheduled = registry.planForDate(date.plusDays(1),
-                    calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                    namedBlockInstances = nextDayBlockInstances,
-                    floatingBlocks = nextDayFloatingInstances).scheduled
-                onCalEventsChanged?.invoke(combined)
-            }
+    // Extracted (rather than nested inside the LaunchedEffect below) so drag-commit handlers
+    // can also call it directly after writing a calendar-event change, instead of waiting up
+    // to 60s for the next periodic sync.
+    suspend fun fetchAndSync() {
+        if (calendarSignals?.hasPermission() == true) {
+            val today   = calendarSignals.eventsForDate(date)
+            val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
+            val combined = today + nextDay
+            calEvents = combined
+            val allCalBlocks = combined
+                .filter { !it.allDay && it.title != "Sleep" }
+                .associate { it.eventId to (it.startMillis to it.endMillis) }
+            calEventBlocks = allCalBlocks
+            val blocks = combined
+                .filter { evt ->
+                    !evt.allDay && evt.title != "Sleep" &&
+                        (calendarPrefsStore == null || calendarPrefsStore.reservesTime(evt.eventId))
+                }
+                .map { it.startMillis to it.endMillis }
+            reservingBlocks = blocks
+            plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
+                reservingBlocks = blocks, namedBlockInstances = blockInstances,
+                floatingBlocks = floatingBlockInstances,
+                nowMs = if (isToday) System.currentTimeMillis() else null)
+            nextDayScheduled = registry.planForDate(date.plusDays(1),
+                calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                namedBlockInstances = nextDayBlockInstances,
+                floatingBlocks = nextDayFloatingInstances).scheduled
+            onCalEventsChanged?.invoke(combined)
         }
+    }
+
+    // Commits a calendar-event drag/resize from the timeline. instanceStartMillis is passed
+    // through so a recurring event only gets a single-occurrence exception, matching the
+    // detail-sheet edit flow.
+    fun commitCalendarEventDrag(evt: CalendarEvent, newStartMs: Long, newEndMs: Long) {
+        val cal = calendarSignals ?: return
+        scope.launch {
+            cal.updateEvent(
+                eventId = evt.eventId,
+                title = evt.title,
+                startMillis = newStartMs,
+                endMillis = newEndMs,
+                description = evt.description,
+                allDay = evt.allDay,
+                instanceStartMillis = evt.startMillis
+            )
+            fetchAndSync()
+        }
+    }
+
+    // Commits a named-block drag/resize as a per-date schedule override — same mechanism as
+    // the manual 14-day schedule editors, just written from a gesture instead of a picker.
+    fun commitBlockDrag(blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) {
+        val store = namedBlockStore ?: return
+        val blockDate = Instant.ofEpochMilli(originalStartMs).atZone(zone).toLocalDate()
+        val startZdt = Instant.ofEpochMilli(newStartMs).atZone(zone)
+        val endZdt = Instant.ofEpochMilli(newEndMs).atZone(zone)
+        store.setSchedule(
+            NamedBlockSchedule(
+                blockId = blockId,
+                date = blockDate.toString(),
+                enabled = true,
+                startHour = startZdt.hour,
+                startMinute = startZdt.minute,
+                endHour = endZdt.hour,
+                endMinute = endZdt.minute
+            )
+        )
+        localRefreshKey++
+    }
+
+    LaunchedEffect(date, refreshKey) {
         fetchAndSync()
         while (true) { delay(60_000L); fetchAndSync() }
     }
@@ -273,8 +335,10 @@ fun DayTimelineView(
         }
     }
 
-    // 5-second ticker: re-plans the day
-    LaunchedEffect(viewStartMs) {
+    // 5-second ticker: re-plans the day. Keyed on refreshKey/localRefreshKey too — otherwise
+    // this loop keeps a closure over whatever blockInstances were current when it first
+    // launched and can silently revert a drag/resize commit the next time it fires.
+    LaunchedEffect(viewStartMs, refreshKey, localRefreshKey) {
         while (true) {
             delay(5_000L)
             val now = System.currentTimeMillis()
@@ -385,7 +449,10 @@ fun DayTimelineView(
                     indicatorColor = indicatorColor,
                     onCalendarEventClick = onCalendarEventClick,
                     onPlannerEventClick = onPlannerEventClick,
-                    onFreeSlotClick = onFreeSlotClick
+                    onFreeSlotClick = onFreeSlotClick,
+                    onCalendarEventDrag = if (calendarSignals?.hasWritePermission() == true)
+                        ::commitCalendarEventDrag else null,
+                    onBlockDrag = if (namedBlockStore != null) ::commitBlockDrag else null
                 )
             }
         }
@@ -504,7 +571,9 @@ private fun TimelineBody(
     indicatorColor: Color,
     onCalendarEventClick: ((CalendarEvent) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
-    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?
+    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?,
+    onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
 ) {
     val viewTotalMin = totalMinutes
 
@@ -595,7 +664,7 @@ private fun TimelineBody(
 
         // Calendar event blocks (skip Sleep — handled by planner)
         calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
-            CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick)
+            CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick, onCalendarEventDrag)
         }
 
         // Planner event blocks
@@ -619,7 +688,8 @@ private fun TimelineBody(
                 isToday = isToday,
                 activeBlockId = activeBlockId,
                 onBlockStart = onBlockStart,
-                onPlannerEventClick = onPlannerEventClick
+                onPlannerEventClick = onPlannerEventClick,
+                onBlockDrag = onBlockDrag
             )
         }
 
@@ -737,15 +807,30 @@ private fun CalendarEventBlock(
     viewStartMs: Long,
     viewTotalMin: Int,
     hourHeight: Dp,
-    onCalendarEventClick: ((CalendarEvent) -> Unit)?
+    onCalendarEventClick: ((CalendarEvent) -> Unit)?,
+    onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null
 ) {
     val ceStartMin = msToMin(evt.startMillis, viewStartMs)
     val ceEndMin   = msToMin(evt.endMillis,   viewStartMs)
     if (ceStartMin >= viewTotalMin || ceEndMin <= 0) return
-    val startY  = minToY(ceStartMin, hourHeight)
-    val eventH  = (minToY(ceEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
     val calColor = if (evt.calendarColor != 0) Color(evt.calendarColor)
                    else MaterialTheme.colorScheme.primary
+
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    var isDragging by remember { mutableStateOf(false) }
+    var moveOffsetMin by remember { mutableIntStateOf(0) }
+    var resizeOffsetMin by remember { mutableIntStateOf(0) }
+    var moveAccumPx by remember { mutableStateOf(0f) }
+    val draggable = onCalendarEventDrag != null
+    val minDurationOffset = 5 - (ceEndMin - ceStartMin)
+
+    val previewStartMin = ceStartMin + moveOffsetMin
+    val previewEndMin = ceEndMin + moveOffsetMin + resizeOffsetMin
+    val startY  = minToY(previewStartMin, hourHeight)
+    val eventH  = (minToY(previewEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
+
     Box(
         Modifier
             .yOffset(startY + 1.dp)
@@ -754,8 +839,34 @@ private fun CalendarEventBlock(
             .padding(horizontal = 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .then(if (onCalendarEventClick != null) Modifier.clickable { onCalendarEventClick(evt) } else Modifier)
-            .background(calColor.copy(alpha = 0.13f))
-            .border(1.dp, calColor.copy(alpha = 0.38f), RoundedCornerShape(6.dp))
+            .then(if (draggable) Modifier.pointerInput(evt.eventId) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        moveAccumPx = 0f
+                        isDragging = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        val delta = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
+                        moveAccumPx = 0f
+                        moveOffsetMin = 0
+                        if (delta != 0) {
+                            onCalendarEventDrag?.invoke(
+                                evt, evt.startMillis + delta * 60_000L, evt.endMillis + delta * 60_000L
+                            )
+                        }
+                    },
+                    onDragCancel = { isDragging = false; moveAccumPx = 0f; moveOffsetMin = 0 },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        moveAccumPx += dragAmount.y
+                        moveOffsetMin = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
+                    }
+                )
+            } else Modifier)
+            .background(calColor.copy(alpha = if (isDragging) 0.22f else 0.13f))
+            .border(if (isDragging) 2.dp else 1.dp, calColor.copy(alpha = if (isDragging) 0.7f else 0.38f), RoundedCornerShape(6.dp))
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
             Text(
@@ -767,11 +878,26 @@ private fun CalendarEventBlock(
             )
             if (eventH >= 36.dp) {
                 Text(
-                    "${fmtMs(evt.startMillis)} – ${fmtMs(evt.endMillis)}",
+                    if (isDragging)
+                        "${fmtMs(viewStartMs + previewStartMin * 60_000L)} – ${fmtMs(viewStartMs + previewEndMin * 60_000L)}"
+                    else
+                        "${fmtMs(evt.startMillis)} – ${fmtMs(evt.endMillis)}",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = calColor.copy(alpha = 0.55f)
                 )
             }
+        }
+        if (draggable) {
+            ResizeHandle(
+                accent = calColor,
+                hourHeight = hourHeight,
+                minOffset = minDurationOffset,
+                onResizePreview = { resizeOffsetMin = it },
+                onResizeCommit = { delta ->
+                    resizeOffsetMin = 0
+                    onCalendarEventDrag?.invoke(evt, evt.startMillis, evt.endMillis + delta * 60_000L)
+                }
+            )
         }
     }
 }
@@ -788,15 +914,29 @@ private fun PlannerEventBlock(
     isToday: Boolean,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
-    onPlannerEventClick: ((ScheduledEvent) -> Unit)?
+    onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
 ) {
     val isSleep       = se.event.category == EventCategory.SLEEP
     val isLoggedSleep = isSleep && se.event.isLogged
     val isBlock       = se.event.category == EventCategory.BLOCK
     val seStartMin = msToMin(se.startMillis, viewStartMs)
     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
-    val startY = minToY(seStartMin, hourHeight)
-    val eventH = (minToY(seEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
+
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    var isDragging by remember { mutableStateOf(false) }
+    var moveOffsetMin by remember { mutableIntStateOf(0) }
+    var resizeOffsetMin by remember { mutableIntStateOf(0) }
+    var moveAccumPx by remember { mutableStateOf(0f) }
+    val draggable = isBlock && onBlockDrag != null
+    val minDurationOffset = 5 - (seEndMin - seStartMin)
+
+    val previewStartMin = seStartMin + moveOffsetMin
+    val previewEndMin = seEndMin + moveOffsetMin + resizeOffsetMin
+    val startY = minToY(previewStartMin, hourHeight)
+    val eventH = (minToY(previewEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
 
     val sleepAccent = MaterialTheme.colorScheme.tertiary
     val blockAccent: Color? = if (isBlock) {
@@ -839,8 +979,36 @@ private fun PlannerEventBlock(
             .padding(horizontal = 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .then(if (onPlannerEventClick != null) Modifier.clickable { onPlannerEventClick(se) } else Modifier)
+            .then(if (draggable) Modifier.pointerInput(se.event.id) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        moveAccumPx = 0f
+                        isDragging = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        val delta = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
+                        moveAccumPx = 0f
+                        moveOffsetMin = 0
+                        val blockId = se.event.id.removePrefix("__block__")
+                        if (delta != 0) {
+                            onBlockDrag?.invoke(
+                                blockId, se.startMillis, se.startMillis + delta * 60_000L, se.endMillis + delta * 60_000L
+                            )
+                        }
+                    },
+                    onDragCancel = { isDragging = false; moveAccumPx = 0f; moveOffsetMin = 0 },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        moveAccumPx += dragAmount.y
+                        moveOffsetMin = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
+                    }
+                )
+            } else Modifier)
             .background(bg)
             .then(borderMod)
+            .then(if (isDragging) Modifier.border(2.dp, fg.copy(alpha = 0.8f), RoundedCornerShape(6.dp)) else Modifier)
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
             Text(
@@ -852,7 +1020,10 @@ private fun PlannerEventBlock(
             )
             if (eventH >= 36.dp) {
                 Text(
-                    "${fmtMs(se.startMillis)} – ${fmtMs(se.endMillis)}",
+                    if (isDragging)
+                        "${fmtMs(viewStartMs + previewStartMin * 60_000L)} – ${fmtMs(viewStartMs + previewEndMin * 60_000L)}"
+                    else
+                        "${fmtMs(se.startMillis)} – ${fmtMs(se.endMillis)}",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = fg.copy(alpha = 0.65f)
                 )
@@ -885,6 +1056,72 @@ private fun PlannerEventBlock(
                 }
             }
         }
+        if (draggable) {
+            ResizeHandle(
+                accent = blockAccent ?: sleepAccent,
+                hourHeight = hourHeight,
+                minOffset = minDurationOffset,
+                onResizePreview = { resizeOffsetMin = it },
+                onResizeCommit = { delta ->
+                    resizeOffsetMin = 0
+                    val blockId = se.event.id.removePrefix("__block__")
+                    onBlockDrag?.invoke(blockId, se.startMillis, se.startMillis, se.endMillis + delta * 60_000L)
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Grab bar pinned to the bottom edge of a timeline tile. Dragging it changes only the tile's
+ * end time (duration) — a plain drag, no long-press needed, since it's a small dedicated hit
+ * area that doesn't compete with the tile body's tap-to-open/long-press-to-move gestures.
+ * [minOffset] is the smallest (most negative) delta allowed, so a resize can't shrink the
+ * tile below a 5-minute minimum duration.
+ */
+@Composable
+private fun BoxScope.ResizeHandle(
+    accent: Color,
+    hourHeight: Dp,
+    minOffset: Int,
+    onResizePreview: (deltaMinutes: Int) -> Unit,
+    onResizeCommit: (deltaMinutes: Int) -> Unit
+) {
+    val density = LocalDensity.current
+    val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    var accumPx by remember { mutableStateOf(0f) }
+    Box(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .height(18.dp)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { accumPx = 0f },
+                    onDragEnd = {
+                        val delta = snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(minOffset)
+                        accumPx = 0f
+                        onResizePreview(0)
+                        if (delta != 0) onResizeCommit(delta)
+                    },
+                    onDragCancel = { accumPx = 0f; onResizePreview(0) },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumPx += dragAmount.y
+                        onResizePreview(snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(minOffset))
+                    }
+                )
+            },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            Modifier
+                .padding(bottom = 2.dp)
+                .width(24.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(accent.copy(alpha = 0.6f))
+        )
     }
 }
 
