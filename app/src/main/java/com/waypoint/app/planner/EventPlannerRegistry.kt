@@ -582,12 +582,15 @@ class EventPlannerRegistry {
             }
 
             if (!useLast) {
-                // Forward first-fit: take the earliest block where the task fits.
+                // Forward first-fit: take the earliest block where the task fits, then nudge
+                // the start later within whatever slack remains — capped by priority, via
+                // jitterCapMs — so low-priority tasks scatter through free time the way real
+                // errands do, while Critical/Urgent tasks keep landing at the first opening.
                 for (i in remaining.indices) {
                     val (blockStart, blockEnd) = remaining[i]
                     if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                     if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
-                    val fitStart = maxOf(
+                    val earliestStart = maxOf(
                         blockStart,
                         effectiveMustStartAfter ?: blockStart,
                         tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
@@ -599,10 +602,20 @@ class EventPlannerRegistry {
                         tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
                         if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
                     )
-                    if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
-                    if (fitEnd - fitStart < durationMs) continue
+                    if (deadline != null && earliestStart + durationMs > deadline.byMillis) continue
+                    if (fitEnd - earliestStart < durationMs) continue
+                    val slackMs = (fitEnd - earliestStart) - durationMs
+                    val jitterMs = seededJitterMs("${event.id}|$date", jitterCapMs(event.priority, slackMs))
+                    val fitStart = earliestStart + jitterMs
                     scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                    remaining[i] = (fitStart + durationMs) to blockEnd
+                    // Split (not just truncate-from-the-left) so a jittered/bound-constrained
+                    // gap before fitStart stays available to later tasks in this same pass.
+                    remaining.removeAt(i)
+                    val segs = buildList {
+                        if (fitStart > blockStart) add(blockStart to fitStart)
+                        if (fitStart + durationMs < blockEnd) add((fitStart + durationMs) to blockEnd)
+                    }
+                    remaining.addAll(i, segs)
                     placed = true
                     break
                 }
@@ -730,6 +743,32 @@ class EventPlannerRegistry {
         }
 
         return DayPlan(date, scheduled.sortedBy { it.startMillis }, blocked)
+    }
+
+    /**
+     * How far (in ms) a forward-fit placement may drift from the earliest possible start,
+     * scaled by priority so low-priority tasks scatter through free time the way a real day
+     * of errands does, while high-priority tasks keep landing at the first opening. Critical
+     * and Urgent (>= 9) always get exact first-fit — jitter is never applied to them. Also
+     * capped at a fraction of the slot's own slack so a low-priority task can't eat space a
+     * later, lower-priority task in the same pass might need.
+     */
+    private fun jitterCapMs(priority: Int, slackMs: Long): Long {
+        if (priority >= 9 || slackMs <= 0) return 0L
+        val priorityFactor = (9 - priority).coerceIn(0, 8) / 8f
+        val absoluteCapMs = (priorityFactor * 90 * 60_000L).toLong()
+        val slackShareMs = (slackMs * 0.4).toLong()
+        return minOf(absoluteCapMs, slackShareMs)
+    }
+
+    /**
+     * Deterministic pseudo-random offset in [0, capMs], seeded from [seedKey] (task id + date)
+     * so a jittered placement is stable across the many replans that happen within one day —
+     * every 5s tick, every edit — instead of visibly reshuffling each time.
+     */
+    private fun seededJitterMs(seedKey: String, capMs: Long): Long {
+        if (capMs <= 0L) return 0L
+        return (java.util.Random(seedKey.hashCode().toLong()).nextDouble() * capMs).toLong()
     }
 
     private fun subtractIntervals(
