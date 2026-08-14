@@ -5,10 +5,12 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.CalendarContract
 import com.waypoint.app.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.TimeZone
@@ -32,10 +34,18 @@ interface CalendarSignals {
     suspend fun refreshCache()
     /** Creates an event in the primary calendar. Returns the new event ID, or -1 on failure. */
     suspend fun createEvent(title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Long
-    /** Deletes an event by ID. Returns true if deleted. */
-    suspend fun deleteEvent(eventId: Long): Boolean
-    /** Updates an existing event. Returns true on success. */
-    suspend fun updateEvent(eventId: Long, title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Boolean
+    /**
+     * Deletes an event by ID. If [instanceStartMillis] is provided and the event is part of a
+     * recurring series, only that single occurrence is canceled (via an exception row) instead
+     * of deleting the whole series. Returns true if deleted.
+     */
+    suspend fun deleteEvent(eventId: Long, instanceStartMillis: Long? = null): Boolean
+    /**
+     * Updates an existing event. If [instanceStartMillis] is provided and the event is part of a
+     * recurring series, only that single occurrence is modified (via an exception row) instead of
+     * the whole series. Returns true on success.
+     */
+    suspend fun updateEvent(eventId: Long, title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false, instanceStartMillis: Long? = null): Boolean
     /** Returns all events written by Waypoint (description = "Logged by Waypoint") within the last [lookbackDays] days, as (eventId, event) pairs. */
     suspend fun queryWaypointEvents(lookbackDays: Int = 30): List<Pair<Long, CalendarEvent>>
 }
@@ -124,9 +134,15 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         val values = ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calId)
             put(CalendarContract.Events.TITLE, title)
-            put(CalendarContract.Events.DTSTART, startMillis)
-            put(CalendarContract.Events.DTEND, endMillis)
-            put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            if (allDay) {
+                put(CalendarContract.Events.DTSTART, toUtcMidnight(startMillis))
+                put(CalendarContract.Events.DTEND, toUtcMidnight(endMillis))
+                put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+            } else {
+                put(CalendarContract.Events.DTSTART, startMillis)
+                put(CalendarContract.Events.DTEND, endMillis)
+                put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            }
             if (description.isNotEmpty()) put(CalendarContract.Events.DESCRIPTION, description)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
         }
@@ -140,8 +156,18 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         eventId
     }
 
-    override suspend fun deleteEvent(eventId: Long): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun deleteEvent(eventId: Long, instanceStartMillis: Long?): Boolean = withContext(Dispatchers.IO) {
         if (!hasWritePermission()) return@withContext false
+        if (instanceStartMillis != null && isRecurring(eventId)) {
+            val exceptionUri = Uri.withAppendedPath(CalendarContract.Events.CONTENT_EXCEPTION_URI, eventId.toString())
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
+                put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, instanceStartMillis)
+            }
+            val uri = context.contentResolver.insert(exceptionUri, values)
+            AppLogger.i(TAG, "deleteEvent: canceled single instance of eventId=$eventId uri=$uri")
+            return@withContext uri != null
+        }
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         context.contentResolver.delete(uri, null, null) > 0
     }
@@ -152,21 +178,35 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         startMillis: Long,
         endMillis: Long,
         description: String,
-        allDay: Boolean
+        allDay: Boolean,
+        instanceStartMillis: Long?
     ): Boolean = withContext(Dispatchers.IO) {
         if (!hasWritePermission()) {
             AppLogger.w(TAG, "updateEvent: no WRITE_CALENDAR permission")
             return@withContext false
         }
-        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         val values = ContentValues().apply {
             put(CalendarContract.Events.TITLE, title)
-            put(CalendarContract.Events.DTSTART, startMillis)
-            put(CalendarContract.Events.DTEND, endMillis)
             put(CalendarContract.Events.DESCRIPTION, description)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
-            put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            if (allDay) {
+                put(CalendarContract.Events.DTSTART, toUtcMidnight(startMillis))
+                put(CalendarContract.Events.DTEND, toUtcMidnight(endMillis))
+                put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+            } else {
+                put(CalendarContract.Events.DTSTART, startMillis)
+                put(CalendarContract.Events.DTEND, endMillis)
+                put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            }
         }
+        if (instanceStartMillis != null && isRecurring(eventId)) {
+            values.put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, instanceStartMillis)
+            val exceptionUri = Uri.withAppendedPath(CalendarContract.Events.CONTENT_EXCEPTION_URI, eventId.toString())
+            val uri = context.contentResolver.insert(exceptionUri, values)
+            AppLogger.i(TAG, "updateEvent: created exception for single instance of eventId=$eventId uri=$uri")
+            return@withContext uri != null
+        }
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
         val rows = context.contentResolver.update(uri, values, null, null)
         AppLogger.i(TAG, "updateEvent: eventId=$eventId updated=$rows")
         rows > 0
@@ -196,7 +236,7 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             val endIdx   = cursor.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
             while (cursor.moveToNext()) {
                 result.add(cursor.getLong(idIdx) to CalendarEvent(
-                    title = cursor.getString(titleIdx) ?: "Work shift",
+                    title = cursor.getString(titleIdx) ?: "Sleep",
                     startMillis = cursor.getLong(startIdx),
                     endMillis = cursor.getLong(endIdx),
                     allDay = false,
@@ -205,6 +245,28 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             }
         }
         result
+    }
+
+    /** True if [eventId] is the master event of a recurring series (has an RRULE or RDATE). */
+    private fun isRecurring(eventId: Long): Boolean {
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+        val projection = arrayOf(CalendarContract.Events.RRULE, CalendarContract.Events.RDATE)
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val rruleIdx = cursor.getColumnIndex(CalendarContract.Events.RRULE)
+                val rdateIdx = cursor.getColumnIndex(CalendarContract.Events.RDATE)
+                val rrule = if (rruleIdx >= 0) cursor.getString(rruleIdx) else null
+                val rdate = if (rdateIdx >= 0) cursor.getString(rdateIdx) else null
+                return !rrule.isNullOrEmpty() || !rdate.isNullOrEmpty()
+            }
+        }
+        return false
+    }
+
+    /** Converts a local-zone epoch millis to UTC midnight of the same calendar day, per the all-day event convention. */
+    private fun toUtcMidnight(localMs: Long): Long {
+        val localDate = Instant.ofEpochMilli(localMs).atZone(ZoneId.systemDefault()).toLocalDate()
+        return localDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
     }
 
     /**

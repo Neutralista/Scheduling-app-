@@ -788,7 +788,8 @@ private fun PlanTab(
             onDelete = if (selCal.eventId > 0) {
                 {
                     scope.launch {
-                        calendarSignals.deleteEvent(selCal.eventId)
+                        calendarSignals.deleteEvent(selCal.eventId, selCal.startMillis)
+                        calPrefsStore.clear(selCal.eventId)
                         calRefreshKey++
                         selectedCalEvent = null
                     }
@@ -949,7 +950,10 @@ private fun PlanTab(
             onDismiss = { editingCalEvent = null },
             onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
                 scope.launch {
-                    calendarSignals.updateEvent(calBeingEdited.eventId, title, startMs, endMs, notes, allDay)
+                    calendarSignals.updateEvent(
+                        calBeingEdited.eventId, title, startMs, endMs, notes, allDay,
+                        instanceStartMillis = calBeingEdited.startMillis
+                    )
                     calPrefsStore.setReservesTime(calBeingEdited.eventId, reservesTime)
                     calRefreshKey++
                     editingCalEvent = null

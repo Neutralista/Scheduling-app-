@@ -10,4 +10,8 @@ class CalendarPrefsStore(context: Context) {
     fun setReservesTime(eventId: Long, reserves: Boolean) {
         prefs.edit().putBoolean("rt_$eventId", reserves).apply()
     }
+
+    fun clear(eventId: Long) {
+        prefs.edit().remove("rt_$eventId").apply()
+    }
 }

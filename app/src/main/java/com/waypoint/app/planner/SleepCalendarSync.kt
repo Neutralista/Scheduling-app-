@@ -27,7 +27,6 @@ object SleepCalendarSync {
             AppLogger.w(TAG, "write: no WRITE_CALENDAR permission, skipping")
             return false
         }
-        if (oldEventId != null) cal.deleteEvent(oldEventId)
         val eventId = cal.createEvent(
             title = "Sleep",
             startMillis = bedMs,
@@ -35,7 +34,10 @@ object SleepCalendarSync {
             description = "Logged by Waypoint"
         )
         AppLogger.i(TAG, "write: createEvent returned eventId=$eventId")
-        if (eventId > 0) logStore.updateCalendarEventId(eventId)
+        if (eventId > 0) {
+            logStore.updateCalendarEventId(eventId)
+            if (oldEventId != null) cal.deleteEvent(oldEventId)
+        }
         return eventId > 0
     }
 
@@ -55,7 +57,6 @@ object SleepCalendarSync {
             AppLogger.w(TAG, "writeForEntry: no WRITE_CALENDAR permission, skipping")
             return -1L
         }
-        if (oldEventId != null) cal.deleteEvent(oldEventId)
         val eventId = cal.createEvent(
             title = "Sleep",
             startMillis = bedMs,
@@ -63,6 +64,7 @@ object SleepCalendarSync {
             description = "Logged by Waypoint"
         )
         AppLogger.i(TAG, "writeForEntry: createEvent returned eventId=$eventId")
+        if (eventId > 0 && oldEventId != null) cal.deleteEvent(oldEventId)
         return eventId
     }
 

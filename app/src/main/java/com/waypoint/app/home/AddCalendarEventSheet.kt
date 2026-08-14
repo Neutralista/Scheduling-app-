@@ -92,7 +92,9 @@ fun AddCalendarEventSheet(
             val eM = endTime.substringAfter(':').toIntOrNull() ?: 0
             startMs = date.atTime(sH, sM).atZone(zone).toInstant().toEpochMilli()
             val rawEnd = date.atTime(eH, eM).atZone(zone).toInstant().toEpochMilli()
-            endMs = if (rawEnd <= startMs) startMs + 3_600_000L else rawEnd
+            // An end time earlier than the start time means the event rolls past midnight
+            // into the next day (e.g. 22:00 → 02:00), not a same-day clamp to +1h.
+            endMs = if (rawEnd <= startMs) rawEnd + 24 * 3_600_000L else rawEnd
         }
 
         onSave(title.trim(), startMs, endMs, notes.trim(), allDay, reservesTime)
