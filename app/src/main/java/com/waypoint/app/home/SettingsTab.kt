@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,9 +44,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -76,8 +83,6 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.LogEntry
 import com.waypoint.app.LogLevel
 import com.waypoint.app.planner.BufferRulesStore
-import com.waypoint.app.script.AppScript
-import com.waypoint.app.script.ScriptState
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.ui.components.HsvColorPicker
 import com.waypoint.app.ui.theme.AppTheme
@@ -91,18 +96,10 @@ import java.util.UUID
 @Composable
 fun SettingsTab(
     onPermissionGranted: () -> Unit,
-    themeStore: ThemeStore? = null,
-    scripts: List<AppScript> = emptyList(),
-    statesById: Map<String, ScriptState> = emptyMap(),
-    onStateChange: (String, ScriptState) -> Unit = { _, _ -> },
-    onAddScript: (String) -> String? = { null },
-    onUpdateScript: (id: String, newSource: String) -> String? = { _, _ -> null },
-    onRemoveScript: (String) -> Unit = {},
-    onResetScript: (String) -> Unit = {}
+    themeStore: ThemeStore? = null
 ) {
     val context = LocalContext.current
     var showLogs by remember { mutableStateOf(false) }
-    var showScripts by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -178,55 +175,57 @@ fun SettingsTab(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
-        Text(
-            text = "Scripts",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Add and manage custom JS scripts",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(onClick = { showScripts = true }) { Text("Manage Scripts") }
-
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 12.dp),
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        Text(
-            text = "Developer",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "App event log — script calls, schedule writes, and errors",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { showLogs = true }) { Text("View Logs") }
-            OutlinedButton(onClick = {
-                val logFile = java.io.File(context.filesDir, "waypoint_last_session.log")
-                if (logFile.exists()) {
-                    val uri = androidx.core.content.FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        logFile
-                    )
-                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
+        // Collapsed by default — these are developer diagnostics, not settings most
+        // people need day to day, so they shouldn't sit in the default scroll path.
+        var advancedExpanded by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { advancedExpanded = !advancedExpanded }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Advanced",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = if (advancedExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (advancedExpanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        AnimatedVisibility(visible = advancedExpanded) {
+            Column {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "App event log — script calls, schedule writes, and errors",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { showLogs = true }) { Text("View Logs") }
+                    OutlinedButton(onClick = {
+                        val logFile = java.io.File(context.filesDir, "waypoint_last_session.log")
+                        if (logFile.exists()) {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                logFile
+                            )
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
+                        }
+                    }) { Text("Share Crash Log") }
                 }
-            }) { Text("Share Crash Log") }
+            }
         }
 
         Spacer(Modifier.height(32.dp))
@@ -248,49 +247,6 @@ fun SettingsTab(
 
     if (showLogs) {
         LogViewerDialog(onDismiss = { showLogs = false })
-    }
-
-    if (showScripts) {
-        Dialog(
-            onDismissRequest = { showScripts = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(onClick = { showScripts = false }) { Text("Close") }
-                        Text(
-                            text = "Scripts",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f).padding(start = 4.dp)
-                        )
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    ScriptsTab(
-                        scripts = scripts,
-                        statesById = statesById,
-                        onStateChange = onStateChange,
-                        onAddScript = onAddScript,
-                        onUpdateScript = onUpdateScript,
-                        onRemoveScript = onRemoveScript,
-                        onResetScript = onResetScript
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -464,23 +420,43 @@ private fun ThemeCard(
             modifier = Modifier.align(Alignment.TopEnd),
             horizontalArrangement = Arrangement.End
         ) {
-            Text(
-                text = "✎",
-                style = MaterialTheme.typography.labelMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.6f),
+            Box(
                 modifier = Modifier
-                    .clickable(onClick = onEdit)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-            if (onDelete != null) {
-                Text(
-                    text = "×",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier
-                        .clickable(onClick = onDelete)
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onEdit),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit ${theme.name}",
+                    tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(15.dp)
                 )
+            }
+            if (onDelete != null) {
+                var showDeleteConfirm by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable { showDeleteConfirm = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete ${theme.name}",
+                        tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                if (showDeleteConfirm) {
+                    BlockDeleteDialog(
+                        itemLabel = theme.name,
+                        onDelete = onDelete,
+                        onDismiss = { showDeleteConfirm = false }
+                    )
+                }
             }
         }
     }
@@ -754,8 +730,8 @@ private fun SessionHeader(label: String, color: Color) {
 private fun LogEntryRow(entry: LogEntry) {
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     val color = when (entry.level) {
-        LogLevel.E -> Color(0xFFE53935)
-        LogLevel.W -> Color(0xFFFF8F00)
+        LogLevel.E -> MaterialTheme.colorScheme.error
+        LogLevel.W -> MaterialTheme.colorScheme.tertiary
         LogLevel.I -> MaterialTheme.colorScheme.onSurface
     }
     val levelTag = when (entry.level) {

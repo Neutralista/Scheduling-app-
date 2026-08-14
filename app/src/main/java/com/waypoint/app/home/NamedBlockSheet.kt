@@ -916,10 +916,18 @@ private fun BlockTaskRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        BlockDeleteDialog(
+            itemLabel = task.title,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
     val placementColor = when (task.placement) {
-        BlockTaskPlacement.BEFORE -> Color(0xFF7986CB)
-        BlockTaskPlacement.DURING -> Color(0xFF4DB6AC)
-        BlockTaskPlacement.AFTER  -> Color(0xFFEF9A9A)
+        BlockTaskPlacement.BEFORE -> MaterialTheme.colorScheme.secondary
+        BlockTaskPlacement.DURING -> MaterialTheme.colorScheme.primary
+        BlockTaskPlacement.AFTER  -> MaterialTheme.colorScheme.tertiary
     }
     Row(
         Modifier
@@ -954,7 +962,7 @@ private fun BlockTaskRow(
         IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Edit, "Edit", modifier = Modifier.size(18.dp))
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Delete, "Delete", modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.error)
         }

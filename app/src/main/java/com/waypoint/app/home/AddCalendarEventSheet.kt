@@ -1,5 +1,6 @@
 package com.waypoint.app.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -186,9 +189,14 @@ fun AddCalendarEventSheet(
 
                     Spacer(Modifier.height(4.dp))
 
-                    // Reserve scheduling time toggle
+                    // Reserve scheduling time toggle — this changes whether the planner treats
+                    // this event as busy time, so it's given more visual weight than "All day".
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -196,11 +204,14 @@ fun AddCalendarEventSheet(
                             Text(
                                 text = "Reserve scheduling time",
                                 style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
                             Text(
-                                text = if (reservesTime) "Tasks won't be placed during this event"
-                                       else "Event shown as a reminder only",
+                                text = if (reservesTime)
+                                    "Tasks won't be scheduled over this — e.g. \"Meeting\""
+                                else
+                                    "Reminder only, other tasks can still be planned here — e.g. \"Birthday\"",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

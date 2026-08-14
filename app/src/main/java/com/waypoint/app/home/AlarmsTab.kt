@@ -319,6 +319,14 @@ private fun AlarmRow(
     onDelete: () -> Unit
 ) {
     val isSynced = alarm.blockSyncEnabled && alarm.linkedBlockId != null
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    if (showDeleteConfirm) {
+        BlockDeleteDialog(
+            itemLabel = alarm.label.ifBlank { alarm.displayTime },
+            onDelete = onDelete,
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
     Card(
         onClick = onEdit,
         modifier = Modifier.fillMaxWidth(),
@@ -363,7 +371,7 @@ private fun AlarmRow(
                     )
                 }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Filled.Delete,
                     contentDescription = "Delete alarm",

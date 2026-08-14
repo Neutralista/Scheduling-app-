@@ -489,9 +489,9 @@ private fun FloatingTaskRow(
     }
     val priorityColor = when {
         task.priority >= 9 -> MaterialTheme.colorScheme.error
-        task.priority >= 7 -> Color(0xFFFF7043)
-        task.priority >= 4 -> Color(0xFFFFA726)
-        else               -> Color(0xFF78909C)
+        task.priority >= 7 -> MaterialTheme.colorScheme.tertiary
+        task.priority >= 4 -> MaterialTheme.colorScheme.secondary
+        else               -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val conditionSummary = buildString {
         if (task.conditions.any { it.type == "workDayOnly" }) append("work days · ")
@@ -612,7 +612,7 @@ private fun SleepBlockCard(
     var mediumWakeEnabled by remember { mutableStateOf(schedule.mediumWakeEnabled) }
     var wakeAlarmEnabled by remember { mutableStateOf(schedule.wakeAlarmEnabled) }
 
-    val accent = Color(0xFF5C6BC0)
+    val accent = MaterialTheme.colorScheme.tertiary
 
     fun commit(updated: SleepSchedule) {
         schedule = updated

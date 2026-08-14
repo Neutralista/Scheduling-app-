@@ -171,14 +171,21 @@ fun TasksTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = headerClock,
-                style = MaterialTheme.typography.displaySmall.copy(
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = (-1).sp
-                ),
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Column {
+                Text(
+                    text = headerClock,
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = (-1).sp
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "Today's checklist",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = headerDay,
@@ -228,8 +235,14 @@ fun TasksTab(
             ) {
                 Text(
                     "No tasks for today",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Tap + Add to create one",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
         } else {
@@ -900,6 +913,12 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
 
         AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
             Column(Modifier.padding(bottom = 10.dp)) {
+                Text(
+                    text = "Tap a day to toggle it, the pencil to change its time. Also editable from each block's own settings in the Blocks tab.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = 16.dp, bottom = 6.dp)
+                )
                 fixedBlocks.forEach { block ->
                     BlockScheduleSection(
                         block = block,
@@ -1032,15 +1051,22 @@ private fun MiniDayChip(
             color = if (scheduled) accent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
             maxLines = 1
         )
-        Icon(
-            Icons.Default.Edit,
-            contentDescription = "Edit start time",
-            tint = if (scheduled) accent.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+        // Sized well above the icon's visual footprint so the edit tap target doesn't
+        // collide with the day-toggle tap area that covers the rest of this chip.
+        Box(
             modifier = Modifier
-                .padding(top = 1.dp)
-                .size(13.dp)
-                .clickable(onClick = onEditTime)
-        )
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onEditTime),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit start time",
+                tint = if (scheduled) accent.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                modifier = Modifier.size(13.dp)
+            )
+        }
     }
 }
 

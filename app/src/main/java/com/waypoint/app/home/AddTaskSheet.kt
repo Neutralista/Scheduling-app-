@@ -1,5 +1,6 @@
 package com.waypoint.app.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -931,7 +934,8 @@ fun AddTaskSheet(
                                                 }
                                             }
 
-                                            "after" -> FlowRow(
+                                            "after" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            FlowRow(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 verticalArrangement   = Arrangement.spacedBy(4.dp)
                                             ) {
@@ -996,8 +1000,17 @@ fun AddTaskSheet(
                                                     )
                                                 }
                                             }
+                                            if (chainTargets.any { isAfterConflicting(it.id) && it.id !in afterTaskIds }) {
+                                                Text(
+                                                    "Grayed out: would conflict with a task already set in \"Before\"",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                            }
 
-                                            "before" -> FlowRow(
+                                            "before" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            FlowRow(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 verticalArrangement   = Arrangement.spacedBy(4.dp)
                                             ) {
@@ -1061,6 +1074,14 @@ fun AddTaskSheet(
                                                         label    = { Text(block.name, style = MaterialTheme.typography.labelSmall) }
                                                     )
                                                 }
+                                            }
+                                            if (chainTargets.any { isBeforeConflicting(it.id) && it.id !in beforeTaskIds }) {
+                                                Text(
+                                                    "Grayed out: would conflict with a task already set in \"After\"",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                                )
+                                            }
                                             }
 
                                             "sameDayAs" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1153,6 +1174,33 @@ fun AddTaskSheet(
                             }
                         }
                     }
+
+                    // Advanced — buffer, routine, measured duration, and chains are power-user
+                    // features most task adds never touch; collapsed by default keeps the
+                    // common "add a task in 15 seconds" path from scrolling past all of it.
+                    var showAdvanced by remember { mutableStateOf(false) }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { showAdvanced = !showAdvanced }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Advanced",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = if (showAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (showAdvanced) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    AnimatedVisibility(visible = showAdvanced) {
+                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
 
                     // Buffer
                     FormSection(title = "Buffer after") {
@@ -1453,6 +1501,9 @@ fun AddTaskSheet(
                             }
                         }
                     }
+
+                    } // Advanced Column
+                    } // AnimatedVisibility
                 }
             }
         }

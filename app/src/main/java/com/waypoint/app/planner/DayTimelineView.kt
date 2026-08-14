@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -335,24 +339,33 @@ fun DayTimelineView(
                 )
             }
         }
-        // Zoom level pill — fixed overlay, does not scroll with the timeline
-        Box(
-            Modifier
+        // Zoom level pill — fixed overlay, does not scroll with the timeline.
+        // Carries a magnifier icon (not just "1×" text) so it reads as interactive.
+        Row(
+            modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 4.dp, end = 6.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(surface.copy(alpha = 0.88f))
-                .border(1.dp, outline, RoundedCornerShape(6.dp))
+                .background(surface.copy(alpha = 0.95f))
+                .border(1.dp, outline.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
                 .clickable {
                     val topMinute = (scrollState.value / with(density) { hourHeight.toPx() } * 60).toInt()
                     anchorMinute = topMinute
                     zoomIndex = (zoomIndex + 1) % zoomFactors.size
                 }
-                .padding(horizontal = 9.dp, vertical = 3.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Change zoom level",
+                tint = onSV,
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(Modifier.width(4.dp))
             Text(
                 text = zoomLabels[zoomIndex],
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                 color = onSV
             )
         }
@@ -644,6 +657,8 @@ private fun FreeWindowBlock(
         durMin >= 60           -> "${h}h"
         else                   -> "${durMin}m"
     }
+    // Free slots are the fastest way to add something (tap opens +Task/+Block/+Event),
+    // so they need to read as tappable rather than as empty background.
     Box(
         Modifier
             .yOffset(startY)
@@ -652,15 +667,15 @@ private fun FreeWindowBlock(
             .padding(horizontal = 4.dp, vertical = 1.dp)
             .clip(RoundedCornerShape(4.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(onSV.copy(alpha = 0.03f))
-            .border(1.dp, onSV.copy(alpha = 0.10f), RoundedCornerShape(4.dp))
+            .background(onSV.copy(alpha = 0.09f))
+            .border(1.dp, onSV.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
     ) {
         if (blockH >= 20.dp) {
             Text(
-                text = "free · $durLabel",
+                text = if (durMin >= 30) "+ free · $durLabel" else "free · $durLabel",
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = onSV.copy(alpha = 0.30f)
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                color = onSV.copy(alpha = 0.55f)
             )
         }
     }
@@ -733,7 +748,7 @@ private fun PlannerEventBlock(
     val startY = minToY(seStartMin, hourHeight)
     val eventH = (minToY(seEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
 
-    val sleepAccent = Color(0xFF6B8ABD)
+    val sleepAccent = MaterialTheme.colorScheme.tertiary
     val blockAccent: Color? = if (isBlock) {
         val blockId = se.event.id.removePrefix("__block__")
         val stored = blockInstances.find { it.block.id == blockId }

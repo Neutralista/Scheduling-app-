@@ -132,7 +132,7 @@ fun HomeScreen(
     externalTabRequest: Int? = null,
     onTabNavigated: () -> Unit = {}
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 7 }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(externalTabRequest) {
@@ -164,7 +164,7 @@ fun HomeScreen(
     val tasksTotal = plannerScheduled.size
     val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
-    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
+    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -190,7 +190,7 @@ fun HomeScreen(
                 }
             }
         ) {
-            listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
+            tabLabels
                 .forEachIndexed { i, label ->
                     Tab(
                         selected = pagerState.currentPage == i,
@@ -210,10 +210,7 @@ fun HomeScreen(
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore, namedBlockStore = namedBlockStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey)
-                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                5 -> SettingsTab(
-                    onPermissionGranted = onPermissionGranted,
-                    themeStore = themeStore,
+                4 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
                     onStateChange = onStateChange,
@@ -221,6 +218,11 @@ fun HomeScreen(
                     onUpdateScript = onUpdateScript,
                     onRemoveScript = onRemoveScript,
                     onResetScript = onResetScript
+                )
+                5 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                6 -> SettingsTab(
+                    onPermissionGranted = onPermissionGranted,
+                    themeStore = themeStore
                 )
                 else -> Box(Modifier.fillMaxSize())
             }
@@ -515,6 +517,13 @@ private fun PlanTab(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
+                if (dayOffset == 0) {
+                    Text(
+                        text = "Full day timeline",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
                 if (dayOffset == -1 || dayOffset == 1) {
                     Text(
                         text = selectedDate.format(dateFmt),
@@ -1078,7 +1087,13 @@ private fun SleepEditSheet(
                     )
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Reminder alarms, wake-up count, and block sync are in the Blocks tab → Sleep.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+            )
+            Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Done") }
             }
