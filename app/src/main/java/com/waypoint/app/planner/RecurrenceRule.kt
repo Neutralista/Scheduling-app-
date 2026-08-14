@@ -50,9 +50,14 @@ fun RecurrenceRule.occursOn(date: LocalDate): Boolean {
 
         is RecurrenceRule.EveryNMonths -> {
             val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
-            if (date.dayOfMonth != anchor.dayOfMonth) return false
-            val months = ChronoUnit.MONTHS.between(anchor, date)
-            months >= 0 && months % n == 0L
+            if (date.isBefore(anchor)) return false
+            val monthsBetween = (date.year - anchor.year) * 12L + (date.monthValue - anchor.monthValue)
+            if (monthsBetween % n != 0L) return false
+            // Clamp the anchor's day-of-month to the target month's actual length, so an
+            // anchor on the 29th-31st still fires (on the last day) in shorter months
+            // instead of being silently skipped whenever that exact day doesn't exist.
+            val expectedDay = minOf(anchor.dayOfMonth, date.lengthOfMonth())
+            date.dayOfMonth == expectedDay
         }
 
         is RecurrenceRule.NTimesPerPeriod -> {

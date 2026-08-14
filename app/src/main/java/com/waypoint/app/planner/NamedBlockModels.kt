@@ -104,6 +104,22 @@ data class BlockTaskActivation(
 )
 
 /**
+ * The canonical effective-duration computation for a block occurrence, given the tasks
+ * already resolved as active for it. When [NamedBlock.useTotalTaskDuration] is true, sums
+ * only the DURING-placement tasks; falls back to [NamedBlock.estimatedMinutes] when that
+ * sum is zero (e.g. no DURING tasks configured). Callers that only have a date (not a
+ * pre-resolved task list) should go through [NamedBlockStore.effectiveDurationMinutes]
+ * instead, which resolves the tasks and delegates here.
+ */
+fun effectiveDurationMinutes(block: NamedBlock, activeTasks: List<BlockTask>): Int {
+    if (!block.useTotalTaskDuration) return block.estimatedMinutes
+    val taskTotal = activeTasks
+        .filter { it.placement == BlockTaskPlacement.DURING }
+        .sumOf { it.durationMinutes }
+    return taskTotal.takeIf { it > 0 } ?: block.estimatedMinutes
+}
+
+/**
  * Resolved named block instance for a specific date — ready for the planner.
  * [effectiveStartMs] and [effectiveEndMs] are updated post-scheduling to reflect
  * tasks that pulled the start earlier or pushed the end later.

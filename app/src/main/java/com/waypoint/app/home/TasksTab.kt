@@ -90,7 +90,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Calendar
@@ -118,7 +117,18 @@ fun TasksTab(
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<TaskRequest?>(null) }
 
-    val plannerPlan = remember(refreshKey) { registry.planToday() }
+    val today = remember { LocalDate.now() }
+    val namedBlockStore = remember { NamedBlockStore(context) }
+    // Resolved once here and reused both for the plan (so tasks don't get scheduled
+    // into time a block already occupies) and for the block-start cards below —
+    // previously this tab called planToday() with no block info at all, so its task
+    // list could disagree with the Plan tab's timeline about what's happening when.
+    val todayFixedBlocks = remember(refreshKey) { namedBlockStore.resolveFixedInstancesForDate(today) }
+    val todayFloatingBlocks = remember(refreshKey) { namedBlockStore.resolveFloatingInstancesForDate(today) }
+
+    val plannerPlan = remember(refreshKey, todayFixedBlocks, todayFloatingBlocks) {
+        registry.planToday(namedBlockInstances = todayFixedBlocks, floatingBlocks = todayFloatingBlocks)
+    }
     val scheduledTasks = remember(plannerPlan) {
         plannerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
     }
@@ -149,10 +159,8 @@ fun TasksTab(
         }
     }
 
-    val namedBlockStore = remember { NamedBlockStore(context) }
     val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
     val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
-    val today = remember { LocalDate.now() }
 
     Column(Modifier.fillMaxSize()) {
         // ── Header bar: clock + day + Add button ──────────────────────────
@@ -197,21 +205,13 @@ fun TasksTab(
                     taskManager = taskManager
                 )
             } else {
-                val todayBlocks = remember(refreshKey) { namedBlockStore.resolveForDate(today) }
-                todayBlocks.forEach { (block, sched) ->
-                    val startMs = today.atTime(sched.startHour, sched.startMinute)
-                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                    val endMs = if (sched.endHour >= 0) {
-                        val e = today.atTime(sched.endHour, sched.endMinute)
-                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                        if (e > startMs) e else e + 24 * 3600_000L
-                    } else startMs + namedBlockStore.effectiveDurationMinutes(block, today) * 60_000L
+                todayFixedBlocks.forEach { inst ->
                     BlockStartCard(
-                        blockName = block.name,
-                        colorArgb = block.colorArgb,
-                        startMs = startMs,
-                        endMs = endMs,
-                        onStart = { blockSessionStore.startSession(block, endMs, today) }
+                        blockName = inst.block.name,
+                        colorArgb = inst.block.colorArgb,
+                        startMs = inst.scheduledStartMs,
+                        endMs = inst.estimatedEndMs,
+                        onStart = { blockSessionStore.startSession(inst.block, inst.estimatedEndMs, today) }
                     )
                 }
             }

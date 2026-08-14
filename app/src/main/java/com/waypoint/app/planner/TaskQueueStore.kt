@@ -6,6 +6,18 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/**
+ * Parses "HH:MM" into (hour, minute); an unparsable or missing hour/minute component
+ * falls back to [defaultHour]/[defaultMinute] individually. Returns null only when
+ * [value] itself is null (i.e. that side of a window wasn't specified at all).
+ */
+internal fun parseClockTime(value: String?, defaultHour: Int, defaultMinute: Int): Pair<Int, Int>? {
+    val parts = value?.split(":") ?: return null
+    val hour = parts.getOrNull(0)?.toIntOrNull() ?: defaultHour
+    val minute = parts.getOrNull(1)?.toIntOrNull() ?: defaultMinute
+    return hour to minute
+}
+
 @Serializable
 data class TaskConditionSpec(
     val type: String,
@@ -23,12 +35,9 @@ data class TaskConditionSpec(
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
-            val s = start?.split(":") ?: return null
-            val e = end?.split(":") ?: return null
-            EventCondition.TimeWindow(
-                s[0].toIntOrNull() ?: 0, s[1].toIntOrNull() ?: 0,
-                e[0].toIntOrNull() ?: 0, e[1].toIntOrNull() ?: 0
-            )
+            val (sh, sm) = parseClockTime(start, 0, 0) ?: return null
+            val (eh, em) = parseClockTime(end, 23, 59) ?: return null
+            EventCondition.TimeWindow(sh, sm, eh, em)
         }
         "daysOfWeek"     -> days?.let { EventCondition.DaysOfWeek(it.toSet()) }
         "workDayOnly"    -> EventCondition.WorkDayOnly

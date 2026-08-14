@@ -1,9 +1,7 @@
 package com.waypoint.app.planner
 
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import java.util.Calendar
-import kotlin.math.roundToInt
 
 class EventPlannerRegistry {
 
@@ -121,17 +119,40 @@ class EventPlannerRegistry {
         // reservingBlocks carries calendar events the user marked as "reserves time".
         // Tonight's sleep is excluded so tasks can freely schedule into that window;
         // it is re-inserted at its final (slid) position after the scheduling pass.
+        // Fixed named blocks reserve time here too, before floating blocks are placed,
+        // so a floating block can never be scheduled on top of a fixed one.
+        val namedBlockFixedIntervals = namedBlockInstances.map { it.scheduledStartMs to it.estimatedEndMs }
         val fixedIntervals = scheduled
             .filter { it.event.category != EventCategory.BUFFER
                    && it.event.id != tonightSleepEvent?.id }
-            .map { it.startMillis to it.endMillis } + reservingBlocks
+            .map { it.startMillis to it.endMillis } + reservingBlocks + namedBlockFixedIntervals
         val remaining = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervals).toMutableList()
 
         // ── Floating named blocks ──────────────────────────────────────────────
         // Blocks with isFloating=true have no fixed schedule; place them in available
-        // time using first-fit before tasks run, ordered by block priority descending.
+        // time using first-fit before tasks run. Processed in dependency order — a
+        // block referencing another floating block via beforeBlock/afterBlock is only
+        // placed once that referenced block is resolved — then by priority descending
+        // within each ready round, so before/after ordering between two floating
+        // blocks is honored regardless of their relative priority.
         val floatingResolved = mutableListOf<NamedBlockInstance>()
-        for (inst in floatingBlocks.sortedByDescending { it.block.priority }) {
+        val floatingById = floatingBlocks.associateBy { it.block.id }
+        val remainingFloatingIds = floatingBlocks.map { it.block.id }.toMutableSet()
+
+        fun floatingBlockingDependency(inst: NamedBlockInstance): String? {
+            val beforeRef = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }?.blockId
+            val afterRef  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }?.blockId
+            return listOfNotNull(beforeRef, afterRef).firstOrNull { it in remainingFloatingIds }
+        }
+
+        while (remainingFloatingIds.isNotEmpty()) {
+            val pending = remainingFloatingIds.map { floatingById.getValue(it) }
+            val ready = pending.filter { floatingBlockingDependency(it) == null }
+            // A dependency cycle leaves nothing "ready" — fall back to priority order
+            // for the remaining set so the plan still completes instead of stalling.
+            val inst = (ready.ifEmpty { pending }).maxByOrNull { it.block.priority }!!
+            remainingFloatingIds.remove(inst.block.id)
+
             val eligible = inst.block.floatingConditions.none { spec ->
                 when (spec.type) {
                     "workDayOnly" -> !isWorkDay
@@ -141,9 +162,7 @@ class EventPlannerRegistry {
                 }
             }
             if (!eligible) continue
-            val effectiveDurMins = if (inst.block.useTotalTaskDuration && inst.activeTasks.any { it.placement == BlockTaskPlacement.DURING })
-                inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.sumOf { it.durationMinutes }
-                else inst.block.estimatedMinutes
+            val effectiveDurMins = effectiveDurationMinutes(inst.block, inst.activeTasks)
             val durationMs = effectiveDurMins * 60_000L
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
             val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
@@ -158,17 +177,11 @@ class EventPlannerRegistry {
             for (i in remaining.indices) {
                 val (bStart, bEnd) = remaining[i]
                 val fitStart = maxOf(
-                    if (tw?.start != null) {
-                        val p = tw.start!!.split(":"); val h = p[0].toIntOrNull() ?: 0; val m = p.getOrNull(1)?.toIntOrNull() ?: 0
-                        maxOf(bStart, toMs(h, m))
-                    } else bStart,
+                    parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> maxOf(bStart, toMs(h, m)) } ?: bStart,
                     floatLowerBound ?: bStart
                 )
                 val fitEnd = minOf(
-                    if (tw?.end != null) {
-                        val p = tw.end!!.split(":"); val h = p[0].toIntOrNull() ?: 23; val m = p.getOrNull(1)?.toIntOrNull() ?: 59
-                        minOf(bEnd, toMs(h, m))
-                    } else bEnd,
+                    parseClockTime(tw?.end, 23, 59)?.let { (h, m) -> minOf(bEnd, toMs(h, m)) } ?: bEnd,
                     floatUpperBound ?: bEnd
                 )
                 if (fitEnd - fitStart < durationMs) continue
@@ -248,9 +261,11 @@ class EventPlannerRegistry {
                 else allSchedulable += syntheticEvent
             }
         }
-        // Re-build fixedIntervals to include block bodies (DuringBlock tasks will carve into them)
-        val blockFixedIntervals = allBlockInstances.map { it.scheduledStartMs to it.estimatedEndMs }
-        val fixedIntervalsWithBlocks = fixedIntervals + blockFixedIntervals
+        // Re-build fixedIntervals to include block bodies (DuringBlock tasks will carve into
+        // them). Fixed named blocks are already in fixedIntervals; only the newly-placed
+        // floating blocks need adding here.
+        val floatingFixedIntervals = floatingResolved.map { it.scheduledStartMs to it.estimatedEndMs }
+        val fixedIntervalsWithBlocks = fixedIntervals + floatingFixedIntervals
         val remainingWithBlocks = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervalsWithBlocks).toMutableList()
         // Use remainingWithBlocks as the working set from here on
         remaining.clear(); remaining.addAll(remainingWithBlocks)
@@ -707,35 +722,16 @@ class EventPlannerRegistry {
             is EventCondition.AfterShift -> if (!isWorkDay || shiftStartMs == null || shiftEndMs == null) return "No shift today"
             is EventCondition.Deadline -> if (System.currentTimeMillis() > cond.byMillis) return "Past deadline"
             is EventCondition.OneOff -> if (date.toString() != cond.date) return "Not scheduled for today"
-            is EventCondition.EveryNDays -> {
-                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
-                    ?: return "Invalid anchor date"
-                val diff = ChronoUnit.DAYS.between(anchor, date)
-                if (diff < 0 || diff % cond.n != 0L) return "Not scheduled for today"
-            }
-            is EventCondition.EveryNWeeks -> {
-                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
-                    ?: return "Invalid anchor date"
-                val diff = ChronoUnit.DAYS.between(anchor, date)
-                if (diff < 0 || diff % (cond.n * 7L) != 0L) return "Not scheduled for today"
-            }
-            is EventCondition.EveryNMonths -> {
-                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
-                    ?: return "Invalid anchor date"
-                if (date.dayOfMonth != anchor.dayOfMonth) return "Not scheduled for today"
-                val months = ChronoUnit.MONTHS.between(anchor, date)
-                if (months < 0 || months % cond.n != 0L) return "Not scheduled for today"
-            }
-            is EventCondition.NTimesPerPeriod -> {
-                val anchor = runCatching { LocalDate.parse(cond.anchorDate) }.getOrNull()
-                    ?: return "Invalid anchor date"
-                val daysSince = ChronoUnit.DAYS.between(anchor, date)
-                if (daysSince < 0) return "Not scheduled for today"
-                val dayInPeriod = (daysSince % cond.periodDays).toInt()
-                val spacing = cond.periodDays.toDouble() / cond.count
-                val matches = (0 until cond.count).any { k -> dayInPeriod == (k * spacing).roundToInt() }
-                if (!matches) return "Not scheduled for today"
-            }
+            // Delegate the recurring-pattern day-matching to RecurrenceRule.occursOn so named
+            // blocks and plain tasks always agree on identical rules — see RecurrenceRule.kt.
+            is EventCondition.EveryNDays ->
+                if (!RecurrenceRule.EveryNDays(cond.n, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
+            is EventCondition.EveryNWeeks ->
+                if (!RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
+            is EventCondition.EveryNMonths ->
+                if (!RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
+            is EventCondition.NTimesPerPeriod ->
+                if (!RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
             else -> Unit
         }
         return null

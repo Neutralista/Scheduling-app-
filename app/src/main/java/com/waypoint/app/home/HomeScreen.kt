@@ -143,7 +143,19 @@ fun HomeScreen(
     var drawerOpen by remember { mutableStateOf(false) }
     var headerRefreshKey by remember { mutableIntStateOf(0) }
 
-    val headerPlan = remember(headerRefreshKey) { eventPlanner.planToday() }
+    val context = LocalContext.current
+    val namedBlockStore = remember { NamedBlockStore(context) }
+    val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
+
+    // Include today's blocks so the header's task count agrees with the Plan tab's
+    // timeline about what's scheduled — a bare planToday() ignores block-reserved time.
+    val today = remember { LocalDate.now() }
+    val headerPlan = remember(headerRefreshKey) {
+        eventPlanner.planToday(
+            namedBlockInstances = namedBlockStore.resolveFixedInstancesForDate(today),
+            floatingBlocks = namedBlockStore.resolveFloatingInstancesForDate(today)
+        )
+    }
     val plannerScheduled = remember(headerPlan) {
         headerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
     }
@@ -153,10 +165,6 @@ fun HomeScreen(
     val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
     val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
-
-    val context = LocalContext.current
-    val namedBlockStore = remember { NamedBlockStore(context) }
-    val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {

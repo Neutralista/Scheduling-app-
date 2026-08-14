@@ -63,9 +63,12 @@ class TaskManagerScript(
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)
         val tasks = store.loadAll()
+        // Loaded once and filtered per-task in memory, rather than re-reading and
+        // re-decoding the entire executions store for every useMeasuredDuration task.
+        val allExecutions = executions.loadAll()
         tasks.filter { !completions.isSkipped(it.id) }.forEach { req ->
             val effectiveDuration = if (req.useMeasuredDuration) {
-                executions.loadAll()
+                allExecutions
                     .filter { it.taskId == req.id && it.measuredMinutes != null }
                     .mapNotNull { it.measuredMinutes }
                     .average()

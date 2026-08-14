@@ -5,6 +5,7 @@ import com.waypoint.app.alarm.AlarmBlockSync
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class NamedBlockStore(private val context: Context) {
@@ -154,11 +155,36 @@ class NamedBlockStore(private val context: Context) {
      * active on that date (respecting day-of-week and situational conditions).
      * Falls back to [NamedBlock.estimatedMinutes] when the active sum is zero.
      */
-    fun effectiveDurationMinutes(block: NamedBlock, date: LocalDate): Int {
-        if (!block.useTotalTaskDuration) return block.estimatedMinutes
-        val taskTotal = resolveActiveTasks(block.id, date)
-            .filter { it.placement == BlockTaskPlacement.DURING }
-            .sumOf { it.durationMinutes }
-        return taskTotal.takeIf { it > 0 } ?: block.estimatedMinutes
+    fun effectiveDurationMinutes(block: NamedBlock, date: LocalDate): Int =
+        effectiveDurationMinutes(block, resolveActiveTasks(block.id, date))
+
+    // ── Planner instance resolution ─────────────────────────────────────────────
+
+    /**
+     * Resolves [date]'s fixed (non-floating) blocks into the [NamedBlockInstance] shape
+     * EventPlannerRegistry.planForDate needs for its namedBlockInstances parameter, with
+     * each block's active tasks and effective end time computed. Callers that display a
+     * live in-session task list with measured-duration overrides (e.g. the timeline and
+     * block-scope views) should keep resolving activeTasks themselves instead, since this
+     * helper doesn't know about per-session measured-duration adjustments.
+     */
+    fun resolveFixedInstancesForDate(date: LocalDate): List<NamedBlockInstance> {
+        val zone = ZoneId.systemDefault()
+        return resolveForDate(date).map { (block, sched) ->
+            val startMs = date.atTime(sched.startHour, sched.startMinute).atZone(zone).toInstant().toEpochMilli()
+            val activeTasks = resolveActiveTasks(block.id, date)
+            val endMs = if (sched.endHour >= 0) {
+                val e = date.atTime(sched.endHour, sched.endMinute).atZone(zone).toInstant().toEpochMilli()
+                if (e > startMs) e else e + 24 * 3600_000L
+            } else startMs + effectiveDurationMinutes(block, activeTasks) * 60_000L
+            NamedBlockInstance(block, startMs, endMs, activeTasks)
+        }
     }
+
+    /** Resolves floating blocks into unscheduled [NamedBlockInstance] placeholders (start/end
+     *  filled in later by the planner) with their active tasks for [date]. */
+    fun resolveFloatingInstancesForDate(date: LocalDate): List<NamedBlockInstance> =
+        loadAllBlocks().filter { it.isFloating }.map { block ->
+            NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date))
+        }
 }
