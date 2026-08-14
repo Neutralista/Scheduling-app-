@@ -917,7 +917,7 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
                     text = "Tap a day to toggle it, the pencil to change its time. Also editable from each block's own settings in the Blocks tab.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                    modifier = Modifier.padding(horizontal = 16.dp, bottom = 6.dp)
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
                 )
                 fixedBlocks.forEach { block ->
                     BlockScheduleSection(
