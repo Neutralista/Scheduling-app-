@@ -4,6 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -37,6 +42,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -295,8 +301,51 @@ fun DayTimelineView(
 
     val totalH = hourHeight * TOTAL_HOURS
 
+    // pointerInput(Unit) below never restarts, so hourHeight (recomputed from zoomIndex on
+    // every recomposition) has to be read through rememberUpdatedState — otherwise the pinch
+    // handler would keep anchoring against whatever zoom level was active when the gesture
+    // detector coroutine first launched.
+    val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+
     Box(modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .pointerInput(Unit) {
+                    // Pinch-to-zoom that locks onto the existing zoomFactors steps rather than
+                    // scaling freely. Only engages once a second pointer joins the gesture, so
+                    // an ordinary one-finger drag is left untouched for verticalScroll above.
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var accumulatedZoom = 1f
+                        do {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.size >= 2) {
+                                val zoomChange = event.calculateZoom()
+                                if (zoomChange != 1f) {
+                                    accumulatedZoom *= zoomChange
+                                    pressed.forEach { it.consume() }
+                                    val centroidY = event.calculateCentroid(useCurrent = true).y
+                                    fun jumpTo(newIndex: Int) {
+                                        if (newIndex != zoomIndex) {
+                                            val hourHeightPx = latestHourHeightPx.value
+                                            anchorMinute = ((scrollState.value + centroidY) / hourHeightPx * 60).toInt()
+                                            zoomIndex = newIndex
+                                        }
+                                        accumulatedZoom = 1f
+                                    }
+                                    when {
+                                        accumulatedZoom > 1.25f -> jumpTo((zoomIndex + 1).coerceAtMost(zoomFactors.lastIndex))
+                                        accumulatedZoom < 0.8f  -> jumpTo((zoomIndex - 1).coerceAtLeast(0))
+                                    }
+                                }
+                            }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+        ) {
             Row(Modifier.fillMaxWidth().height(totalH)) {
                 HourLabelsColumn(
                     viewStartMs = viewStartMs,
