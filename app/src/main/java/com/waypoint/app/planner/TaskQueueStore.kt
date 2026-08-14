@@ -31,13 +31,18 @@ data class TaskConditionSpec(
     val intervalN: Int? = null,
     val anchorDate: String? = null,
     val oneOffDate: String? = null,
-    val occurrenceCount: Int? = null
+    val occurrenceCount: Int? = null,
+    val flexMinutes: Int? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {
             val (sh, sm) = parseClockTime(start, 0, 0) ?: return null
             val (eh, em) = parseClockTime(end, 23, 59) ?: return null
             EventCondition.TimeWindow(sh, sm, eh, em)
+        }
+        "aroundTime"     -> {
+            val (h, m) = parseClockTime(start, 12, 0) ?: return null
+            EventCondition.AroundTime(h, m, flexMinutes ?: 60)
         }
         "daysOfWeek"     -> days?.let { EventCondition.DaysOfWeek(it.toSet()) }
         "workDayOnly"    -> EventCondition.WorkDayOnly

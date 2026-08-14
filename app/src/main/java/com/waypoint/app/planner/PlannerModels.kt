@@ -54,6 +54,16 @@ sealed class EventCondition {
         val endHour: Int, val endMin: Int
     ) : EventCondition()
 
+    /**
+     * Soft anchor: prefer to start as close as possible to (anchorHour:anchorMin), but allow
+     * drifting up to flexMinutes earlier or later when the exact time isn't free. Unlike
+     * TimeWindow (a hard bound), a task can only fail to place here if no slot anywhere in
+     * [anchor - flex, anchor + flex] fits — it never silently lands outside that range.
+     */
+    data class AroundTime(
+        val anchorHour: Int, val anchorMinute: Int, val flexMinutes: Int
+    ) : EventCondition()
+
     /** ISO day-of-week set: 1=Mon … 7=Sun */
     data class DaysOfWeek(val days: Set<Int>) : EventCondition()
 

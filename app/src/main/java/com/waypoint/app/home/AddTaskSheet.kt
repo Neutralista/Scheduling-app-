@@ -153,6 +153,13 @@ fun AddTaskSheet(
     var showAfterTimePicker  by remember { mutableStateOf(false) }
     var showBeforeTimePicker by remember { mutableStateOf(false) }
 
+    // "Around" is a soft anchor — mutually exclusive with the After/Before hard window above,
+    // enforced by clearing whichever isn't in use as soon as the other is set.
+    val initAround = initConditions.firstOrNull { it.type == "aroundTime" }
+    var aroundTime by remember { mutableStateOf(initAround?.start) }
+    var aroundFlexMinutes by remember { mutableIntStateOf(initAround?.flexMinutes ?: 60) }
+    var showAroundTimePicker by remember { mutableStateOf(false) }
+
     val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
     var selectedDays by remember { mutableStateOf(initDays) }
 
@@ -285,7 +292,9 @@ fun AddTaskSheet(
                     add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
                 if (beforeTaskIds.isNotEmpty())
                     add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
-                if (afterTime != null || beforeTime != null)
+                if (aroundTime != null)
+                    add(TaskConditionSpec("aroundTime", start = aroundTime, flexMinutes = aroundFlexMinutes))
+                else if (afterTime != null || beforeTime != null)
                     add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
                 if (selectedDays.isNotEmpty())
                     add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
@@ -337,7 +346,9 @@ fun AddTaskSheet(
                 add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
             if (beforeTaskIds.isNotEmpty())
                 add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
-            if (afterTime != null || beforeTime != null) {
+            if (aroundTime != null) {
+                add(TaskConditionSpec("aroundTime", start = aroundTime, flexMinutes = aroundFlexMinutes))
+            } else if (afterTime != null || beforeTime != null) {
                 add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
             }
             if (selectedDays.isNotEmpty()) {
@@ -731,7 +742,7 @@ fun AddTaskSheet(
 
                             // ── Active constraint tags ──────────────────────────────────────
                             val hasConstraints = selectedDays.isNotEmpty() ||
-                                afterTime != null || beforeTime != null ||
+                                afterTime != null || beforeTime != null || aroundTime != null ||
                                 afterTaskIds.isNotEmpty() || beforeTaskIds.isNotEmpty() ||
                                 afterCalEventIds.isNotEmpty() || beforeCalEventIds.isNotEmpty() ||
                                 duringCalEventId != null || taskRecurrenceRule != null ||
@@ -753,6 +764,11 @@ fun AddTaskSheet(
                                         ConstraintTag("After $afterTime") { afterTime = null }
                                     if (beforeTime != null)
                                         ConstraintTag("Before $beforeTime") { beforeTime = null }
+                                    if (aroundTime != null) {
+                                        val flexLabel = if (aroundFlexMinutes >= 60)
+                                            "±${aroundFlexMinutes / 60}h" else "±${aroundFlexMinutes}m"
+                                        ConstraintTag("Around $aroundTime $flexLabel") { aroundTime = null }
+                                    }
                                     afterTaskIds.forEach { tid ->
                                         val name = if (tid == TASK_REF_SLEEP) "Sleep"
                                                    else chainTargets.find { it.id == tid }?.title
@@ -846,6 +862,7 @@ fun AddTaskSheet(
                                                     "recurrence"  -> "Recurrence"
                                                     "after"       -> "After"
                                                     "before"      -> "Before"
+                                                    "around"      -> "Around"
                                                     "sameDayAs"   -> "Day relation"
                                                     "duringEvent" -> "During event"
                                                     else          -> "Add constraint"
@@ -896,6 +913,11 @@ fun AddTaskSheet(
                                                     selected = false,
                                                     onClick  = { constraintPicker = "before" },
                                                     label    = { Text("Before") }
+                                                )
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "around" },
+                                                    label    = { Text("Around") }
                                                 )
                                                 if (!isBlockMode) {
                                                     FilterChip(
@@ -1084,6 +1106,53 @@ fun AddTaskSheet(
                                             }
                                             }
 
+                                            "around" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Text(
+                                                    "A soft target — the task lands as close to this time as it can, drifting " +
+                                                        "earlier or later within the flex range if the exact slot is busy.",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                )
+                                                if (aroundTime != null) {
+                                                    Row(
+                                                        verticalAlignment     = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        TimePickerChip(value = aroundTime!!, onValueChange = { aroundTime = it })
+                                                        IconButton(onClick = { aroundTime = null }, modifier = Modifier.size(20.dp)) {
+                                                            Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                                        }
+                                                    }
+                                                } else {
+                                                    FilterChip(
+                                                        selected = false,
+                                                        onClick  = { showAroundTimePicker = true },
+                                                        label    = { Text("+ Time") }
+                                                    )
+                                                }
+                                                if (aroundTime != null) {
+                                                    Text(
+                                                        "Flex range",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    FlowRow(
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                        verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        listOf(15 to "±15m", 30 to "±30m", 60 to "±1h", 120 to "±2h", 180 to "±3h")
+                                                            .forEach { (mins, label) ->
+                                                                FilterChip(
+                                                                    selected = aroundFlexMinutes == mins,
+                                                                    onClick  = { aroundFlexMinutes = mins },
+                                                                    label    = { Text(label) }
+                                                                )
+                                                            }
+                                                    }
+                                                }
+                                            }
+
                                             "sameDayAs" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 FlowRow(
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1157,6 +1226,7 @@ fun AddTaskSheet(
                                     onDismiss = { showAfterTimePicker = false },
                                     onConfirm = { h, m ->
                                         afterTime = "%02d:%02d".format(h, m)
+                                        aroundTime = null
                                         showAfterTimePicker = false
                                     }
                                 )
@@ -1168,7 +1238,21 @@ fun AddTaskSheet(
                                     onDismiss = { showBeforeTimePicker = false },
                                     onConfirm = { h, m ->
                                         beforeTime = "%02d:%02d".format(h, m)
+                                        aroundTime = null
                                         showBeforeTimePicker = false
+                                    }
+                                )
+                            }
+                            if (showAroundTimePicker) {
+                                TimePickerDialog(
+                                    initialHour   = aroundTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 12,
+                                    initialMinute = aroundTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+                                    onDismiss = { showAroundTimePicker = false },
+                                    onConfirm = { h, m ->
+                                        aroundTime = "%02d:%02d".format(h, m)
+                                        afterTime = null
+                                        beforeTime = null
+                                        showAroundTimePicker = false
                                     }
                                 )
                             }

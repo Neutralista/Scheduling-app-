@@ -536,6 +536,51 @@ class EventPlannerRegistry {
 
             val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
 
+            // AroundTime: soft anchor. Scans every free slot for the closest valid start to
+            // the anchor within [anchor - flex, anchor + flex] and takes the single best one
+            // across all slots, rather than a plain first-fit/last-fit scan. Genuinely "soft":
+            // if nothing fits inside the flex window, the task is blocked — same visibility as
+            // any other unsatisfiable constraint — instead of silently landing far from anchor.
+            val aroundTime = event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
+            if (aroundTime != null) {
+                val anchorMs = toMs(aroundTime.anchorHour, aroundTime.anchorMinute)
+                val flexMs = aroundTime.flexMinutes * 60_000L
+                var bestIdx = -1
+                var bestStart = -1L
+                var bestDistance = Long.MAX_VALUE
+                for (i in remaining.indices) {
+                    val (blockStart, blockEnd) = remaining[i]
+                    val lo = maxOf(blockStart, effectiveMustStartAfter ?: blockStart, anchorMs - flexMs)
+                    val hi = minOf(
+                        blockEnd - durationMs,
+                        (effectiveMustEndBefore ?: blockEnd) - durationMs,
+                        anchorMs + flexMs,
+                        deadline?.byMillis?.minus(durationMs) ?: Long.MAX_VALUE
+                    )
+                    if (hi < lo) continue
+                    val candidateStart = anchorMs.coerceIn(lo, hi)
+                    val distance = kotlin.math.abs(candidateStart - anchorMs)
+                    if (distance < bestDistance) {
+                        bestDistance = distance
+                        bestStart = candidateStart
+                        bestIdx = i
+                    }
+                }
+                if (bestIdx >= 0) {
+                    val (blockStart, blockEnd) = remaining[bestIdx]
+                    scheduled += ScheduledEvent(event, bestStart, bestStart + durationMs)
+                    remaining.removeAt(bestIdx)
+                    val segs = buildList {
+                        if (bestStart > blockStart) add(blockStart to bestStart)
+                        if (bestStart + durationMs < blockEnd) add((bestStart + durationMs) to blockEnd)
+                    }
+                    remaining.addAll(bestIdx, segs)
+                } else {
+                    blocked += BlockedEvent(event, "No available time near ${"%02d:%02d".format(aroundTime.anchorHour, aroundTime.anchorMinute)}")
+                }
+                continue
+            }
+
             if (!useLast) {
                 // Forward first-fit: take the earliest block where the task fits.
                 for (i in remaining.indices) {
