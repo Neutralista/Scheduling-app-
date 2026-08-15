@@ -241,6 +241,10 @@ fun AddTaskSheet(
     var blockPlacement  by remember { mutableStateOf(initialBlockTask?.placement   ?: BlockTaskPlacement.DURING) }
     var blockSubPlace   by remember { mutableStateOf(initialBlockTask?.subPlacement) }
     var blockIsAlways   by remember { mutableStateOf(initialBlockTask?.isAlways    ?: true) }
+    // Sequenced: runs in a fixed order relative to other sequenced DURING tasks in this block.
+    // Real numbering happens where sibling tasks are visible (NamedBlockSheet/BlocksTab save
+    // callbacks) — -1 here is a sentinel meaning "new, not yet numbered".
+    var blockSequenced  by remember { mutableStateOf(initialBlockTask?.sequence != null) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also {
@@ -336,6 +340,8 @@ fun AddTaskSheet(
                     bufferMinutes       = resolvedBuffer,
                     isAlways            = blockIsAlways,
                     subPlacement        = if (blockPlacement == BlockTaskPlacement.DURING) blockSubPlace else null,
+                    sequence            = if (blockPlacement == BlockTaskPlacement.DURING && blockSequenced)
+                                              initialBlockTask?.sequence ?: -1 else null,
                     conditions          = blockConditions,
                     useMeasuredDuration = useMeasuredDuration,
                     triggers            = triggers.toList(),
@@ -609,7 +615,7 @@ fun AddTaskSheet(
                                 ) {
                                     FilterChip(
                                         selected = blockPlacement == BlockTaskPlacement.BEFORE,
-                                        onClick  = { blockPlacement = BlockTaskPlacement.BEFORE; blockSubPlace = null },
+                                        onClick  = { blockPlacement = BlockTaskPlacement.BEFORE; blockSubPlace = null; blockSequenced = false },
                                         label    = { Text("Before block") }
                                     )
                                     FilterChip(
@@ -619,7 +625,7 @@ fun AddTaskSheet(
                                     )
                                     FilterChip(
                                         selected = blockPlacement == BlockTaskPlacement.AFTER,
-                                        onClick  = { blockPlacement = BlockTaskPlacement.AFTER; blockSubPlace = null },
+                                        onClick  = { blockPlacement = BlockTaskPlacement.AFTER; blockSubPlace = null; blockSequenced = false },
                                         label    = { Text("After block") }
                                     )
                                 }
@@ -634,6 +640,29 @@ fun AddTaskSheet(
                                 )
                                 // Sub-placement position: only shown for DURING tasks
                                 if (blockPlacement == BlockTaskPlacement.DURING) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Sequenced", style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                "Runs in a fixed order relative to other sequenced tasks in this block",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        Switch(
+                                            checked = blockSequenced,
+                                            onCheckedChange = { blockSequenced = it; if (it) blockSubPlace = null }
+                                        )
+                                    }
+                                }
+                                // Sub-placement position: only shown for DURING tasks not in a sequence —
+                                // ordering already answers where a sequenced task starts.
+                                if (blockPlacement == BlockTaskPlacement.DURING && !blockSequenced) {
                                     Spacer(Modifier.height(8.dp))
                                     Text(
                                         "Position within block",

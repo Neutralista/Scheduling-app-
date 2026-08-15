@@ -71,12 +71,14 @@ import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.EventPlannerRegistry
+import com.waypoint.app.planner.findAdjacentSequencedSibling
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepAlarmSync
 import com.waypoint.app.planner.SleepSchedule
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.ui.components.TimePickerChip
@@ -148,6 +150,15 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
                     onTaskIsAlwaysToggled = { task ->
                         namedBlockStore.saveTask(task.copy(isAlways = !task.isAlways))
                         refreshKey++
+                    },
+                    onMoveTask = { task, direction ->
+                        val siblings = namedBlockStore.loadTasksForBlock(task.blockId)
+                        val neighbor = findAdjacentSequencedSibling(task, siblings, direction)
+                        if (neighbor != null) {
+                            namedBlockStore.saveTask(task.copy(sequence = neighbor.sequence))
+                            namedBlockStore.saveTask(neighbor.copy(sequence = task.sequence))
+                            refreshKey++
+                        }
                     }
                 )
                 Spacer(Modifier.height(4.dp))
@@ -196,7 +207,8 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
             availableBlocks = allBlocks.filter { it.id != blockIdForTask },
             onDismiss = { addTaskForBlockId = null; editBlockTask = null },
             onSaveBlockTask = { task ->
-                namedBlockStore.saveTask(task)
+                val siblings = namedBlockStore.loadTasksForBlock(task.blockId)
+                namedBlockStore.saveTask(task.withResolvedSequence(siblings))
                 refreshKey++
                 addTaskForBlockId = null
                 editBlockTask = null
@@ -232,7 +244,8 @@ private fun ExpandableBlockCard(
     onAddTask: () -> Unit,
     onEditTask: (BlockTask) -> Unit,
     onDeleteTask: (String) -> Unit,
-    onTaskIsAlwaysToggled: (BlockTask) -> Unit
+    onTaskIsAlwaysToggled: (BlockTask) -> Unit,
+    onMoveTask: (BlockTask, Int) -> Unit
 ) {
     var expanded by remember(block.id) { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -245,7 +258,7 @@ private fun ExpandableBlockCard(
     }
     val blockTasks = remember(block.id, parentRefreshKey, expanded) {
         if (expanded) namedBlockStore.loadTasksForBlock(block.id)
-            .sortedWith(compareBy({ it.placement.ordinal }, { -it.priority }))
+            .sortedWith(compareBy({ it.placement.ordinal }, { it.sequence ?: Int.MAX_VALUE }, { -it.priority }))
         else emptyList()
     }
     val accent = block.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
@@ -377,7 +390,9 @@ private fun ExpandableBlockCard(
                                 accent = accent,
                                 onEdit = { onEditTask(task) },
                                 onDelete = { onDeleteTask(task.id) },
-                                onToggleIsAlways = { onTaskIsAlwaysToggled(task) }
+                                onToggleIsAlways = { onTaskIsAlwaysToggled(task) },
+                                onMoveUp = if (task.sequence != null) { { onMoveTask(task, -1) } } else null,
+                                onMoveDown = if (task.sequence != null) { { onMoveTask(task, 1) } } else null
                             )
                         }
                     }
@@ -404,7 +419,9 @@ private fun BlockTaskRow(
     accent: Color,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onToggleIsAlways: () -> Unit
+    onToggleIsAlways: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
@@ -426,6 +443,28 @@ private fun BlockTaskRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (task.sequence != null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { onMoveUp?.invoke() },
+                    enabled = onMoveUp != null,
+                    modifier = Modifier.size(18.dp)
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveUp != null) 0.7f else 0.2f))
+                }
+                Text("#${task.sequence + 1}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = accent)
+                IconButton(
+                    onClick = { onMoveDown?.invoke() },
+                    enabled = onMoveDown != null,
+                    modifier = Modifier.size(18.dp)
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveDown != null) 0.7f else 0.2f))
+                }
+            }
+        }
         // Placement badge
         Surface(
             shape = RoundedCornerShape(4.dp),

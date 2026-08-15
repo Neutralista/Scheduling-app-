@@ -84,6 +84,9 @@ data class BlockTask(
     val bufferMinutes: Int = 0,
     val isAlways: Boolean = true,
     val subPlacement: BlockSubPlacement? = null,
+    /** When set, this task runs in a fixed order relative to other sequenced tasks that share
+     *  its [placement] (BEFORE/DURING/AFTER chain independently). Null = flexible placement. */
+    val sequence: Int? = null,
     val conditions: List<TaskConditionSpec> = emptyList(),
     val useMeasuredDuration: Boolean = false,
     val triggers: List<TaskTrigger> = emptyList(),
@@ -91,6 +94,33 @@ data class BlockTask(
     val subtasks: List<SubtaskDef> = emptyList(),
     val colorArgb: Int? = null
 )
+
+/**
+ * Resolves the "new, not yet numbered" sequence sentinel (-1, set by AddTaskSheet when it has no
+ * visibility into sibling tasks) against the actual sibling list, assigning the next number in
+ * that placement's chain. A no-op for flexible tasks (sequence == null) or already-numbered ones.
+ */
+fun BlockTask.withResolvedSequence(existingSiblings: List<BlockTask>): BlockTask {
+    if (sequence != -1) return this
+    val maxExisting = existingSiblings
+        .filter { it.id != id && it.placement == placement && it.sequence != null }
+        .maxOfOrNull { it.sequence!! } ?: -1
+    return copy(sequence = maxExisting + 1)
+}
+
+/**
+ * Finds the sequenced sibling adjacent to [task] within its placement's chain (same [BlockTask
+ * .blockId] implied by [siblings]), one step earlier (direction = -1) or later (direction = +1).
+ * Null past either end, or if [task] itself isn't sequenced.
+ */
+fun findAdjacentSequencedSibling(task: BlockTask, siblings: List<BlockTask>, direction: Int): BlockTask? {
+    if (task.sequence == null) return null
+    val ordered = siblings.filter { it.placement == task.placement && it.sequence != null }
+        .sortedBy { it.sequence!! }
+    val idx = ordered.indexOfFirst { it.id == task.id }
+    if (idx < 0) return null
+    return ordered.getOrNull(idx + direction)
+}
 
 /**
  * Tracks which situational tasks are active for a specific block occurrence (date).

@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,7 +75,9 @@ import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.findAdjacentSequencedSibling
 import com.waypoint.app.planner.occursOn
+import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.ui.components.RecurrencePicker
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -881,14 +884,17 @@ fun NamedBlockSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            tasks.forEach { task ->
+                            tasks.sortedWith(compareBy({ it.placement.ordinal }, { it.sequence ?: Int.MAX_VALUE }, { -it.priority }))
+                                .forEach { task ->
                                 BlockTaskRow(
                                     task = task,
                                     onEdit = { editingTask = task },
                                     onDelete = {
                                         tasks.remove(task)
                                         if (initial != null) store.deleteTask(task.id)
-                                    }
+                                    },
+                                    onMoveUp = if (task.sequence != null) { { moveSequencedTask(tasks, task, -1) } } else null,
+                                    onMoveDown = if (task.sequence != null) { { moveSequencedTask(tasks, task, 1) } } else null
                                 )
                             }
                         }
@@ -984,8 +990,9 @@ fun NamedBlockSheet(
             availableBlocks = availableBlocksForTasks,
             onDismiss = { showAddTask = false; editingTask = null },
             onSaveBlockTask = { saved ->
-                val idx = tasks.indexOfFirst { it.id == saved.id }
-                if (idx >= 0) tasks[idx] = saved else tasks.add(saved)
+                val resolved = saved.withResolvedSequence(tasks)
+                val idx = tasks.indexOfFirst { it.id == resolved.id }
+                if (idx >= 0) tasks[idx] = resolved else tasks.add(resolved)
                 showAddTask = false; editingTask = null
             }
         )
@@ -1064,11 +1071,23 @@ private fun DayScheduleCard(
     }
 }
 
+/** Swaps [task]'s sequence position with its adjacent sequenced sibling (same placement),
+ *  one step earlier (direction = -1) or later (direction = +1). No-op past either end. */
+private fun moveSequencedTask(tasks: SnapshotStateList<BlockTask>, task: BlockTask, direction: Int) {
+    val neighbor = findAdjacentSequencedSibling(task, tasks, direction) ?: return
+    val taskListIdx = tasks.indexOfFirst { it.id == task.id }
+    val neighborListIdx = tasks.indexOfFirst { it.id == neighbor.id }
+    tasks[taskListIdx] = task.copy(sequence = neighbor.sequence)
+    tasks[neighborListIdx] = neighbor.copy(sequence = task.sequence)
+}
+
 @Composable
 private fun BlockTaskRow(
     task: BlockTask,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
@@ -1091,6 +1110,29 @@ private fun BlockTaskRow(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (task.sequence != null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { onMoveUp?.invoke() },
+                    enabled = onMoveUp != null,
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveUp != null) 0.7f else 0.2f))
+                }
+                Text("#${task.sequence + 1}", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+                IconButton(
+                    onClick = { onMoveDown?.invoke() },
+                    enabled = onMoveDown != null,
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveDown != null) 0.7f else 0.2f))
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+        }
         if (task.colorArgb != null) {
             Box(
                 Modifier

@@ -603,6 +603,7 @@ private fun BlockSessionCard(
             } else {
                 BlockTaskPlacement.entries.forEach { placement ->
                     val tasksForPlacement = activeTasks.filter { it.placement == placement }
+                        .sortedBy { it.sequence ?: Int.MAX_VALUE }
                     if (tasksForPlacement.isEmpty()) return@forEach
                     val placementLabel = when (placement) {
                         BlockTaskPlacement.BEFORE -> "Before block"
