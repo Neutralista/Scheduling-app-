@@ -362,7 +362,10 @@ fun DayTimelineView(
         localRefreshKey++
     }
 
-    LaunchedEffect(date, refreshKey) {
+    // Keyed on localRefreshKey too — otherwise this loop keeps a closure over whatever
+    // blockInstances were current when it first launched and silently reverts a drag/resize
+    // commit up to 60s later, same staleness bug already fixed on the 5-second ticker below.
+    LaunchedEffect(date, refreshKey, localRefreshKey) {
         fetchAndSync()
         while (true) { delay(60_000L); fetchAndSync() }
     }
@@ -872,6 +875,11 @@ private fun CalendarEventBlock(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    // pointerInput(evt.eventId) below only relaunches when the event identity changes, never
+    // when its time does (the id is stable across a drag), so onDragEnd must read evt through
+    // rememberUpdatedState — otherwise a second drag on the same event commits against the
+    // time captured on first composition instead of wherever it currently sits.
+    val latestEvt = rememberUpdatedState(evt)
     var isDragging by remember { mutableStateOf(false) }
     var moveOffsetMin by remember { mutableIntStateOf(0) }
     var resizeOffsetMin by remember { mutableIntStateOf(0) }
@@ -904,9 +912,10 @@ private fun CalendarEventBlock(
                         val delta = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
                         moveAccumPx = 0f
                         moveOffsetMin = 0
+                        val current = latestEvt.value
                         if (delta != 0) {
                             onCalendarEventDrag?.invoke(
-                                evt, evt.startMillis + delta * 60_000L, evt.endMillis + delta * 60_000L
+                                current, current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L
                             )
                         }
                     },
@@ -986,6 +995,11 @@ private fun PlannerEventBlock(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    // pointerInput(se.event.id) below only relaunches when the block/event identity changes,
+    // never when its position does (the id is stable across a drag), so onDragEnd must read se
+    // through rememberUpdatedState — otherwise a second drag on the same item commits against
+    // the position captured on first composition instead of wherever it currently sits.
+    val latestSe = rememberUpdatedState(se)
     var isDragging by remember { mutableStateOf(false) }
     var moveOffsetMin by remember { mutableIntStateOf(0) }
     var resizeOffsetMin by remember { mutableIntStateOf(0) }
@@ -1048,10 +1062,11 @@ private fun PlannerEventBlock(
                         val delta = snapMinutesDelta(moveAccumPx / latestHourHeightPx.value * 60f)
                         moveAccumPx = 0f
                         moveOffsetMin = 0
-                        val blockId = se.event.id.removePrefix("__block__")
+                        val current = latestSe.value
+                        val blockId = current.event.id.removePrefix("__block__")
                         if (delta != 0) {
                             onBlockDrag?.invoke(
-                                blockId, se.startMillis, se.startMillis + delta * 60_000L, se.endMillis + delta * 60_000L, false
+                                blockId, current.startMillis, current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L, false
                             )
                         }
                     },
@@ -1146,6 +1161,13 @@ private fun BoxScope.ResizeHandle(
 ) {
     val density = LocalDensity.current
     val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
+    val latestMinOffset = rememberUpdatedState(minOffset)
+    // pointerInput(Unit) below launches its gesture-detection coroutine exactly once and never
+    // relaunches, so it must read every value that can change (including the callbacks
+    // themselves) through rememberUpdatedState — otherwise a resize after the item has ever
+    // moved commits against a stale se/evt captured back on the first composition.
+    val latestOnResizePreview = rememberUpdatedState(onResizePreview)
+    val latestOnResizeCommit = rememberUpdatedState(onResizeCommit)
     var accumPx by remember { mutableStateOf(0f) }
     Box(
         Modifier
@@ -1156,16 +1178,16 @@ private fun BoxScope.ResizeHandle(
                 detectDragGestures(
                     onDragStart = { accumPx = 0f },
                     onDragEnd = {
-                        val delta = snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(minOffset)
+                        val delta = snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(latestMinOffset.value)
                         accumPx = 0f
-                        onResizePreview(0)
-                        if (delta != 0) onResizeCommit(delta)
+                        latestOnResizePreview.value(0)
+                        if (delta != 0) latestOnResizeCommit.value(delta)
                     },
-                    onDragCancel = { accumPx = 0f; onResizePreview(0) },
+                    onDragCancel = { accumPx = 0f; latestOnResizePreview.value(0) },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         accumPx += dragAmount.y
-                        onResizePreview(snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(minOffset))
+                        latestOnResizePreview.value(snapMinutesDelta(accumPx / latestHourHeightPx.value * 60f).coerceAtLeast(latestMinOffset.value))
                     }
                 )
             },
