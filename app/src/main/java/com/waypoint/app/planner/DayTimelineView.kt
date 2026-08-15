@@ -1,5 +1,8 @@
 package com.waypoint.app.planner
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -216,17 +220,42 @@ fun DayTimelineView(
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
-    var zoomIndex by remember { mutableIntStateOf(1) }
+    // Reading the persisted zoom synchronously here (instead of correcting it from a
+    // LaunchedEffect after first composition) means the very first frame already shows the
+    // right zoom level — nothing to animate away from on screen open.
+    var zoomIndex by remember { mutableIntStateOf(prefs.getInt("zoom_index", 1)) }
     val zoomFactors = listOf(1f, 2.5f, 5f)
     val zoomLabels  = listOf("1×", "2.5×", "5×")
-    val hourHeight  = HOUR_HEIGHT * zoomFactors[zoomIndex]
+    // Animated in px (not a plain derived Dp) so a zoom change smoothly interpolates the whole
+    // timeline's layout instead of snapping straight to the new scale — see the LaunchedEffect
+    // below, which drives both this and the scroll offset together, frame by frame.
+    var hourHeightPx by remember { mutableFloatStateOf(with(density) { (HOUR_HEIGHT * zoomFactors[zoomIndex]).toPx() }) }
+    val hourHeight = with(density) { hourHeightPx.toDp() }
     val showQuarterLabels = zoomIndex == 1
     val showMinuteLines   = zoomIndex == 2
     var anchorMinute by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(Unit) {
-        if (prefs.contains("zoom_index")) {
-            zoomIndex = prefs.getInt("zoom_index", 1)
+    LaunchedEffect(zoomIndex) {
+        prefs.edit().putInt("zoom_index", zoomIndex).apply()
+        val startHeightPx = hourHeightPx
+        val targetHeightPx = with(density) { (HOUR_HEIGHT * zoomFactors[zoomIndex]).toPx() }
+        if (startHeightPx == targetHeightPx) return@LaunchedEffect
+        val startScrollPx = scrollState.value.toFloat()
+        val targetScrollPx = if (anchorMinute >= 0)
+            anchorMinute.coerceAtLeast(0) / 60f * targetHeightPx
+        else null
+        animate(
+            initialValue = startHeightPx,
+            targetValue = targetHeightPx,
+            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+        ) { value, _ ->
+            hourHeightPx = value
+            if (targetScrollPx != null) {
+                val fraction = (value - startHeightPx) / (targetHeightPx - startHeightPx)
+                val desiredScroll = startScrollPx + (targetScrollPx - startScrollPx) * fraction
+                val delta = desiredScroll - scrollState.value
+                if (delta != 0f) scrollState.dispatchRawDelta(delta)
+            }
         }
     }
 
@@ -236,16 +265,6 @@ fun DayTimelineView(
             scrollMin.coerceAtLeast(0) / 60f * hourHeight.toPx()
         }.toInt()
         scrollState.animateScrollTo(scrollPx)
-    }
-
-    LaunchedEffect(zoomIndex) {
-        prefs.edit().putInt("zoom_index", zoomIndex).apply()
-        if (anchorMinute >= 0) {
-            val scrollPx = with(density) {
-                (anchorMinute.coerceAtLeast(0) / 60f * hourHeight.toPx()).toInt()
-            }
-            scrollState.scrollTo(scrollPx)
-        }
     }
 
     // Extracted (rather than nested inside the LaunchedEffect below) so drag-commit handlers
