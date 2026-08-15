@@ -181,6 +181,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
         NamedBlockSheet(
             initial = editBlock,
             store = namedBlockStore,
+            availableTasks = allTasks,
             onDismiss = { showAddBlock = false; editBlock = null },
             onSaved = { refreshKey++; showAddBlock = false; editBlock = null }
         )
@@ -191,6 +192,8 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
         AddTaskSheet(
             forBlock = blockIdForTask,
             initialBlockTask = editBlockTask,
+            availableTasks = allTasks,
+            availableBlocks = allBlocks.filter { it.id != blockIdForTask },
             onDismiss = { addTaskForBlockId = null; editBlockTask = null },
             onSaveBlockTask = { task ->
                 namedBlockStore.saveTask(task)

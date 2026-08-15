@@ -73,6 +73,7 @@ import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TaskConditionSpec
+import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.occursOn
 import com.waypoint.app.ui.components.RecurrencePicker
 import java.time.LocalDate
@@ -106,10 +107,12 @@ private data class DayOverride(
 fun NamedBlockSheet(
     initial: NamedBlock? = null,
     store: NamedBlockStore,
+    availableTasks: List<TaskRequest> = emptyList(),
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
     val blockId = remember { initial?.id ?: UUID.randomUUID().toString() }
+    val availableBlocksForTasks = remember(blockId) { store.loadAllBlocks().filter { it.id != blockId } }
 
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var nameError by remember { mutableStateOf(false) }
@@ -977,6 +980,8 @@ fun NamedBlockSheet(
         AddTaskSheet(
             forBlock = blockId,
             initialBlockTask = editingTask,
+            availableTasks = availableTasks,
+            availableBlocks = availableBlocksForTasks,
             onDismiss = { showAddTask = false; editingTask = null },
             onSaveBlockTask = { saved ->
                 val idx = tasks.indexOfFirst { it.id == saved.id }

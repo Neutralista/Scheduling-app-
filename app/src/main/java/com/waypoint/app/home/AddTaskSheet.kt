@@ -190,7 +190,7 @@ fun AddTaskSheet(
         calendarEvents.filter { !it.allDay && !it.title.equals("sleep", ignoreCase = true) }
     }
 
-    // ── Block anchor condition state (non-block-mode only) ───────────────────
+    // ── Block anchor condition state ─────────────────────────────────────────
     var afterBlockId by remember { mutableStateOf(
         initConditions.firstOrNull { it.type == "afterBlock" }?.blockId
     ) }
@@ -863,8 +863,8 @@ fun AddTaskSheet(
                                 afterTaskIds.isNotEmpty() || beforeTaskIds.isNotEmpty() ||
                                 afterCalEventIds.isNotEmpty() || beforeCalEventIds.isNotEmpty() ||
                                 duringCalEventId != null || taskRecurrenceRule != null ||
-                                (!isBlockMode && (afterBlockId != null || beforeBlockId != null ||
-                                    (dayRelation != DayRelation.ANY && dayRelationTaskIds.isNotEmpty())))
+                                afterBlockId != null || beforeBlockId != null ||
+                                (dayRelation != DayRelation.ANY && dayRelationTaskIds.isNotEmpty())
 
                             if (hasConstraints) {
                                 FlowRow(
@@ -920,26 +920,24 @@ fun AddTaskSheet(
                                         }
                                         ConstraintTag(label) { taskRecurrenceRule = null }
                                     }
-                                    if (!isBlockMode) {
-                                        afterBlockId?.let { bId ->
-                                            val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
-                                            ConstraintTag("After $name") { afterBlockId = null }
-                                        }
-                                        beforeBlockId?.let { bId ->
-                                            val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
-                                            ConstraintTag("Before $name") { beforeBlockId = null }
-                                        }
-                                        if (dayRelation != DayRelation.ANY) {
-                                            dayRelationTaskIds.forEach { tid ->
-                                                val name = chainTargets.find { it.id == tid }?.title
-                                                    ?: availableTasks.find { it.id == tid }?.title
-                                                    ?: "Deleted task"
-                                                val prefix = if (dayRelation == DayRelation.SAME_DAY_AS) "Same day as" else "Not with"
-                                                ConstraintTag("$prefix $name") {
-                                                    val next = dayRelationTaskIds - tid
-                                                    dayRelationTaskIds = next
-                                                    if (next.isEmpty()) dayRelation = DayRelation.ANY
-                                                }
+                                    afterBlockId?.let { bId ->
+                                        val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
+                                        ConstraintTag("After $name") { afterBlockId = null }
+                                    }
+                                    beforeBlockId?.let { bId ->
+                                        val name = availableBlocks.find { it.id == bId }?.name ?: "Deleted block"
+                                        ConstraintTag("Before $name") { beforeBlockId = null }
+                                    }
+                                    if (dayRelation != DayRelation.ANY) {
+                                        dayRelationTaskIds.forEach { tid ->
+                                            val name = chainTargets.find { it.id == tid }?.title
+                                                ?: availableTasks.find { it.id == tid }?.title
+                                                ?: "Deleted task"
+                                            val prefix = if (dayRelation == DayRelation.SAME_DAY_AS) "Same day as" else "Not with"
+                                            ConstraintTag("$prefix $name") {
+                                                val next = dayRelationTaskIds - tid
+                                                dayRelationTaskIds = next
+                                                if (next.isEmpty()) dayRelation = DayRelation.ANY
                                             }
                                         }
                                     }
@@ -1027,18 +1025,16 @@ fun AddTaskSheet(
                                                     onClick  = { constraintPicker = "before" },
                                                     label    = { Text("Before") }
                                                 )
-                                                if (!isBlockMode) {
-                                                    FilterChip(
-                                                        selected = false,
-                                                        onClick  = { constraintPicker = "sameDayAs" },
-                                                        label    = { Text("Same day as / Not with") }
-                                                    )
-                                                    if (todayCalEvents.isNotEmpty()) FilterChip(
-                                                        selected = false,
-                                                        onClick  = { constraintPicker = "duringEvent" },
-                                                        label    = { Text("During event") }
-                                                    )
-                                                }
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "sameDayAs" },
+                                                    label    = { Text("Same day as / Not with") }
+                                                )
+                                                if (todayCalEvents.isNotEmpty()) FilterChip(
+                                                    selected = false,
+                                                    onClick  = { constraintPicker = "duringEvent" },
+                                                    label    = { Text("During event") }
+                                                )
                                             }
 
                                             "recurrence" -> RecurrencePicker(
@@ -1087,7 +1083,7 @@ fun AddTaskSheet(
                                                         label    = { Text("+ Time") }
                                                     )
                                                 }
-                                                if (!isBlockMode) FilterChip(
+                                                FilterChip(
                                                     selected = TASK_REF_SLEEP in afterTaskIds,
                                                     onClick  = {
                                                         afterTaskIds = if (TASK_REF_SLEEP in afterTaskIds)
@@ -1122,7 +1118,7 @@ fun AddTaskSheet(
                                                         label    = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
                                                     )
                                                 }
-                                                if (!isBlockMode) availableBlocks.forEach { block ->
+                                                availableBlocks.forEach { block ->
                                                     FilterChip(
                                                         selected = afterBlockId == block.id,
                                                         onClick  = { afterBlockId = if (afterBlockId == block.id) null else block.id },
@@ -1162,7 +1158,7 @@ fun AddTaskSheet(
                                                         label    = { Text("+ Time") }
                                                     )
                                                 }
-                                                if (!isBlockMode) FilterChip(
+                                                FilterChip(
                                                     selected = TASK_REF_SLEEP in beforeTaskIds,
                                                     onClick  = {
                                                         beforeTaskIds = if (TASK_REF_SLEEP in beforeTaskIds)
@@ -1197,7 +1193,7 @@ fun AddTaskSheet(
                                                         label    = { Text(evt.title, style = MaterialTheme.typography.labelSmall) }
                                                     )
                                                 }
-                                                if (!isBlockMode) availableBlocks.forEach { block ->
+                                                availableBlocks.forEach { block ->
                                                     FilterChip(
                                                         selected = beforeBlockId == block.id,
                                                         onClick  = { beforeBlockId = if (beforeBlockId == block.id) null else block.id },

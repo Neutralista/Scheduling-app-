@@ -728,7 +728,7 @@ private fun PlanTab(
             initial = null,
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,
-            availableBlocks = allNamedBlocks,
+            availableBlocks = allNamedBlocks.filter { it.id != slotBlockId },
             forBlock = slotBlockId,
             onDismiss = { freeSlotAddTask = false; freeSlot = null },
             onSave = { req ->
@@ -751,6 +751,7 @@ private fun PlanTab(
         NamedBlockSheet(
             initial = null,
             store = namedBlockStore,
+            availableTasks = remember { taskManager.getAllTasks() },
             onDismiss = { freeSlotAddBlock = false; freeSlot = null },
             onSaved = {
                 calRefreshKey++
@@ -971,6 +972,7 @@ private fun PlanTab(
         NamedBlockSheet(
             initial = blockBeingEdited,
             store = namedBlockStore,
+            availableTasks = remember { taskManager.getAllTasks() },
             onDismiss = { editingBlock = null },
             onSaved = {
                 calRefreshKey++
