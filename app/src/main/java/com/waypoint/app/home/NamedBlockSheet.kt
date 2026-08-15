@@ -78,7 +78,10 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.findAdjacentSequencedSibling
 import com.waypoint.app.planner.occursOn
 import com.waypoint.app.planner.withResolvedSequence
+import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.ui.components.RecurrencePicker
+import com.waypoint.app.ui.components.RELATIVE_CONDITION_TYPES
+import com.waypoint.app.ui.components.RelativeConstraintsPicker
 import com.waypoint.app.ui.components.toOpaqueColor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -112,6 +115,7 @@ fun NamedBlockSheet(
     initial: NamedBlock? = null,
     store: NamedBlockStore,
     availableTasks: List<TaskRequest> = emptyList(),
+    calendarEvents: List<CalendarEvent> = emptyList(),
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
@@ -250,14 +254,12 @@ fun NamedBlockSheet(
     var showAutoAfterPicker by remember { mutableStateOf(false) }
     var showAutoBeforePicker by remember { mutableStateOf(false) }
 
-    // Block-relative positioning (auto-place mode)
-    var autoAfterBlockId by remember {
-        mutableStateOf(initial?.floatingConditions?.firstOrNull { it.type == "afterBlock" }?.blockId)
+    // Relative constraints (auto-place mode) — After/Before (sleep, tasks, calendar events,
+    // blocks), Same day as / Not with, During event: the same vocabulary AddTaskSheet's
+    // Constraints section already offers tasks, via the shared RelativeConstraintsPicker.
+    var autoRelativeConditions by remember {
+        mutableStateOf(initial?.floatingConditions?.filter { it.type in RELATIVE_CONDITION_TYPES } ?: emptyList())
     }
-    var autoBeforeBlockId by remember {
-        mutableStateOf(initial?.floatingConditions?.firstOrNull { it.type == "beforeBlock" }?.blockId)
-    }
-    val availableFixedBlocks = remember { store.loadAllBlocks().filter { !it.isFloating && it.id != blockId } }
 
     // Tasks
     val tasks = remember {
@@ -329,8 +331,7 @@ fun NamedBlockSheet(
                                     end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
                                 ))
                             }
-                            if (autoAfterBlockId != null) add(TaskConditionSpec("afterBlock", blockId = autoAfterBlockId))
-                            if (autoBeforeBlockId != null) add(TaskConditionSpec("beforeBlock", blockId = autoBeforeBlockId))
+                            addAll(autoRelativeConditions)
                         } else emptyList()
                         val fixedRule = if (schedulingMode == BlockSchedulingMode.FIXED) recurrenceRule else null
                         val block = NamedBlock(
@@ -821,48 +822,19 @@ fun NamedBlockSheet(
                                     }
                                 }
 
-                                // Relative to block (optional)
-                                if (availableFixedBlocks.isNotEmpty()) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("Relative to block (optional)", style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Row(verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text("After", style = MaterialTheme.typography.bodyMedium)
-                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                FilterChip(
-                                                    selected = autoAfterBlockId == null,
-                                                    onClick = { autoAfterBlockId = null },
-                                                    label = { Text("None") }
-                                                )
-                                                availableFixedBlocks.forEach { blk ->
-                                                    FilterChip(
-                                                        selected = autoAfterBlockId == blk.id,
-                                                        onClick = { autoAfterBlockId = if (autoAfterBlockId == blk.id) null else blk.id },
-                                                        label = { Text(blk.name) }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text("Before", style = MaterialTheme.typography.bodyMedium)
-                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                FilterChip(
-                                                    selected = autoBeforeBlockId == null,
-                                                    onClick = { autoBeforeBlockId = null },
-                                                    label = { Text("None") }
-                                                )
-                                                availableFixedBlocks.forEach { blk ->
-                                                    FilterChip(
-                                                        selected = autoBeforeBlockId == blk.id,
-                                                        onClick = { autoBeforeBlockId = if (autoBeforeBlockId == blk.id) null else blk.id },
-                                                        label = { Text(blk.name) }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                // Relative constraints (optional) — same vocabulary as the Tasks
+                                // wizard: after/before sleep, tasks, calendar events, or another
+                                // block (fixed or auto-placed); same-day-as / not-with; during event.
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Relative to (optional)", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    RelativeConstraintsPicker(
+                                        conditions = autoRelativeConditions,
+                                        onConditionsChange = { autoRelativeConditions = it },
+                                        availableTasks = availableTasks,
+                                        availableBlocks = availableBlocksForTasks,
+                                        calendarEvents = calendarEvents
+                                    )
                                 }
                             }
                         }

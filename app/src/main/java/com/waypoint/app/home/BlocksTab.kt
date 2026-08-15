@@ -49,6 +49,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -80,6 +81,8 @@ import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.script.TaskManagerScript
+import com.waypoint.app.signal.CalendarEvent
+import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.toOpaqueColor
@@ -89,13 +92,25 @@ private val BLOCKS_DAY_ABBREVS = mapOf(
 )
 
 @Composable
-fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry, externalRefreshKey: Int = 0) {
+fun BlocksTab(
+    taskManager: TaskManagerScript,
+    eventPlanner: EventPlannerRegistry,
+    externalRefreshKey: Int = 0,
+    calendarSignals: CalendarSignals? = null
+) {
     val context = LocalContext.current
     val namedBlockStore = remember { NamedBlockStore(context) }
     val sleepStore = remember { SleepScheduleStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
     val allBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks() }
     val syncableBlocks = remember(refreshKey) { allBlocks.filter { !it.isFloating } }
+
+    var todayCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        if (calendarSignals?.hasPermission() == true) {
+            todayCalEvents = calendarSignals.eventsForDate(LocalDate.now())
+        }
+    }
 
     var showAddBlock by remember { mutableStateOf(false) }
     var editBlock by remember { mutableStateOf<NamedBlock?>(null) }
@@ -194,6 +209,7 @@ fun BlocksTab(taskManager: TaskManagerScript, eventPlanner: EventPlannerRegistry
             initial = editBlock,
             store = namedBlockStore,
             availableTasks = allTasks,
+            calendarEvents = todayCalEvents,
             onDismiss = { showAddBlock = false; editBlock = null },
             onSaved = { refreshKey++; showAddBlock = false; editBlock = null }
         )

@@ -50,7 +50,10 @@ data class NamedBlock(
     /** Flexible recurrence rule; when set takes precedence over [recurringDays]. */
     val recurrenceRule: RecurrenceRule? = null,
     /** When false, no start notification/alarm fires for this block. */
-    val notificationsEnabled: Boolean = true
+    val notificationsEnabled: Boolean = true,
+    /** Soft gap reserved after this block when the scheduler places it (floating blocks only).
+     *  0 = use the scheduler's automatic default gap, same as an unset task buffer. */
+    val bufferMinutes: Int = 0
 )
 
 /**

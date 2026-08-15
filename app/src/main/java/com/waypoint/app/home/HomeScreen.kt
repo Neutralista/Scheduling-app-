@@ -208,7 +208,7 @@ fun HomeScreen(
                 0 -> PlanTab(eventPlanner = eventPlanner, calendarSignals = calendarSignals, sleepTimesFlow = sleepTimesFlow, taskManager = taskManager, blockSessionStore = blockSessionStore, blockSessionLogStore = blockSessionLogStore, onHeaderRefresh = { headerRefreshKey++ })
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore, namedBlockStore = namedBlockStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
-                3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey)
+                3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey, calendarSignals = calendarSignals)
                 4 -> ScriptsTab(
                     scripts = scripts,
                     statesById = statesById,
@@ -749,6 +749,7 @@ private fun PlanTab(
             initial = null,
             store = namedBlockStore,
             availableTasks = remember { taskManager.getAllTasks() },
+            calendarEvents = planTabCalEvents,
             onDismiss = { freeSlotAddBlock = false; freeSlot = null },
             onSaved = {
                 calRefreshKey++
@@ -974,6 +975,7 @@ private fun PlanTab(
             initial = blockBeingEdited,
             store = namedBlockStore,
             availableTasks = remember { taskManager.getAllTasks() },
+            calendarEvents = planTabCalEvents,
             onDismiss = { editingBlock = null },
             onSaved = {
                 calRefreshKey++
