@@ -57,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.util.Calendar
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -263,7 +264,11 @@ private fun ExpandableBlockCard(
             "$dayStr · $startStr"
         }
     }
-    val durLabel = durationLabel(block.estimatedMinutes)
+    // effectiveDurationMinutes falls back to block.estimatedMinutes on its own when the block
+    // isn't useTotalTaskDuration, so this is correct for every block, not just from-tasks ones.
+    val durLabel = remember(block.id, block.estimatedMinutes, block.useTotalTaskDuration, parentRefreshKey) {
+        durationLabel(namedBlockStore.effectiveDurationMinutes(block, LocalDate.now()))
+    }
 
     Surface(
         modifier = Modifier

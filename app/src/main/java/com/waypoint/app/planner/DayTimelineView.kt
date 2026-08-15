@@ -349,7 +349,12 @@ fun DayTimelineView(
         if (newDate != originalDate) {
             store.setSchedule(NamedBlockSchedule(blockId = blockId, date = originalDate.toString(), enabled = false))
         }
-        val preserveDurationMode = !isResize && block.useTotalTaskDuration
+        // "Duration mode" (endHour == -1) covers both the plain "Estimate" flavor and the
+        // useTotalTaskDuration ("from tasks") flavor — check whichever schedule is actually in
+        // effect for the occurrence being dragged (today's override if one exists, else the
+        // block's recurring default), not just the useTotalTaskDuration subset.
+        val currentEndHour = store.getSchedule(blockId, originalDate)?.endHour ?: block.defaultEndHour
+        val preserveDurationMode = !isResize && currentEndHour == -1
         store.setSchedule(
             NamedBlockSchedule(
                 blockId = blockId,

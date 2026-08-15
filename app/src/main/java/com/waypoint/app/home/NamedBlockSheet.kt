@@ -251,7 +251,10 @@ fun NamedBlockSheet(
                         nameError = name.isBlank()
                         if (nameError) return@TextButton
                         val dur = when {
-                            useTotalTaskDuration -> tasks.sumOf { it.durationMinutes }.takeIf { it > 0 } ?: 60
+                            // Matches effectiveDurationMinutes' canonical DURING-only sum — BEFORE/AFTER
+                            // tasks live outside the block's own window and shouldn't count toward it.
+                            useTotalTaskDuration -> tasks.filter { it.placement == BlockTaskPlacement.DURING }
+                                .sumOf { it.durationMinutes }.takeIf { it > 0 } ?: 60
                             !useTimeRange -> if (selectedDuration > 0) selectedDuration
                                             else customDurationText.toIntOrNull()?.takeIf { it > 0 } ?: 60
                             else -> {
@@ -431,10 +434,11 @@ fun NamedBlockSheet(
                             }
                         }
                         if (useTotalTaskDuration) {
-                            val taskTotal = tasks.sumOf { it.durationMinutes }
+                            val duringTasks = tasks.filter { it.placement == BlockTaskPlacement.DURING }
+                            val taskTotal = duringTasks.sumOf { it.durationMinutes }
                             val totalLabel = if (taskTotal < 60) "${taskTotal}m"
                                             else "${taskTotal / 60}h ${taskTotal % 60}m".trimEnd()
-                            if (tasks.isEmpty()) {
+                            if (duringTasks.isEmpty()) {
                                 Text(
                                     "No tasks yet — add tasks below and the block length will match their total.",
                                     style = MaterialTheme.typography.bodySmall,

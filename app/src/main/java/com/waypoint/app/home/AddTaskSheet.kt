@@ -1380,7 +1380,10 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Routine & subtasks
+                    // Routine & subtasks — block tasks can save isRoutine/subtasks, but
+                    // BlockSessionCard's checklist has no subtask-stepping UI to run them, so
+                    // hide the control rather than let it silently do nothing in block mode.
+                    if (!isBlockMode)
                     FormSection(title = "Routine") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Row(
@@ -1494,7 +1497,10 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Chains
+                    // Chains — same dead-config concern as Routine above: block tasks can save
+                    // triggers, but nothing ever fires them for a BlockTask (applyTriggers only
+                    // runs against TaskManagerScript's floating-task list).
+                    if (!isBlockMode)
                     FormSection(title = "Chains") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (chainTargets.isEmpty()) {

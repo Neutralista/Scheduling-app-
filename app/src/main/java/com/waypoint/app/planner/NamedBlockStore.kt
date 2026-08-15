@@ -23,6 +23,7 @@ class NamedBlockStore(private val context: Context) {
     fun saveBlock(block: NamedBlock) {
         blocks.edit().putString(block.id, json.encodeToString(block)).apply()
         AlarmBlockSync.sync(context)
+        BlockAlarmScheduler.resync(context, block.id)
     }
 
     fun deleteBlock(blockId: String) {
@@ -37,6 +38,7 @@ class NamedBlockStore(private val context: Context) {
             activations.all.keys.filter { it.startsWith("$blockId|") }.forEach { remove(it) }
         }.apply()
         AlarmBlockSync.sync(context)
+        BlockAlarmScheduler.resync(context, blockId)
     }
 
     fun loadAllBlocks(): List<NamedBlock> = blocks.all.values.mapNotNull { raw ->
@@ -54,6 +56,7 @@ class NamedBlockStore(private val context: Context) {
     fun setSchedule(schedule: NamedBlockSchedule) {
         schedules.edit().putString("${schedule.blockId}|${schedule.date}", json.encodeToString(schedule)).apply()
         AlarmBlockSync.sync(context)
+        BlockAlarmScheduler.resync(context, schedule.blockId)
     }
 
     fun getSchedule(blockId: String, date: LocalDate): NamedBlockSchedule? =
@@ -80,6 +83,23 @@ class NamedBlockStore(private val context: Context) {
                 )
                 else -> null
             }
+        }
+    }
+
+    /**
+     * Best-effort "could this floating block occur on [date]" check for UI purposes (e.g.
+     * finding a floating block's next occurrence to plan situational tasks for). Floating
+     * blocks have no fixed day-of-week schedule by design — the planner alone decides whether
+     * one is actually placed each day, based on free time and priority — so this only evaluates
+     * the day-scoped condition that doesn't need live work-schedule context; workDayOnly/
+     * dayOffOnly are treated as no constraint here since this store has no shift data. The
+     * planner's own eligibility check in EventPlannerRegistry remains authoritative for
+     * whether a floating block is actually scheduled on a given day.
+     */
+    fun isFloatingBlockPossibleOn(block: NamedBlock, date: LocalDate): Boolean {
+        val dayOfWeek = date.dayOfWeek.value
+        return block.floatingConditions.none { spec ->
+            spec.type == "daysOfWeek" && spec.days?.let { dayOfWeek !in it } == true
         }
     }
 

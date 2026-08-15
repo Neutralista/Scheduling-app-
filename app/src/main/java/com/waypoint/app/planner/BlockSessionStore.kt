@@ -30,7 +30,7 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
     val sessionFlow = MutableStateFlow<ActiveBlockSession?>(loadCurrent())
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        sessionFlow.value = loadFromPrefs()?.takeIf { it.date == LocalDate.now().toString() }
+        sessionFlow.value = loadFromPrefs()?.takeIf { !isExpired(it) }
     }
 
     init {
@@ -95,12 +95,18 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
 
     fun loadCurrent(): ActiveBlockSession? {
         val session = loadFromPrefs() ?: return null
-        if (session.date != LocalDate.now().toString()) {
+        if (isExpired(session)) {
             endSession()
             return null
         }
         return session
     }
+
+    // A block session is stale once its scheduled end has passed — not merely once the
+    // calendar date has rolled over, which a session that legitimately crosses midnight
+    // (e.g. 23:00-00:30) would already have done while still genuinely in progress.
+    private fun isExpired(session: ActiveBlockSession): Boolean =
+        System.currentTimeMillis() > session.scheduledEndMs
 
     private fun loadFromPrefs(): ActiveBlockSession? =
         prefs.getString("active", null)?.let {

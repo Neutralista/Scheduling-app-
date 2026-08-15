@@ -722,12 +722,29 @@ class EventPlannerRegistry {
             val afterTaskIds  = inst.activeTasks
                 .filter { it.placement == BlockTaskPlacement.AFTER  }.map { it.id }.toSet()
 
-            val earliestBeforeStart = if (inst.block.canStartEarly && beforeTaskIds.isNotEmpty())
-                scheduled.filter { it.event.id in beforeTaskIds }.minOfOrNull { it.startMillis }
-            else null
-            val latestAfterEnd = if (inst.block.canRunLate && afterTaskIds.isNotEmpty())
-                scheduled.filter { it.event.id in afterTaskIds }.maxOfOrNull { it.endMillis }
-            else null
+            // Only expand the block's displayed bounds when the BEFORE/AFTER task landed
+            // genuinely contiguous with it — last-fit/first-fit can push a task that doesn't
+            // fit in the gap right next to the block much further away when that gap is too
+            // small, and blindly wrapping that distance would visually swallow whatever
+            // unrelated events happen to sit in between.
+            val earliestBeforeStart = if (inst.block.canStartEarly && beforeTaskIds.isNotEmpty()) {
+                val candidate = scheduled.filter { it.event.id in beforeTaskIds }.minOfOrNull { it.startMillis }
+                candidate?.takeIf { start ->
+                    scheduled.none { other ->
+                        other.event.id !in beforeTaskIds && other.event.id != blockEventId &&
+                            other.startMillis >= start && other.endMillis <= inst.scheduledStartMs
+                    }
+                }
+            } else null
+            val latestAfterEnd = if (inst.block.canRunLate && afterTaskIds.isNotEmpty()) {
+                val candidate = scheduled.filter { it.event.id in afterTaskIds }.maxOfOrNull { it.endMillis }
+                candidate?.takeIf { end ->
+                    scheduled.none { other ->
+                        other.event.id !in afterTaskIds && other.event.id != blockEventId &&
+                            other.startMillis >= inst.estimatedEndMs && other.endMillis <= end
+                    }
+                }
+            } else null
 
             if (earliestBeforeStart != null || latestAfterEnd != null) {
                 val newStart = earliestBeforeStart ?: inst.scheduledStartMs

@@ -7,10 +7,38 @@ import android.content.Intent
 import android.os.Build
 import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.BlockStartReceiver
+import java.time.LocalDate
+import java.time.ZoneId
 
 object BlockAlarmScheduler {
 
     private const val TAG = "BlockAlarmScheduler"
+
+    /**
+     * Re-evaluates today's alarm for a single block after it's edited, rescheduled, or
+     * deleted. schedule()/cancel() are otherwise only ever driven from a full startup/boot
+     * sweep (WaypointApplication.scheduleBlockAlarms), so without this an edit made while the
+     * app is running leaves the stale old-time alarm armed until the next restart or reboot.
+     * Always cancels first — correct for a delete (loadBlock then returns null) as well as an
+     * edit (the just-saved block is picked back up and re-armed if it still qualifies).
+     */
+    fun resync(context: Context, blockId: String) {
+        cancel(context, blockId)
+        val store = NamedBlockStore(context)
+        val block = store.loadBlock(blockId) ?: return
+        if (!block.notificationsEnabled) return
+        val today = LocalDate.now()
+        val (b, sched) = store.resolveForDate(today).find { it.first.id == blockId } ?: return
+        val zone = ZoneId.systemDefault()
+        val startMs = today.atTime(sched.startHour, sched.startMinute).atZone(zone).toInstant().toEpochMilli()
+        val endMs = if (sched.endHour >= 0) {
+            val e = today.atTime(sched.endHour, sched.endMinute).atZone(zone).toInstant().toEpochMilli()
+            if (e > startMs) e else e + 24 * 3600_000L
+        } else startMs + store.effectiveDurationMinutes(b, today) * 60_000L
+        if (startMs > System.currentTimeMillis()) {
+            schedule(context, b.id, b.name, b.colorArgb, startMs, endMs)
+        }
+    }
 
     fun schedule(
         context: Context,

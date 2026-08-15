@@ -504,10 +504,18 @@ private fun BlockSessionCard(
         }
     }
 
-    // Compute next occurrence (within 7 days)
+    // Compute next occurrence (within 7 days). resolveForDate only resolves fixed (non-floating)
+    // blocks, so a floating block's session falls back to a best-effort day-condition check —
+    // otherwise this always came back null and floating blocks never got the completion-mode
+    // situational-task planning flow that fixed blocks get.
     val nextOccurrenceDate = remember(session.blockId) {
-        (1..7).map { today.plusDays(it.toLong()) }
-            .firstOrNull { namedBlockStore.resolveForDate(it).any { (b, _) -> b.id == session.blockId } }
+        val block = namedBlockStore.loadBlock(session.blockId)
+        val candidates = (1..7).map { today.plusDays(it.toLong()) }
+        if (block?.isFloating == true) {
+            candidates.firstOrNull { namedBlockStore.isFloatingBlockPossibleOn(block, it) }
+        } else {
+            candidates.firstOrNull { namedBlockStore.resolveForDate(it).any { (b, _) -> b.id == session.blockId } }
+        }
     }
 
     val startedStr = "%02d:%02d".format(
