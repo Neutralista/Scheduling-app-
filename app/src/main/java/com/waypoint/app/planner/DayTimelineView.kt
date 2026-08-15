@@ -522,6 +522,7 @@ fun DayTimelineView(
                     calEvents = calEvents,
                     blockInstances = blockInstances,
                     nextDayBlockInstances = nextDayBlockInstances,
+                    floatingBlockInstances = floatingBlockInstances,
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     isToday = isToday,
@@ -645,6 +646,7 @@ private fun TimelineBody(
     calEvents: List<CalendarEvent>,
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
+    floatingBlockInstances: List<NamedBlockInstance>,
     nowMin: Int,
     isNowVisible: Boolean,
     isToday: Boolean,
@@ -784,6 +786,7 @@ private fun TimelineBody(
                 hourHeight = hourHeight,
                 blockInstances = blockInstances,
                 nextDayBlockInstances = nextDayBlockInstances,
+                floatingBlockInstances = floatingBlockInstances,
                 defaultColorPair = colorPair,
                 blockSubTasks = subTasks,
                 isToday = isToday,
@@ -1017,6 +1020,7 @@ private fun PlannerEventBlock(
     hourHeight: Dp,
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
+    floatingBlockInstances: List<NamedBlockInstance>,
     defaultColorPair: Pair<Color, Color>?,
     blockSubTasks: List<ScheduledEvent> = emptyList(),
     isToday: Boolean,
@@ -1032,11 +1036,17 @@ private fun PlannerEventBlock(
     val seStartMin = msToMin(se.startMillis, viewStartMs)
     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
 
-    // Fixed (non-floating) blocks only: a floating block is re-placed by the planner on every
-    // replan, so a dragged position for one can never be persisted — don't offer the gesture.
+    // blockInstances/nextDayBlockInstances only ever hold fixed blocks (resolveForDate's
+    // contract) — a floating block's own NamedBlock (name/color/isFloating) still needs to come
+    // from somewhere, so fall back to floatingBlockInstances (placeholder 0L/0L timing, real
+    // block data). Without this, isFloating read as null below, and blockDraggable's "fixed
+    // blocks only" gate silently inverted to true for floating blocks; colorArgb likewise fell
+    // back to the hardcoded default for every floating block regardless of what was picked.
     val blockInstance = if (isBlock) {
         val blockId = se.event.id.removePrefix("__block__")
-        blockInstances.find { it.block.id == blockId } ?: nextDayBlockInstances.find { it.block.id == blockId }
+        blockInstances.find { it.block.id == blockId }
+            ?: nextDayBlockInstances.find { it.block.id == blockId }
+            ?: floatingBlockInstances.find { it.block.id == blockId }
     } else null
 
     val density = LocalDensity.current
