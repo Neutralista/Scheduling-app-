@@ -59,6 +59,7 @@ import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.ui.components.TimePickerChip
+import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
@@ -251,7 +252,7 @@ fun HistoryTab(
             }
 
             blockGroups.forEach { group ->
-                val accent = group.colorArgb?.let { Color(it) } ?: primary
+                val accent = group.colorArgb?.toOpaqueColor() ?: primary
                 val taskStats = allTaskStats[group.blockId] ?: emptyMap()
 
                 item(key = group.blockId) {

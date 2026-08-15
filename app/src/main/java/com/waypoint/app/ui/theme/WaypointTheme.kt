@@ -8,6 +8,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.waypoint.app.ui.components.toOpaqueColor
 
 // ── Standard — dark palette (deep plum / barley gold) ─────────────────────────
 
@@ -224,7 +225,11 @@ fun WaypointTheme(
         else -> buildDerivedScheme(appTheme, darkTheme)
     }
     val colorScheme = if (blockColorArgb != null) {
-        val c = Color(blockColorArgb)
+        // primary must be fully opaque — a block's custom accent color could carry a stray
+        // alpha byte (e.g. from before the color pickers forced opacity), and Material3's
+        // primary role assumes opaque input; a translucent primary blends unpredictably with
+        // whatever's underneath across the whole app.
+        val c = blockColorArgb.toOpaqueColor()
         val onPrimary = if (c.luminance() > 0.4f) Color.Black else Color.White
         base.copy(
             primary = c,

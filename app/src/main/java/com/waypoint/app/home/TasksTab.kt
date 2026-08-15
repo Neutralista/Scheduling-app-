@@ -85,6 +85,7 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.ui.components.TimePickerDialog
+import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -417,7 +418,7 @@ private fun BlockStartCard(
     endMs: Long,
     onStart: () -> Unit
 ) {
-    val accentColor = colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val accentColor = colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
     val timeFmt = "%02d:%02d".format(
         Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.HOUR_OF_DAY),
         Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.MINUTE)
@@ -466,7 +467,7 @@ private fun BlockSessionCard(
     taskManager: TaskManagerScript
 ) {
     val context = LocalContext.current
-    val accentColor = session.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val accentColor = session.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
     val today = remember { LocalDate.now() }
 
     var completionMode by remember { mutableStateOf(false) }
@@ -973,7 +974,7 @@ private fun BlockScheduleSection(
     onToggleDay: (LocalDate) -> Unit,
     onEditDay: (LocalDate) -> Unit
 ) {
-    val accent = block.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val accent = block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),

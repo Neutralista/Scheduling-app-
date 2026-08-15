@@ -234,8 +234,10 @@ fun AddTaskSheet(
         initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
     ) }
 
-    // Color (both modes)
-    var taskColor by remember { mutableStateOf(initial?.colorArgb ?: initialBlockTask?.colorArgb) }
+    // Color (both modes). Task/block accent colors are solid identity colors, never meant to
+    // carry partial alpha — normalize any pre-existing bad value (e.g. from before showAlpha
+    // was disabled below) so editing an old task repairs its color rather than re-showing it.
+    var taskColor by remember { mutableStateOf((initial?.colorArgb ?: initialBlockTask?.colorArgb)?.let { it or 0xFF000000.toInt() }) }
 
     // Block-task-mode state
     var blockPlacement  by remember { mutableStateOf(initialBlockTask?.placement   ?: BlockTaskPlacement.DURING) }
@@ -548,8 +550,8 @@ fun AddTaskSheet(
                             Spacer(Modifier.height(4.dp))
                             HsvColorPicker(
                                 argb = tc,
-                                onColorChange = { taskColor = it },
-                                showAlpha = true
+                                onColorChange = { taskColor = it or 0xFF000000.toInt() },
+                                showAlpha = false
                             )
                         }
                     }

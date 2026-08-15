@@ -82,6 +82,7 @@ import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.ui.components.TimePickerChip
+import com.waypoint.app.ui.components.toOpaqueColor
 
 private val BLOCKS_DAY_ABBREVS = mapOf(
     1 to "Mo", 2 to "Tu", 3 to "We", 4 to "Th", 5 to "Fr", 6 to "Sa", 7 to "Su"
@@ -261,7 +262,7 @@ private fun ExpandableBlockCard(
             .sortedWith(compareBy({ it.placement.ordinal }, { it.sequence ?: Int.MAX_VALUE }, { -it.priority }))
         else emptyList()
     }
-    val accent = block.colorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val accent = block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
 
     val scheduleLabel = when {
         block.isFloating -> buildString {

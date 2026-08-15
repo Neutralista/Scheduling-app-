@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.waypoint.app.home.BLOCK_COLORS
 import com.waypoint.app.ui.components.HsvColorPicker
+import com.waypoint.app.ui.components.toOpaqueColor
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -102,7 +103,7 @@ fun BlockScopeView(
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
 ) {
     var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
-    val blockColor = blockColorArgb?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val blockColor = blockColorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
     var showColorPicker by remember { mutableStateOf(false) }
 
     val blockInstances = remember(date, refreshKey) {
@@ -530,7 +531,7 @@ private fun BsTaskTile(
     val eventH = (bsMinToY(seEndMin, BS_HOUR_HEIGHT) - startY - 2.dp).coerceAtLeast(24.dp)
 
     // Per-task color overrides the default pair
-    val tileColor = se.event.colorArgb?.let { Color(it) }
+    val tileColor = se.event.colorArgb?.toOpaqueColor()
     val bg = tileColor?.copy(alpha = 0.22f) ?: defaultBg
     val fg = tileColor ?: defaultFg
 
@@ -591,7 +592,9 @@ private fun BsColorPickerDialog(
     onClearColor: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedColor by remember { mutableIntStateOf(currentArgb ?: BLOCK_COLORS.first()) }
+    // A solid identity color, never meant to carry partial alpha — normalize any pre-existing
+    // bad value so re-opening the picker for an old task repairs its color.
+    var selectedColor by remember { mutableIntStateOf((currentArgb ?: BLOCK_COLORS.first()) or 0xFF000000.toInt()) }
     val isCustom = selectedColor !in BLOCK_COLORS
 
     Dialog(onDismissRequest = onDismiss) {

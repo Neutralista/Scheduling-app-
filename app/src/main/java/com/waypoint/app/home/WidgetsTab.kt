@@ -43,6 +43,7 @@ import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.script.AppScript
 import com.waypoint.app.script.ScriptState
 import com.waypoint.app.script.TaskManagerScript
+import com.waypoint.app.ui.components.toOpaqueColor
 
 @Composable
 fun WidgetsTab(
@@ -166,7 +167,7 @@ private fun TaskRow(
         )
     }
 
-    val priorityColor = task.colorArgb?.let { Color(it) } ?: when {
+    val priorityColor = task.colorArgb?.toOpaqueColor() ?: when {
         task.priority >= 9 -> MaterialTheme.colorScheme.error
         task.priority >= 7 -> Color(0xFFFF7043)
         task.priority >= 4 -> Color(0xFFFFA726)

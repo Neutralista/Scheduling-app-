@@ -79,6 +79,7 @@ import com.waypoint.app.planner.findAdjacentSequencedSibling
 import com.waypoint.app.planner.occursOn
 import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.ui.components.RecurrencePicker
+import com.waypoint.app.ui.components.toOpaqueColor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -119,7 +120,9 @@ fun NamedBlockSheet(
 
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var nameError by remember { mutableStateOf(false) }
-    var selectedColor by remember { mutableIntStateOf(initial?.colorArgb ?: BLOCK_COLORS.first()) }
+    // Block accent color is a solid identity color, never meant to carry partial alpha —
+    // normalize any pre-existing bad value so editing an old block repairs its color.
+    var selectedColor by remember { mutableIntStateOf((initial?.colorArgb ?: BLOCK_COLORS.first()) or 0xFF000000.toInt()) }
 
     // Duration mode state
     val durationPresets = listOf(30, 60, 90, 120, 180)
@@ -453,8 +456,8 @@ fun NamedBlockSheet(
 
                             HsvColorPicker(
                                 argb = selectedColor,
-                                onColorChange = { selectedColor = it },
-                                showAlpha = true
+                                onColorChange = { selectedColor = it or 0xFF000000.toInt() },
+                                showAlpha = false
                             )
                         }
                     }
@@ -1138,7 +1141,7 @@ private fun BlockTaskRow(
                 Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(Color(task.colorArgb))
+                    .background(task.colorArgb.toOpaqueColor())
             )
             Spacer(Modifier.width(8.dp))
         }

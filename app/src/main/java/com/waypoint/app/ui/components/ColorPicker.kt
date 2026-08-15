@@ -35,6 +35,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
+/**
+ * Task/block accent colors are solid identity colors, never meant to carry partial alpha.
+ * Strips any alpha wherever a stored colorArgb is read for use as an opaque accent (border,
+ * badge, checklist stripe, app-wide theme override) — protects against already-saved values
+ * from before the color pickers forced opacity, or any other path that might store one.
+ */
+fun Int.toOpaqueColor(): Color = Color(this or 0xFF000000.toInt())
+
 private val HUE_SPECTRUM = listOf(
     Color(0xFFFF0000), Color(0xFFFFFF00), Color(0xFF00FF00),
     Color(0xFF00FFFF), Color(0xFF0000FF), Color(0xFFFF00FF), Color(0xFFFF0000)

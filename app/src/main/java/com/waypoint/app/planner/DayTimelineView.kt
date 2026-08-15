@@ -65,6 +65,7 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -1067,11 +1068,11 @@ private fun PlannerEventBlock(
 
     val sleepAccent = MaterialTheme.colorScheme.tertiary
     val blockAccent: Color? = if (isBlock) {
-        blockInstance?.block?.colorArgb?.let { Color(it) } ?: Color(0xFF4DB6AC)
+        blockInstance?.block?.colorArgb?.toOpaqueColor() ?: Color(0xFF4DB6AC)
     } else null
 
     val taskAccent: Color? = if (!isSleep && !isBlock && se.event.colorArgb != null)
-        Color(se.event.colorArgb) else null
+        se.event.colorArgb.toOpaqueColor() else null
 
     val (bg, fg) = when {
         isLoggedSleep -> sleepAccent.copy(alpha = 0.18f) to sleepAccent
