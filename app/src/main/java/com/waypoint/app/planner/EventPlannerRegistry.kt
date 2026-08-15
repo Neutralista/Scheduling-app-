@@ -87,7 +87,7 @@ class EventPlannerRegistry {
                 if (end > start) scheduled += ScheduledEvent(event, start, end)
                 continue
             }
-            val reason = checkDayConditions(event, date, isWorkDay, shiftStartMs, shiftEndMs)
+            val reason = checkDayConditions(event.conditions, date, isWorkDay, shiftStartMs, shiftEndMs)
             if (reason != null) { blocked += BlockedEvent(event, reason); continue }
             allSchedulable += event
         }
@@ -161,18 +161,17 @@ class EventPlannerRegistry {
             val inst = (ready.ifEmpty { pending }).maxByOrNull { it.block.priority }!!
             remainingFloatingIds.remove(inst.block.id)
 
-            val eligible = inst.block.floatingConditions.none { spec ->
-                when (spec.type) {
-                    "workDayOnly" -> !isWorkDay
-                    "dayOffOnly"  -> isWorkDay
-                    "daysOfWeek"  -> spec.days?.let { date.dayOfWeek.value !in it } ?: false
-                    else -> false
-                }
-            }
+            // Shared with every other day-gated condition in the planner (regular tasks, block
+            // sub-tasks) so a floating block can use the full recurrence vocabulary — oneOff/
+            // everyNDays/everyNWeeks/everyNMonths/nTimesPerPeriod — not just workDayOnly/
+            // dayOffOnly/daysOfWeek, which used to be the only three types this hand-checked.
+            val floatingEventConditions = inst.block.floatingConditions.mapNotNull { it.toEventCondition() }
+            val eligible = checkDayConditions(floatingEventConditions, date, isWorkDay, shiftStartMs, shiftEndMs) == null
             if (!eligible) continue
             val effectiveDurMins = effectiveDurationMinutes(inst.block, inst.activeTasks)
             val durationMs = effectiveDurMins * 60_000L
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
+            val aroundCond = floatingEventConditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
             val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
             val afterBlockCond  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }
             val floatUpperBound = beforeBlockCond?.blockId?.let { refId ->
@@ -182,26 +181,45 @@ class EventPlannerRegistry {
                 (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.estimatedEndMs
             }
             var placed = false
-            for (i in remaining.indices) {
-                val (bStart, bEnd) = remaining[i]
-                val fitStart = maxOf(
-                    parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> maxOf(bStart, toMs(h, m)) } ?: bStart,
-                    floatLowerBound ?: bStart
-                )
-                val fitEnd = minOf(
-                    parseClockTime(tw?.end, 23, 59)?.let { (h, m) -> minOf(bEnd, toMs(h, m)) } ?: bEnd,
-                    floatUpperBound ?: bEnd
-                )
-                if (fitEnd - fitStart < durationMs) continue
-                floatingResolved += NamedBlockInstance(
-                    block = inst.block,
-                    scheduledStartMs = fitStart,
-                    estimatedEndMs = fitStart + durationMs,
-                    activeTasks = inst.activeTasks
-                )
-                remaining[i] = (fitStart + durationMs) to bEnd
-                placed = true
-                break
+            if (aroundCond != null) {
+                // Soft anchor, same semantics as a task's AroundTime: closest valid start to
+                // the anchor within [anchor - flex, anchor + flex], never a plain first-fit.
+                val anchorMs = toMs(aroundCond.anchorHour, aroundCond.anchorMinute)
+                val flexMs = aroundCond.flexMinutes * 60_000L
+                val fit = closestFitToAnchor(remaining, anchorMs, flexMs, durationMs, floatLowerBound, floatUpperBound)
+                if (fit != null) {
+                    val (idx, start) = fit
+                    floatingResolved += NamedBlockInstance(
+                        block = inst.block,
+                        scheduledStartMs = start,
+                        estimatedEndMs = start + durationMs,
+                        activeTasks = inst.activeTasks
+                    )
+                    consumeSlot(remaining, idx, start, durationMs, AUTO_BUFFER_CAP_MS)
+                    placed = true
+                }
+            } else {
+                for (i in remaining.indices) {
+                    val (bStart, bEnd) = remaining[i]
+                    val fitStart = maxOf(
+                        parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> maxOf(bStart, toMs(h, m)) } ?: bStart,
+                        floatLowerBound ?: bStart
+                    )
+                    val fitEnd = minOf(
+                        parseClockTime(tw?.end, 23, 59)?.let { (h, m) -> minOf(bEnd, toMs(h, m)) } ?: bEnd,
+                        floatUpperBound ?: bEnd
+                    )
+                    if (fitEnd - fitStart < durationMs) continue
+                    floatingResolved += NamedBlockInstance(
+                        block = inst.block,
+                        scheduledStartMs = fitStart,
+                        estimatedEndMs = fitStart + durationMs,
+                        activeTasks = inst.activeTasks
+                    )
+                    consumeSlot(remaining, i, fitStart, durationMs, AUTO_BUFFER_CAP_MS)
+                    placed = true
+                    break
+                }
             }
             if (!placed) {
                 blocked += BlockedEvent(
@@ -264,7 +282,7 @@ class EventPlannerRegistry {
                     zone = blockZone,
                     colorArgb = task.colorArgb
                 )
-                val dayReason = checkDayConditions(syntheticEvent, date, isWorkDay, shiftStartMs, shiftEndMs)
+                val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs)
                 if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
                 else allSchedulable += syntheticEvent
             }
@@ -876,13 +894,13 @@ class EventPlannerRegistry {
     }
 
     private fun checkDayConditions(
-        event: PlannerEvent,
+        conditions: List<EventCondition>,
         date: LocalDate,
         isWorkDay: Boolean,
         shiftStartMs: Long?,
         shiftEndMs: Long?
     ): String? {
-        for (cond in event.conditions) when (cond) {
+        for (cond in conditions) when (cond) {
             is EventCondition.DaysOfWeek -> if (date.dayOfWeek.value !in cond.days) return "Not scheduled for today"
             is EventCondition.WorkDayOnly -> if (!isWorkDay) return "Work days only"
             is EventCondition.DayOffOnly  -> if (isWorkDay) return "Days off only"

@@ -1,5 +1,6 @@
 package com.waypoint.app.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -64,6 +67,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
+import com.waypoint.app.planner.EventCondition
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
@@ -90,8 +94,6 @@ internal val BLOCK_COLORS = listOf(
     0xFF90CAF9.toInt(), // blue
     0xFFCE93D8.toInt(), // purple
 )
-
-private val DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 private data class DayOverride(
     val enabled: Boolean,
@@ -185,13 +187,43 @@ fun NamedBlockSheet(
             else -> BlockAutoDay.ANY
         })
     }
-    val autoDow = remember {
-        mutableStateListOf<Int>().also { list ->
-            initial?.floatingConditions?.firstOrNull { it.type == "daysOfWeek" }
-                ?.days?.let { list.addAll(it) }
-        }
+    // Repeats on a schedule (optional) — the full recurrence vocabulary (days of week, every N
+    // days/weeks/months, N times per period, one-off) that fixed blocks and tasks already have,
+    // not just a bare days-of-week set. Off (null) by default so "any day" stays the simple path.
+    var autoRecurrenceRule by remember {
+        mutableStateOf<RecurrenceRule?>(
+            initial?.floatingConditions
+                ?.firstOrNull { it.type in setOf("daysOfWeek", "oneOff", "everyNDays", "everyNWeeks", "everyNMonths", "nTimesPerPeriod") }
+                ?.toEventCondition()?.let { cond ->
+                    when (cond) {
+                        is EventCondition.DaysOfWeek      -> RecurrenceRule.DaysOfWeek(cond.days.toList())
+                        is EventCondition.OneOff          -> RecurrenceRule.OneOff(cond.date)
+                        is EventCondition.EveryNDays      -> RecurrenceRule.EveryNDays(cond.n, cond.anchorDate)
+                        is EventCondition.EveryNWeeks     -> RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate)
+                        is EventCondition.EveryNMonths    -> RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate)
+                        is EventCondition.NTimesPerPeriod -> RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate)
+                        else -> null
+                    }
+                }
+        )
     }
+
+    // Time of day (optional) — mirrors AddTaskSheet's unified Any/Around/Between control:
+    // "around" is a soft anchor (aroundTime), "window" is the existing hard After/Before pair.
+    val initAutoAround = initial?.floatingConditions?.firstOrNull { it.type == "aroundTime" }
     val initAutoTw = initial?.floatingConditions?.firstOrNull { it.type == "timeWindow" }
+    var autoTimeMode by remember {
+        mutableStateOf(
+            when {
+                initAutoAround != null -> "around"
+                initAutoTw != null     -> "window"
+                else                    -> "any"
+            }
+        )
+    }
+    var autoAroundTime by remember { mutableStateOf(initAutoAround?.start) }
+    var autoAroundFlexMinutes by remember { mutableIntStateOf(initAutoAround?.flexMinutes ?: 60) }
+    var showAutoAroundPicker by remember { mutableStateOf(false) }
     var autoAfterEnabled by remember { mutableStateOf(initAutoTw?.start != null) }
     var autoAfterHour by remember {
         mutableIntStateOf(initAutoTw?.start?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 8)
@@ -270,12 +302,24 @@ fun NamedBlockSheet(
                                 BlockAutoDay.DAYS_OFF  -> add(TaskConditionSpec("dayOffOnly"))
                                 BlockAutoDay.ANY       -> Unit
                             }
-                            if (autoDow.isNotEmpty()) add(TaskConditionSpec("daysOfWeek", days = autoDow.sorted()))
-                            if (autoAfterEnabled || autoBeforeEnabled) add(TaskConditionSpec(
-                                "timeWindow",
-                                start = if (autoAfterEnabled) "%02d:%02d".format(autoAfterHour, autoAfterMinute) else null,
-                                end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
-                            ))
+                            when (val r = autoRecurrenceRule) {
+                                is RecurrenceRule.DaysOfWeek      -> if (r.days.isNotEmpty()) add(TaskConditionSpec("daysOfWeek", days = r.days.sorted()))
+                                is RecurrenceRule.OneOff          -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
+                                is RecurrenceRule.EveryNDays      -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
+                                is RecurrenceRule.EveryNWeeks     -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
+                                is RecurrenceRule.EveryNMonths    -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+                                is RecurrenceRule.NTimesPerPeriod -> add(TaskConditionSpec("nTimesPerPeriod", occurrenceCount = r.count, intervalN = r.periodDays, anchorDate = r.anchorDate))
+                                null -> Unit
+                            }
+                            if (autoTimeMode == "around" && autoAroundTime != null) {
+                                add(TaskConditionSpec("aroundTime", start = autoAroundTime, flexMinutes = autoAroundFlexMinutes))
+                            } else if (autoTimeMode == "window" && (autoAfterEnabled || autoBeforeEnabled)) {
+                                add(TaskConditionSpec(
+                                    "timeWindow",
+                                    start = if (autoAfterEnabled) "%02d:%02d".format(autoAfterHour, autoAfterMinute) else null,
+                                    end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
+                                ))
+                            }
                             if (autoAfterBlockId != null) add(TaskConditionSpec("afterBlock", blockId = autoAfterBlockId))
                             if (autoBeforeBlockId != null) add(TaskConditionSpec("beforeBlock", blockId = autoBeforeBlockId))
                         } else emptyList()
@@ -484,39 +528,56 @@ fun NamedBlockSheet(
                         }
                     }
 
-                    // Options
+                    // Options — secondary/power-user toggles most block adds never touch;
+                    // collapsed by default keeps the simple "block off Gym time" flow short.
+                    var showAdvancedOptions by remember { mutableStateOf(false) }
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Options", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Tasks can pull start earlier",
-                                    style = MaterialTheme.typography.bodyMedium)
-                                Text("Before-block tasks expand the block's displayed start",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(checked = canStartEarly, onCheckedChange = { canStartEarly = it })
+                        Row(
+                            Modifier.fillMaxWidth().clickable { showAdvancedOptions = !showAdvancedOptions },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Options", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f))
+                            Icon(
+                                imageVector = if (showAdvancedOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showAdvancedOptions) "Collapse" else "Expand",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Tasks can push end later",
-                                    style = MaterialTheme.typography.bodyMedium)
-                                Text("After-block tasks expand the block's displayed end",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AnimatedVisibility(visible = showAdvancedOptions) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Tasks can pull start earlier",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    Text("Before-block tasks expand the block's displayed start",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = canStartEarly, onCheckedChange = { canStartEarly = it })
                             }
-                            Switch(checked = canRunLate, onCheckedChange = { canRunLate = it })
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Tasks can push end later",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    Text("After-block tasks expand the block's displayed end",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = canRunLate, onCheckedChange = { canRunLate = it })
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Start notification",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    Text("Send a notification when this block begins",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(checked = notificationsEnabled, onCheckedChange = { notificationsEnabled = it })
+                            }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Start notification",
-                                    style = MaterialTheme.typography.bodyMedium)
-                                Text("Send a notification when this block begins",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(checked = notificationsEnabled, onCheckedChange = { notificationsEnabled = it })
                         }
                     }
 
@@ -570,11 +631,26 @@ fun NamedBlockSheet(
                                 }
                             }
 
-                            // Next 14 days strip
+                            // Next 14 days strip — per-day overrides are a power-user
+                            // customization most blocks never need beyond the default
+                            // recurring schedule, so collapse this by default too.
                             if (hasSchedule) {
+                                var showDayOverrides by remember { mutableStateOf(false) }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Next 14 days", style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable { showDayOverrides = !showDayOverrides },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Customize individual days", style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f))
+                                        Icon(
+                                            imageVector = if (showDayOverrides) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = if (showDayOverrides) "Collapse" else "Expand",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    AnimatedVisibility(visible = showDayOverrides) {
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(next14) { date ->
                                             val key = date.format(dateFmt)
@@ -607,6 +683,7 @@ fun NamedBlockSheet(
                                             )
                                         }
                                     }
+                                    }
                                 }
                             }
                         } else {
@@ -635,45 +712,101 @@ fun NamedBlockSheet(
                                     }
                                 }
 
-                                // Days of week (optional)
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Days of week (optional)", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        DAY_LABELS.forEachIndexed { idx, lbl ->
-                                            val dow = idx + 1
-                                            FilterChip(
-                                                selected = dow in autoDow,
-                                                onClick = {
-                                                    if (dow in autoDow) autoDow.remove(dow) else autoDow.add(dow)
-                                                },
-                                                label = { Text(lbl) }
-                                            )
-                                        }
+                                // Repeats on a schedule (optional) — off by default (any day
+                                // whenever there's room); switching it on reveals the full
+                                // recurrence picker (days of week, every N days/weeks/months,
+                                // N times per period, one-off) shared with fixed blocks and tasks.
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Switch(
+                                            checked = autoRecurrenceRule != null,
+                                            onCheckedChange = { on ->
+                                                autoRecurrenceRule = if (on) RecurrenceRule.DaysOfWeek(emptyList()) else null
+                                            }
+                                        )
+                                        Text("Repeat on a schedule (optional)", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    autoRecurrenceRule?.let { rule ->
+                                        RecurrencePicker(value = rule, onChange = { autoRecurrenceRule = it })
                                     }
                                 }
 
-                                // Time window (optional)
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Time window (optional)", style = MaterialTheme.typography.labelSmall,
+                                // Time of day (optional) — Any / Around a time / Between two times
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Time of day (optional)", style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Row(verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Switch(checked = autoAfterEnabled, onCheckedChange = { autoAfterEnabled = it })
-                                        Text("After", style = MaterialTheme.typography.bodyMedium)
-                                        if (autoAfterEnabled) {
-                                            TextButton(onClick = { showAutoAfterPicker = true }) {
-                                                Text("%02d:%02d".format(autoAfterHour, autoAfterMinute))
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        FilterChip(
+                                            selected = autoTimeMode == "any",
+                                            onClick = {
+                                                autoTimeMode = "any"
+                                                autoAroundTime = null
+                                                autoAfterEnabled = false; autoBeforeEnabled = false
+                                            },
+                                            label = { Text("Any time") }
+                                        )
+                                        FilterChip(
+                                            selected = autoTimeMode == "around",
+                                            onClick = {
+                                                autoTimeMode = "around"
+                                                autoAfterEnabled = false; autoBeforeEnabled = false
+                                            },
+                                            label = { Text("Around a time") }
+                                        )
+                                        FilterChip(
+                                            selected = autoTimeMode == "window",
+                                            onClick = { autoTimeMode = "window"; autoAroundTime = null },
+                                            label = { Text("Between two times") }
+                                        )
+                                    }
+                                    if (autoTimeMode == "around") {
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            if (autoAroundTime != null) {
+                                                TextButton(onClick = { showAutoAroundPicker = true }) {
+                                                    Text(autoAroundTime!!)
+                                                }
+                                                IconButton(onClick = { autoAroundTime = null }, modifier = Modifier.size(28.dp)) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "Clear time", modifier = Modifier.size(14.dp))
+                                                }
+                                            } else {
+                                                TextButton(onClick = { showAutoAroundPicker = true }) {
+                                                    Text("+ Time")
+                                                }
                                             }
                                         }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Switch(checked = autoBeforeEnabled, onCheckedChange = { autoBeforeEnabled = it })
-                                        Text("Before", style = MaterialTheme.typography.bodyMedium)
-                                        if (autoBeforeEnabled) {
-                                            TextButton(onClick = { showAutoBeforePicker = true }) {
-                                                Text("%02d:%02d".format(autoBeforeHour, autoBeforeMinute))
+                                        if (autoAroundTime != null) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                listOf(15 to "±15m", 30 to "±30m", 60 to "±1h", 120 to "±2h", 180 to "±3h")
+                                                    .forEach { (mins, label) ->
+                                                        FilterChip(
+                                                            selected = autoAroundFlexMinutes == mins,
+                                                            onClick = { autoAroundFlexMinutes = mins },
+                                                            label = { Text(label) }
+                                                        )
+                                                    }
+                                            }
+                                        }
+                                    } else if (autoTimeMode == "window") {
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Switch(checked = autoAfterEnabled, onCheckedChange = { autoAfterEnabled = it })
+                                            Text("After", style = MaterialTheme.typography.bodyMedium)
+                                            if (autoAfterEnabled) {
+                                                TextButton(onClick = { showAutoAfterPicker = true }) {
+                                                    Text("%02d:%02d".format(autoAfterHour, autoAfterMinute))
+                                                }
+                                            }
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Switch(checked = autoBeforeEnabled, onCheckedChange = { autoBeforeEnabled = it })
+                                            Text("Before", style = MaterialTheme.typography.bodyMedium)
+                                            if (autoBeforeEnabled) {
+                                                TextButton(onClick = { showAutoBeforePicker = true }) {
+                                                    Text("%02d:%02d".format(autoBeforeHour, autoBeforeMinute))
+                                                }
                                             }
                                         }
                                     }
@@ -781,6 +914,18 @@ fun NamedBlockSheet(
             initialMinute = defaultEndMinute,
             onDismiss = { showDefaultEndPicker = false },
             onConfirm = { h, m -> defaultEndHour = h; defaultEndMinute = m; showDefaultEndPicker = false }
+        )
+    }
+
+    // Auto-place "Around" time picker
+    if (showAutoAroundPicker) {
+        val initH = autoAroundTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 12
+        val initM = autoAroundTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0
+        TimePickerDialog(
+            initialHour = initH,
+            initialMinute = initM,
+            onDismiss = { showAutoAroundPicker = false },
+            onConfirm = { h, m -> autoAroundTime = "%02d:%02d".format(h, m); showAutoAroundPicker = false }
         )
     }
 
