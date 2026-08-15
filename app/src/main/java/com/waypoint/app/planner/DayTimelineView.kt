@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.planner.CalendarPrefsStore
@@ -127,6 +128,7 @@ fun DayTimelineView(
     calendarPrefsStore: CalendarPrefsStore? = null,
     namedBlockStore: NamedBlockStore? = null,
     blockLogStore: BlockSessionLogStore? = null,
+    taskManager: TaskManagerScript? = null,
     date: LocalDate = LocalDate.now(),
     refreshKey: Int = 0,
     modifier: Modifier = Modifier,
@@ -362,6 +364,41 @@ fun DayTimelineView(
         localRefreshKey++
     }
 
+    // Commits a floating-task drag. Unlike blocks/calendar events, a task has no per-date
+    // time-pin storage — the scheduler always re-derives its placement from conditions — so a
+    // drag is translated into afterTask/beforeTask constraints against whichever other floating
+    // tasks it was dragged across, inferred from their current placement. A drag that doesn't
+    // cross anything has no durable effect: there's nothing to encode a bare "move" as.
+    fun commitTaskDrag(taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) {
+        val tm = taskManager ?: return
+        val req = tm.getAllTasks().find { it.id == taskId } ?: return
+        val others = plan.scheduled.filter {
+            it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID && it.event.id != taskId
+        }
+        val afterIds = (req.conditions.firstOrNull { it.type == "afterTask" }?.referenceTaskIds ?: emptyList()).toMutableSet()
+        val beforeIds = (req.conditions.firstOrNull { it.type == "beforeTask" }?.referenceTaskIds ?: emptyList()).toMutableSet()
+        var changed = false
+        for (other in others) {
+            val wasBefore = originalEndMs <= other.startMillis
+            val wasAfter  = originalStartMs >= other.endMillis
+            val nowBefore = newEndMs <= other.startMillis
+            val nowAfter  = newStartMs >= other.endMillis
+            if (wasBefore && nowAfter) {
+                afterIds += other.event.id; beforeIds -= other.event.id; changed = true
+            } else if (wasAfter && nowBefore) {
+                beforeIds += other.event.id; afterIds -= other.event.id; changed = true
+            }
+        }
+        if (!changed) return
+        val newConditions = req.conditions.filter { it.type != "afterTask" && it.type != "beforeTask" } +
+            listOfNotNull(
+                if (afterIds.isNotEmpty()) TaskConditionSpec("afterTask", referenceTaskIds = afterIds.sorted()) else null,
+                if (beforeIds.isNotEmpty()) TaskConditionSpec("beforeTask", referenceTaskIds = beforeIds.sorted()) else null
+            )
+        tm.submitTask(req.copy(conditions = newConditions))
+        localRefreshKey++
+    }
+
     // Keyed on localRefreshKey too — otherwise this loop keeps a closure over whatever
     // blockInstances were current when it first launched and silently reverts a drag/resize
     // commit up to 60s later, same staleness bug already fixed on the 5-second ticker below.
@@ -497,7 +534,8 @@ fun DayTimelineView(
                     onFreeSlotClick = onFreeSlotClick,
                     onCalendarEventDrag = if (calendarSignals?.hasWritePermission() == true)
                         ::commitCalendarEventDrag else null,
-                    onBlockDrag = if (namedBlockStore != null) ::commitBlockDrag else null
+                    onBlockDrag = if (namedBlockStore != null) ::commitBlockDrag else null,
+                    onTaskDrag = if (taskManager != null) ::commitTaskDrag else null
                 )
             }
         }
@@ -618,7 +656,8 @@ private fun TimelineBody(
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?,
     onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
-    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null,
+    onTaskDrag: ((taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
 ) {
     val viewTotalMin = totalMinutes
 
@@ -745,7 +784,8 @@ private fun TimelineBody(
                 activeBlockId = activeBlockId,
                 onBlockStart = onBlockStart,
                 onPlannerEventClick = onPlannerEventClick,
-                onBlockDrag = onBlockDrag
+                onBlockDrag = onBlockDrag,
+                onTaskDrag = onTaskDrag
             )
         }
 
@@ -977,7 +1017,8 @@ private fun PlannerEventBlock(
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
-    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null,
+    onTaskDrag: ((taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
 ) {
     val isSleep       = se.event.category == EventCategory.SLEEP
     val isLoggedSleep = isSleep && se.event.isLogged
@@ -1004,7 +1045,14 @@ private fun PlannerEventBlock(
     var moveOffsetMin by remember { mutableIntStateOf(0) }
     var resizeOffsetMin by remember { mutableIntStateOf(0) }
     var moveAccumPx by remember { mutableStateOf(0f) }
-    val draggable = isBlock && onBlockDrag != null && blockInstance?.block?.isFloating != true
+    // A plain floating task (task_manager-sourced, not a block/block-subtask/sleep window) can
+    // be moved but not resized here — resizing changes its duration, a different, more
+    // consequential edit than reordering, so it stays behind AddTaskSheet for now.
+    val isPlainTask = !isSleep && !isBlock && se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID
+    val blockDraggable = isBlock && onBlockDrag != null && blockInstance?.block?.isFloating != true
+    val taskDraggable = isPlainTask && onTaskDrag != null
+    val moveDraggable = blockDraggable || taskDraggable
+    val resizeDraggable = blockDraggable
     val minDurationOffset = 5 - (seEndMin - seStartMin)
 
     val previewStartMin = seStartMin + moveOffsetMin
@@ -1050,7 +1098,7 @@ private fun PlannerEventBlock(
             .padding(horizontal = 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .then(if (onPlannerEventClick != null) Modifier.clickable { onPlannerEventClick(se) } else Modifier)
-            .then(if (draggable) Modifier.pointerInput(se.event.id) {
+            .then(if (moveDraggable) Modifier.pointerInput(se.event.id) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = {
                         moveAccumPx = 0f
@@ -1063,11 +1111,18 @@ private fun PlannerEventBlock(
                         moveAccumPx = 0f
                         moveOffsetMin = 0
                         val current = latestSe.value
-                        val blockId = current.event.id.removePrefix("__block__")
                         if (delta != 0) {
-                            onBlockDrag?.invoke(
-                                blockId, current.startMillis, current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L, false
-                            )
+                            if (isBlock) {
+                                val blockId = current.event.id.removePrefix("__block__")
+                                onBlockDrag?.invoke(
+                                    blockId, current.startMillis, current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L, false
+                                )
+                            } else {
+                                onTaskDrag?.invoke(
+                                    current.event.id, current.startMillis, current.endMillis,
+                                    current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L
+                                )
+                            }
                         }
                     },
                     onDragCancel = { isDragging = false; moveAccumPx = 0f; moveOffsetMin = 0 },
@@ -1128,7 +1183,7 @@ private fun PlannerEventBlock(
                 }
             }
         }
-        if (draggable) {
+        if (resizeDraggable) {
             ResizeHandle(
                 accent = blockAccent ?: sleepAccent,
                 hourHeight = hourHeight,

@@ -665,6 +665,7 @@ private fun PlanTab(
                 calendarPrefsStore = calPrefsStore,
                 namedBlockStore = namedBlockStore,
                 blockLogStore = blockSessionLogStore,
+                taskManager = taskManager,
                 date = selectedDate,
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
