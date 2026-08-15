@@ -450,6 +450,11 @@ private fun PlanTab(
     var editingBlockTask by remember { mutableStateOf<Pair<String, BlockTask?>?>(null) }
     var showEditSleep by remember { mutableStateOf(false) }
     var planningBlockId by remember { mutableStateOf<String?>(null) }
+    // Captured from the tapped tile's actual scheduled window at the moment "Plan" is pressed —
+    // resolveForDate only returns fixed blocks, so re-deriving the window from it (as this used
+    // to) silently failed for floating ("auto-place") blocks. selPlanner's window is already
+    // correct for either kind since it comes straight from that day's planner output.
+    var planningWindow by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlotFromBlock by remember { mutableStateOf(false) }
     var freeSlotAddTask by remember { mutableStateOf(false) }
@@ -618,22 +623,14 @@ private fun PlanTab(
         val sessionForToday = if (selectedDate == today) activeSession else null
         val planningSession = planningBlockId?.let { blockId ->
             val block = namedBlockStore.loadBlock(blockId)
-            val pair = namedBlockStore.resolveForDate(selectedDate).find { it.first.id == blockId }
-            if (block != null && pair != null) {
-                val sched = pair.second
-                val startMs = selectedDate.atTime(sched.startHour, sched.startMinute)
-                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                val endMs = if (sched.endHour >= 0) {
-                    val e = selectedDate.atTime(sched.endHour, sched.endMinute)
-                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                    if (e > startMs) e else e + 24 * 3600_000L
-                } else startMs + namedBlockStore.effectiveDurationMinutes(block, selectedDate) * 60_000L
+            val window = planningWindow
+            if (block != null && window != null) {
                 ActiveBlockSession(
                     blockId = blockId,
                     blockName = block.name,
                     colorArgb = block.colorArgb,
-                    startedAtMs = startMs,
-                    scheduledEndMs = endMs,
+                    startedAtMs = window.first,
+                    scheduledEndMs = window.second,
                     date = selectedDate.toString()
                 )
             } else null
@@ -651,7 +648,7 @@ private fun PlanTab(
                 modifier = Modifier.weight(1f),
                 onEndSession = {
                     if (sessionForToday != null) blockSessionStore.endSession()
-                    else planningBlockId = null
+                    else { planningBlockId = null; planningWindow = null }
                 },
                 onTaskClick = { selectedPlannerEvent = it },
                 onEditTask = { task -> editingBlockTask = task.blockId to task },
@@ -886,7 +883,11 @@ private fun PlanTab(
                 }
             } else null,
             onPlan = if (blockTileId != null && activeSession == null && planningBlockId == null) {
-                { planningBlockId = blockTileId; selectedPlannerEvent = null }
+                {
+                    planningBlockId = blockTileId
+                    planningWindow = selPlanner.startMillis to selPlanner.endMillis
+                    selectedPlannerEvent = null
+                }
             } else null,
             onSleepMode = if (isSleepEvent) {
                 {

@@ -130,6 +130,16 @@ fun TasksTab(
     val plannerPlan = remember(refreshKey, todayFixedBlocks, todayFloatingBlocks) {
         registry.planToday(namedBlockInstances = todayFixedBlocks, floatingBlocks = todayFloatingBlocks)
     }
+    // todayFloatingBlocks carries placeholder 0L/0L times (floating blocks have no fixed slot
+    // until the planner places them) — resolve each one's real window from the plan output so
+    // it can get a start card too. Previously this list was never consulted for start cards at
+    // all, so a floating ("auto-place") block never showed one, however it was scheduled today.
+    val todayScheduledFloatingBlocks = remember(plannerPlan, todayFloatingBlocks) {
+        todayFloatingBlocks.mapNotNull { inst ->
+            val se = plannerPlan.scheduled.find { it.event.id == "__block__${inst.block.id}" }
+            se?.let { inst.copy(scheduledStartMs = it.startMillis, estimatedEndMs = it.endMillis) }
+        }
+    }
     val scheduledTasks = remember(plannerPlan) {
         plannerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
     }
@@ -213,7 +223,7 @@ fun TasksTab(
                     taskManager = taskManager
                 )
             } else {
-                todayFixedBlocks.forEach { inst ->
+                (todayFixedBlocks + todayScheduledFloatingBlocks).forEach { inst ->
                     BlockStartCard(
                         blockName = inst.block.name,
                         colorArgb = inst.block.colorArgb,
