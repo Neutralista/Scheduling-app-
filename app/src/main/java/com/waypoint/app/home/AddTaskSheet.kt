@@ -153,16 +153,25 @@ fun AddTaskSheet(
     var showAfterTimePicker  by remember { mutableStateOf(false) }
     var showBeforeTimePicker by remember { mutableStateOf(false) }
 
-    // "Around" is a soft anchor — mutually exclusive with the After/Before hard window above,
-    // enforced by clearing whichever isn't in use as soon as the other is set. Its "Window"
-    // mode is UI sugar over that same After/Before pair (a combined start+end picker framed as
-    // a range rather than two separate hard bounds) — placement within it already scatters by
-    // priority since the scheduler's forward-fit path jitters any task, constrained or not.
+    // Lives in the "Time of day" section as one unified, mutually-exclusive "when" control:
+    // "zone" = a loose Morning/Afternoon/Evening preference (floating tasks only — BlockTask
+    // has no zone field, so block-mode never offers it); "anchor" = a soft target time that
+    // drifts within a flex range if the exact slot is busy; "window" = a hard two-sided range,
+    // UI sugar over the same After/Before pair used standalone in Constraints (a combined
+    // start+end picker framed as a range) — placement within it already scatters by priority
+    // since the scheduler's forward-fit path jitters any task, constrained or not. Switching
+    // modes clears whichever of zone/aroundTime/afterTime+beforeTime isn't in use.
     val initAround = initConditions.firstOrNull { it.type == "aroundTime" }
     var aroundTime by remember { mutableStateOf(initAround?.start) }
     var aroundFlexMinutes by remember { mutableIntStateOf(initAround?.flexMinutes ?: 60) }
     var showAroundTimePicker by remember { mutableStateOf(false) }
-    var aroundMode by remember { mutableStateOf(if (initAround == null && initTw != null) "window" else "anchor") }
+    var aroundMode by remember { mutableStateOf(
+        when {
+            initAround != null -> "anchor"
+            initTw != null     -> "window"
+            else                -> "zone"
+        }
+    ) }
 
     val initDays = initConditions.firstOrNull { it.type == "daysOfWeek" }?.days?.toSet() ?: emptySet()
     var selectedDays by remember { mutableStateOf(initDays) }
@@ -391,8 +400,8 @@ fun AddTaskSheet(
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
                 triggers            = triggers.toList(),
-                scheduleLate        = zone == PlannerZone.EVENING,
-                zone                = zone,
+                scheduleLate        = aroundMode == "zone" && zone == PlannerZone.EVENING,
+                zone                = if (aroundMode == "zone") zone else null,
                 colorArgb           = taskColor
             )
         )
@@ -589,7 +598,8 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Block mode: Placement (replaces Time of day)
+                    // Block mode: Placement — where within/around the block this task sits.
+                    // Time of day (below) still applies on top of this for a precise anchor.
                     if (isBlockMode) {
                         FormSection(title = "Placement") {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -694,45 +704,145 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Time of day (floating tasks only)
-                    if (!isBlockMode)
+                    // Time of day — one unified, mutually-exclusive "when" preference: a loose
+                    // zone of the day (floating tasks only), a precise soft anchor, or a hard
+                    // two-sided window. Available in both modes — the scheduler already honors
+                    // AroundTime/TimeWindow for block tasks via the same Before/During/AfterBlock
+                    // placement paths used for floating tasks.
                     FormSection(title = "Time of day") {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
+                                if (!isBlockMode) {
+                                    FilterChip(
+                                        selected = aroundMode == "zone" && zone == null,
+                                        onClick  = { aroundMode = "zone"; zone = null; aroundTime = null; afterTime = null; beforeTime = null },
+                                        label    = { Text("Any") }
+                                    )
+                                    FilterChip(
+                                        selected = aroundMode == "zone" && zone == PlannerZone.MORNING,
+                                        onClick  = { aroundMode = "zone"; zone = PlannerZone.MORNING; aroundTime = null; afterTime = null; beforeTime = null },
+                                        label    = { Text("Morning") }
+                                    )
+                                    FilterChip(
+                                        selected = aroundMode == "zone" && zone == PlannerZone.AFTERNOON,
+                                        onClick  = { aroundMode = "zone"; zone = PlannerZone.AFTERNOON; aroundTime = null; afterTime = null; beforeTime = null },
+                                        label    = { Text("Afternoon") }
+                                    )
+                                    FilterChip(
+                                        selected = aroundMode == "zone" && zone == PlannerZone.EVENING,
+                                        onClick  = { aroundMode = "zone"; zone = PlannerZone.EVENING; aroundTime = null; afterTime = null; beforeTime = null },
+                                        label    = { Text("Evening") }
+                                    )
+                                }
                                 FilterChip(
-                                    selected = zone == null,
-                                    onClick  = { zone = null },
-                                    label    = { Text("Any") }
+                                    selected = aroundMode == "anchor",
+                                    onClick  = { aroundMode = "anchor"; zone = null; afterTime = null; beforeTime = null },
+                                    label    = { Text("Around a time") }
                                 )
                                 FilterChip(
-                                    selected = zone == PlannerZone.MORNING,
-                                    onClick  = { zone = PlannerZone.MORNING },
-                                    label    = { Text("Morning") }
-                                )
-                                FilterChip(
-                                    selected = zone == PlannerZone.AFTERNOON,
-                                    onClick  = { zone = PlannerZone.AFTERNOON },
-                                    label    = { Text("Afternoon") }
-                                )
-                                FilterChip(
-                                    selected = zone == PlannerZone.EVENING,
-                                    onClick  = { zone = PlannerZone.EVENING },
-                                    label    = { Text("Evening") }
+                                    selected = aroundMode == "window",
+                                    onClick  = { aroundMode = "window"; zone = null; aroundTime = null },
+                                    label    = { Text("Between two times") }
                                 )
                             }
-                            Text(
-                                text = when (zone) {
-                                    PlannerZone.MORNING   -> "Scheduled first thing after wake"
-                                    PlannerZone.AFTERNOON -> "Scheduled in the middle third of your day"
-                                    PlannerZone.EVENING   -> "Scheduled as late as possible before sleep"
-                                    null                  -> "No preference — filled in wherever it fits"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                            )
+
+                            when (aroundMode) {
+                                "zone" -> Text(
+                                    text = when {
+                                        isBlockMode                   -> "No preference — fills wherever it fits"
+                                        zone == PlannerZone.MORNING   -> "Scheduled first thing after wake"
+                                        zone == PlannerZone.AFTERNOON -> "Scheduled in the middle third of your day"
+                                        zone == PlannerZone.EVENING   -> "Scheduled as late as possible before sleep"
+                                        else                           -> "No preference — filled in wherever it fits"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                )
+
+                                "anchor" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "A soft target — the task lands as close to this time as it can, drifting " +
+                                            "earlier or later within the flex range if the exact slot is busy.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    if (aroundTime != null) {
+                                        Row(
+                                            verticalAlignment     = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            TimePickerChip(value = aroundTime!!, onValueChange = { aroundTime = it })
+                                            IconButton(onClick = { aroundTime = null }, modifier = Modifier.size(20.dp)) {
+                                                Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                            }
+                                        }
+                                    } else {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick  = { showAroundTimePicker = true },
+                                            label    = { Text("+ Time") }
+                                        )
+                                    }
+                                    if (aroundTime != null) {
+                                        Text(
+                                            "Flex range",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement   = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            listOf(15 to "±15m", 30 to "±30m", 60 to "±1h", 120 to "±2h", 180 to "±3h")
+                                                .forEach { (mins, label) ->
+                                                    FilterChip(
+                                                        selected = aroundFlexMinutes == mins,
+                                                        onClick  = { aroundFlexMinutes = mins },
+                                                        label    = { Text(label) }
+                                                    )
+                                                }
+                                        }
+                                    }
+                                }
+
+                                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { // "window"
+                                    Text(
+                                        "Placed somewhere in this range — spaced out through it for lower-priority " +
+                                            "tasks, while Critical/Urgent tasks still take the first opening.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Row(
+                                        verticalAlignment     = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        if (afterTime != null) {
+                                            TimePickerChip(value = afterTime!!, onValueChange = { afterTime = it })
+                                        } else {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick  = { showAfterTimePicker = true },
+                                                label    = { Text("+ From") }
+                                            )
+                                        }
+                                        Text("to", style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (beforeTime != null) {
+                                            TimePickerChip(value = beforeTime!!, onValueChange = { beforeTime = it })
+                                        } else {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick  = { showBeforeTimePicker = true },
+                                                label    = { Text("+ To") }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -745,8 +855,11 @@ fun AddTaskSheet(
                             var constraintPicker by remember { mutableStateOf<String?>(null) }
 
                             // ── Active constraint tags ──────────────────────────────────────
+                            // afterTime/beforeTime as a "Between" pair (aroundMode == "window")
+                            // and aroundTime are owned by the Time of day section above — shown
+                            // there via chip selection, not duplicated here as dismissible tags.
                             val hasConstraints = selectedDays.isNotEmpty() ||
-                                afterTime != null || beforeTime != null || aroundTime != null ||
+                                (aroundMode != "window" && (afterTime != null || beforeTime != null)) ||
                                 afterTaskIds.isNotEmpty() || beforeTaskIds.isNotEmpty() ||
                                 afterCalEventIds.isNotEmpty() || beforeCalEventIds.isNotEmpty() ||
                                 duringCalEventId != null || taskRecurrenceRule != null ||
@@ -764,18 +877,11 @@ fun AddTaskSheet(
                                         else "${selectedDays.size} days"
                                         ConstraintTag(dayLabel) { selectedDays = emptySet() }
                                     }
-                                    if (aroundMode == "window" && afterTime != null && beforeTime != null) {
-                                        ConstraintTag("Between $afterTime–$beforeTime") { afterTime = null; beforeTime = null }
-                                    } else {
+                                    if (aroundMode != "window") {
                                         if (afterTime != null)
                                             ConstraintTag("After $afterTime") { afterTime = null }
                                         if (beforeTime != null)
                                             ConstraintTag("Before $beforeTime") { beforeTime = null }
-                                    }
-                                    if (aroundTime != null) {
-                                        val flexLabel = if (aroundFlexMinutes >= 60)
-                                            "±${aroundFlexMinutes / 60}h" else "±${aroundFlexMinutes}m"
-                                        ConstraintTag("Around $aroundTime $flexLabel") { aroundTime = null }
                                     }
                                     afterTaskIds.forEach { tid ->
                                         val name = if (tid == TASK_REF_SLEEP) "Sleep"
@@ -870,7 +976,6 @@ fun AddTaskSheet(
                                                     "recurrence"  -> "Recurrence"
                                                     "after"       -> "After"
                                                     "before"      -> "Before"
-                                                    "around"      -> "Around"
                                                     "sameDayAs"   -> "Day relation"
                                                     "duringEvent" -> "During event"
                                                     else          -> "Add constraint"
@@ -921,11 +1026,6 @@ fun AddTaskSheet(
                                                     selected = false,
                                                     onClick  = { constraintPicker = "before" },
                                                     label    = { Text("Before") }
-                                                )
-                                                FilterChip(
-                                                    selected = false,
-                                                    onClick  = { constraintPicker = "around" },
-                                                    label    = { Text("Around") }
                                                 )
                                                 if (!isBlockMode) {
                                                     FilterChip(
@@ -1112,99 +1212,6 @@ fun AddTaskSheet(
                                                     color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                                                 )
                                             }
-                                            }
-
-                                            "around" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    FilterChip(
-                                                        selected = aroundMode == "anchor",
-                                                        onClick  = { aroundMode = "anchor"; afterTime = null; beforeTime = null },
-                                                        label    = { Text("At a time") }
-                                                    )
-                                                    FilterChip(
-                                                        selected = aroundMode == "window",
-                                                        onClick  = { aroundMode = "window"; aroundTime = null },
-                                                        label    = { Text("Between two times") }
-                                                    )
-                                                }
-                                                if (aroundMode == "anchor") {
-                                                    Text(
-                                                        "A soft target — the task lands as close to this time as it can, drifting " +
-                                                            "earlier or later within the flex range if the exact slot is busy.",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                                    )
-                                                    if (aroundTime != null) {
-                                                        Row(
-                                                            verticalAlignment     = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                        ) {
-                                                            TimePickerChip(value = aroundTime!!, onValueChange = { aroundTime = it })
-                                                            IconButton(onClick = { aroundTime = null }, modifier = Modifier.size(20.dp)) {
-                                                                Icon(Icons.Default.Close, null, modifier = Modifier.size(12.dp),
-                                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                                                            }
-                                                        }
-                                                    } else {
-                                                        FilterChip(
-                                                            selected = false,
-                                                            onClick  = { showAroundTimePicker = true },
-                                                            label    = { Text("+ Time") }
-                                                        )
-                                                    }
-                                                    if (aroundTime != null) {
-                                                        Text(
-                                                            "Flex range",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                        FlowRow(
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                            verticalArrangement   = Arrangement.spacedBy(4.dp)
-                                                        ) {
-                                                            listOf(15 to "±15m", 30 to "±30m", 60 to "±1h", 120 to "±2h", 180 to "±3h")
-                                                                .forEach { (mins, label) ->
-                                                                    FilterChip(
-                                                                        selected = aroundFlexMinutes == mins,
-                                                                        onClick  = { aroundFlexMinutes = mins },
-                                                                        label    = { Text(label) }
-                                                                    )
-                                                                }
-                                                        }
-                                                    }
-                                                } else {
-                                                    Text(
-                                                        "Placed somewhere in this range — spaced out through it for lower-priority " +
-                                                            "tasks, while Critical/Urgent tasks still take the first opening.",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                                    )
-                                                    Row(
-                                                        verticalAlignment     = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                    ) {
-                                                        if (afterTime != null) {
-                                                            TimePickerChip(value = afterTime!!, onValueChange = { afterTime = it })
-                                                        } else {
-                                                            FilterChip(
-                                                                selected = false,
-                                                                onClick  = { showAfterTimePicker = true },
-                                                                label    = { Text("+ From") }
-                                                            )
-                                                        }
-                                                        Text("to", style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                        if (beforeTime != null) {
-                                                            TimePickerChip(value = beforeTime!!, onValueChange = { beforeTime = it })
-                                                        } else {
-                                                            FilterChip(
-                                                                selected = false,
-                                                                onClick  = { showBeforeTimePicker = true },
-                                                                label    = { Text("+ To") }
-                                                            )
-                                                        }
-                                                    }
-                                                }
                                             }
 
                                             "sameDayAs" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
