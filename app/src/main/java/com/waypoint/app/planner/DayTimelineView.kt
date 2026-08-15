@@ -231,8 +231,12 @@ fun DayTimelineView(
     // below, which drives both this and the scroll offset together, frame by frame.
     var hourHeightPx by remember { mutableFloatStateOf(with(density) { (HOUR_HEIGHT * zoomFactors[zoomIndex]).toPx() }) }
     val hourHeight = with(density) { hourHeightPx.toDp() }
-    val showQuarterLabels = zoomIndex == 1
-    val showMinuteLines   = zoomIndex == 2
+    // Quarter/minute sub-labels add hundreds of Text nodes at higher zoom levels; rendering
+    // them on every frame of the height animation (below) is what made zooming feel laggy, so
+    // they're hidden for the ~260ms of the transition and pop back in once it settles.
+    var isAnimatingZoom by remember { mutableStateOf(false) }
+    val showQuarterLabels = zoomIndex == 1 && !isAnimatingZoom
+    val showMinuteLines   = zoomIndex == 2 && !isAnimatingZoom
     var anchorMinute by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(zoomIndex) {
@@ -244,18 +248,23 @@ fun DayTimelineView(
         val targetScrollPx = if (anchorMinute >= 0)
             anchorMinute.coerceAtLeast(0) / 60f * targetHeightPx
         else null
-        animate(
-            initialValue = startHeightPx,
-            targetValue = targetHeightPx,
-            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
-        ) { value, _ ->
-            hourHeightPx = value
-            if (targetScrollPx != null) {
-                val fraction = (value - startHeightPx) / (targetHeightPx - startHeightPx)
-                val desiredScroll = startScrollPx + (targetScrollPx - startScrollPx) * fraction
-                val delta = desiredScroll - scrollState.value
-                if (delta != 0f) scrollState.dispatchRawDelta(delta)
+        isAnimatingZoom = true
+        try {
+            animate(
+                initialValue = startHeightPx,
+                targetValue = targetHeightPx,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+            ) { value, _ ->
+                hourHeightPx = value
+                if (targetScrollPx != null) {
+                    val fraction = (value - startHeightPx) / (targetHeightPx - startHeightPx)
+                    val desiredScroll = startScrollPx + (targetScrollPx - startScrollPx) * fraction
+                    val delta = desiredScroll - scrollState.value
+                    if (delta != 0f) scrollState.dispatchRawDelta(delta)
+                }
             }
+        } finally {
+            isAnimatingZoom = false
         }
     }
 
@@ -610,8 +619,13 @@ private fun TimelineBody(
 ) {
     val viewTotalMin = totalMinutes
 
+    // These derived lists depend only on the plan/calendar/block data below, never on
+    // hourHeight — remembered so the zoom animation's ~60fps hourHeight changes don't force
+    // re-sorting/re-filtering/re-grouping every frame (that per-frame rebuild was the main
+    // source of zoom lag; only the Y-position math downstream actually needs to redo per frame).
+
     // Merge today's events with next-day events inside the 4AM-4AM window
-    val mergedScheduled = run {
+    val mergedScheduled = remember(plan, nextDayScheduled, viewEndMs) {
         val combined = (plan.scheduled + nextDayScheduled.filter { it.startMillis < viewEndMs })
             .sortedBy { it.startMillis }
         val out = mutableListOf<ScheduledEvent>()
@@ -631,18 +645,22 @@ private fun TimelineBody(
 
     // DURING sub-tasks render inside the parent block tile.
     // BEFORE/AFTER sub-tasks render as standalone events at their actual timeline positions.
-    val duringSubTaskIds: Set<String> = (blockInstances + nextDayBlockInstances)
-        .flatMap { inst -> inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.map { it.id } }
-        .toSet()
-    val visibleScheduled = mergedScheduled.filter { se ->
-        val sourceId = se.event.sourceWidgetId ?: return@filter true
-        if (!sourceId.startsWith("__block__")) return@filter true
-        se.event.id !in duringSubTaskIds
+    val duringSubTaskIds: Set<String> = remember(blockInstances, nextDayBlockInstances) {
+        (blockInstances + nextDayBlockInstances)
+            .flatMap { inst -> inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.map { it.id } }
+            .toSet()
+    }
+    val visibleScheduled = remember(mergedScheduled, duringSubTaskIds) {
+        mergedScheduled.filter { se ->
+            val sourceId = se.event.sourceWidgetId ?: return@filter true
+            if (!sourceId.startsWith("__block__")) return@filter true
+            se.event.id !in duringSubTaskIds
+        }
     }
 
     // Compute free time windows (gaps ≥ 15 min between occupied ranges).
     // Use mergedScheduled (all events) so BEFORE/AFTER block tasks also count as occupied.
-    val freeWindows = run {
+    val freeWindows = remember(mergedScheduled, calEvents, viewStartMs, viewTotalMin) {
         val raw = mutableListOf<Pair<Int, Int>>()
         mergedScheduled.forEach { se ->
             val s = msToMin(se.startMillis, viewStartMs)
@@ -675,9 +693,11 @@ private fun TimelineBody(
     }
 
     // Group DURING block sub-tasks by parent block id so we can render them inside the tile
-    val blockSubTasksMap = mergedScheduled
-        .filter { it.event.sourceWidgetId?.startsWith("__block__") == true && it.event.id in duringSubTaskIds }
-        .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
+    val blockSubTasksMap = remember(mergedScheduled, duringSubTaskIds) {
+        mergedScheduled
+            .filter { it.event.sourceWidgetId?.startsWith("__block__") == true && it.event.id in duringSubTaskIds }
+            .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
+    }
 
     Box(modifier.fillMaxHeight().clipToBounds()) {
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
