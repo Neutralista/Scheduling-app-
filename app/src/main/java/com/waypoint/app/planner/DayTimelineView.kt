@@ -320,20 +320,34 @@ fun DayTimelineView(
 
     // Commits a named-block drag/resize as a per-date schedule override — same mechanism as
     // the manual 14-day schedule editors, just written from a gesture instead of a picker.
-    fun commitBlockDrag(blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) {
+    // Floating blocks are placed fresh by the planner on every replan (resolveForDate skips
+    // them entirely), so a per-date override for one would never be read back — bail instead
+    // of writing dead data. isResize distinguishes a pure move (start+end shift together,
+    // duration preserved) from a resize (end changed independently) so moving a duration-mode
+    // block (endHour == -1) doesn't silently pin it to a fixed end time.
+    fun commitBlockDrag(blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) {
         val store = namedBlockStore ?: return
-        val blockDate = Instant.ofEpochMilli(originalStartMs).atZone(zone).toLocalDate()
+        val block = store.loadBlock(blockId) ?: return
+        if (block.isFloating) return
+        val originalDate = Instant.ofEpochMilli(originalStartMs).atZone(zone).toLocalDate()
         val startZdt = Instant.ofEpochMilli(newStartMs).atZone(zone)
         val endZdt = Instant.ofEpochMilli(newEndMs).atZone(zone)
+        val newDate = startZdt.toLocalDate()
+        // A drag that crosses midnight relocates the occurrence onto a new calendar date;
+        // disable the old date's slot so a recurring block doesn't keep showing there too.
+        if (newDate != originalDate) {
+            store.setSchedule(NamedBlockSchedule(blockId = blockId, date = originalDate.toString(), enabled = false))
+        }
+        val preserveDurationMode = !isResize && block.useTotalTaskDuration
         store.setSchedule(
             NamedBlockSchedule(
                 blockId = blockId,
-                date = blockDate.toString(),
+                date = newDate.toString(),
                 enabled = true,
                 startHour = startZdt.hour,
                 startMinute = startZdt.minute,
-                endHour = endZdt.hour,
-                endMinute = endZdt.minute
+                endHour = if (preserveDurationMode) -1 else endZdt.hour,
+                endMinute = if (preserveDurationMode) 0 else endZdt.minute
             )
         )
         localRefreshKey++
@@ -592,7 +606,7 @@ private fun TimelineBody(
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?,
     onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
-    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null
 ) {
     val viewTotalMin = totalMinutes
 
@@ -934,13 +948,20 @@ private fun PlannerEventBlock(
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
-    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
+    onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null
 ) {
     val isSleep       = se.event.category == EventCategory.SLEEP
     val isLoggedSleep = isSleep && se.event.isLogged
     val isBlock       = se.event.category == EventCategory.BLOCK
     val seStartMin = msToMin(se.startMillis, viewStartMs)
     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
+
+    // Fixed (non-floating) blocks only: a floating block is re-placed by the planner on every
+    // replan, so a dragged position for one can never be persisted — don't offer the gesture.
+    val blockInstance = if (isBlock) {
+        val blockId = se.event.id.removePrefix("__block__")
+        blockInstances.find { it.block.id == blockId } ?: nextDayBlockInstances.find { it.block.id == blockId }
+    } else null
 
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -949,7 +970,7 @@ private fun PlannerEventBlock(
     var moveOffsetMin by remember { mutableIntStateOf(0) }
     var resizeOffsetMin by remember { mutableIntStateOf(0) }
     var moveAccumPx by remember { mutableStateOf(0f) }
-    val draggable = isBlock && onBlockDrag != null
+    val draggable = isBlock && onBlockDrag != null && blockInstance?.block?.isFloating != true
     val minDurationOffset = 5 - (seEndMin - seStartMin)
 
     val previewStartMin = seStartMin + moveOffsetMin
@@ -959,10 +980,7 @@ private fun PlannerEventBlock(
 
     val sleepAccent = MaterialTheme.colorScheme.tertiary
     val blockAccent: Color? = if (isBlock) {
-        val blockId = se.event.id.removePrefix("__block__")
-        val stored = blockInstances.find { it.block.id == blockId }
-            ?: nextDayBlockInstances.find { it.block.id == blockId }
-        stored?.block?.colorArgb?.let { Color(it) } ?: Color(0xFF4DB6AC)
+        blockInstance?.block?.colorArgb?.let { Color(it) } ?: Color(0xFF4DB6AC)
     } else null
 
     val taskAccent: Color? = if (!isSleep && !isBlock && se.event.colorArgb != null)
@@ -1013,7 +1031,7 @@ private fun PlannerEventBlock(
                         val blockId = se.event.id.removePrefix("__block__")
                         if (delta != 0) {
                             onBlockDrag?.invoke(
-                                blockId, se.startMillis, se.startMillis + delta * 60_000L, se.endMillis + delta * 60_000L
+                                blockId, se.startMillis, se.startMillis + delta * 60_000L, se.endMillis + delta * 60_000L, false
                             )
                         }
                     },
@@ -1084,7 +1102,7 @@ private fun PlannerEventBlock(
                 onResizeCommit = { delta ->
                     resizeOffsetMin = 0
                     val blockId = se.event.id.removePrefix("__block__")
-                    onBlockDrag?.invoke(blockId, se.startMillis, se.startMillis, se.endMillis + delta * 60_000L)
+                    onBlockDrag?.invoke(blockId, se.startMillis, se.startMillis, se.endMillis + delta * 60_000L, true)
                 }
             )
         }

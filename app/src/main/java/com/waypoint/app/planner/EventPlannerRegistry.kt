@@ -351,6 +351,7 @@ class EventPlannerRegistry {
         // ── Single scheduling pass in dependency order ────────────────────────
         for (event in order) {
             val durationMs  = event.durationMinutes * 60_000L
+            val bufferMs    = event.bufferMinutes * 60_000L
             val tw          = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
             val beforeShift = event.conditions.any { it is EventCondition.BeforeShift }
             val afterShift  = event.conditions.any { it is EventCondition.AfterShift }
@@ -451,15 +452,30 @@ class EventPlannerRegistry {
 
             // DuringShift: greedy first-fit within shift free slots to prevent overlap
             if (duringShift && shiftStartMs != null && shiftEndMs != null) {
-                for (i in shiftFreeSlots.indices) {
-                    val (slotStart, slotEnd) = shiftFreeSlots[i]
-                    val fitStart = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
-                    val fitEnd   = if (tw != null) minOf(slotEnd,   toMs(tw.endHour,   tw.endMin))   else slotEnd
-                    if (fitEnd - fitStart < durationMs) continue
-                    scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                    shiftFreeSlots[i] = (fitStart + durationMs) to slotEnd
-                    placed = true
-                    break
+                val shiftAroundTime = event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
+                if (shiftAroundTime != null) {
+                    val anchorMs = toMs(shiftAroundTime.anchorHour, shiftAroundTime.anchorMinute)
+                    val flexMs = shiftAroundTime.flexMinutes * 60_000L
+                    val loBound = tw?.let { toMs(it.startHour, it.startMin) }
+                    val hiBound = tw?.let { toMs(it.endHour, it.endMin) }
+                    val fit = closestFitToAnchor(shiftFreeSlots, anchorMs, flexMs, durationMs, loBound, hiBound)
+                    if (fit != null) {
+                        val (idx, start) = fit
+                        scheduled += ScheduledEvent(event, start, start + durationMs)
+                        consumeSlot(shiftFreeSlots, idx, start, durationMs, bufferMs)
+                        placed = true
+                    }
+                } else {
+                    for (i in shiftFreeSlots.indices) {
+                        val (slotStart, slotEnd) = shiftFreeSlots[i]
+                        val fitStart = if (tw != null) maxOf(slotStart, toMs(tw.startHour, tw.startMin)) else slotStart
+                        val fitEnd   = if (tw != null) minOf(slotEnd,   toMs(tw.endHour,   tw.endMin))   else slotEnd
+                        if (fitEnd - fitStart < durationMs) continue
+                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                        consumeSlot(shiftFreeSlots, i, fitStart, durationMs, bufferMs)
+                        placed = true
+                        break
+                    }
                 }
                 if (!placed) blocked += BlockedEvent(event, "No available time in shift")
                 continue
@@ -480,7 +496,20 @@ class EventPlannerRegistry {
                 val blockZoneLower: Long? = if (event.zone == PlannerZone.AFTERNOON)
                     inst.scheduledStartMs + blockDuration / 3 else null
                 val useBlockLast = event.zone == PlannerZone.EVENING
-                if (!useBlockLast) {
+                val blockAroundTime = event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
+                if (blockAroundTime != null) {
+                    val anchorMs = toMs(blockAroundTime.anchorHour, blockAroundTime.anchorMinute)
+                    val flexMs = blockAroundTime.flexMinutes * 60_000L
+                    val loBound = tw?.let { toMs(it.startHour, it.startMin) }
+                    val hiBound = tw?.let { toMs(it.endHour, it.endMin) }
+                    val fit = closestFitToAnchor(slots, anchorMs, flexMs, durationMs, loBound, hiBound)
+                    if (fit != null) {
+                        val (idx, start) = fit
+                        scheduled += ScheduledEvent(event, start, start + durationMs)
+                        consumeSlot(slots, idx, start, durationMs, bufferMs)
+                        placed = true
+                    }
+                } else if (!useBlockLast) {
                     for (i in slots.indices) {
                         val (slotStart, slotEnd) = slots[i]
                         val fitStart = maxOf(
@@ -490,7 +519,7 @@ class EventPlannerRegistry {
                         val fitEnd = if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd
                         if (fitEnd - fitStart < durationMs) continue
                         scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                        slots[i] = (fitStart + durationMs) to slotEnd
+                        consumeSlot(slots, i, fitStart, durationMs, bufferMs)
                         placed = true
                         break
                     }
@@ -502,12 +531,7 @@ class EventPlannerRegistry {
                         val lateStart = hi - durationMs
                         if (lateStart < lo) continue
                         scheduled += ScheduledEvent(event, lateStart, lateStart + durationMs)
-                        slots.removeAt(i)
-                        val segs = buildList {
-                            if (lateStart > slotStart) add(slotStart to lateStart)
-                            if (lateStart + durationMs < slotEnd) add((lateStart + durationMs) to slotEnd)
-                        }
-                        slots.addAll(i, segs)
+                        consumeSlot(slots, i, lateStart, durationMs, bufferMs)
                         placed = true
                         break
                     }
@@ -523,11 +547,25 @@ class EventPlannerRegistry {
                 if (slot == null) {
                     blocked += BlockedEvent(event, "Calendar event not found today")
                 } else {
-                    val fitStart = if (tw != null) maxOf(slot.first, toMs(tw.startHour, tw.startMin)) else slot.first
-                    val fitEnd   = if (tw != null) minOf(slot.second, toMs(tw.endHour,   tw.endMin))  else slot.second
-                    if (fitEnd - fitStart >= durationMs) {
-                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                        placed = true
+                    val calAroundTime = event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
+                    if (calAroundTime != null) {
+                        val anchorMs = toMs(calAroundTime.anchorHour, calAroundTime.anchorMinute)
+                        val flexMs = calAroundTime.flexMinutes * 60_000L
+                        val loBound = tw?.let { toMs(it.startHour, it.startMin) }
+                        val hiBound = tw?.let { toMs(it.endHour, it.endMin) }
+                        val fit = closestFitToAnchor(listOf(slot), anchorMs, flexMs, durationMs, loBound, hiBound)
+                        if (fit != null) {
+                            val (_, start) = fit
+                            scheduled += ScheduledEvent(event, start, start + durationMs)
+                            placed = true
+                        }
+                    } else {
+                        val fitStart = if (tw != null) maxOf(slot.first, toMs(tw.startHour, tw.startMin)) else slot.first
+                        val fitEnd   = if (tw != null) minOf(slot.second, toMs(tw.endHour,   tw.endMin))  else slot.second
+                        if (fitEnd - fitStart >= durationMs) {
+                            scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
+                            placed = true
+                        }
                     }
                     if (!placed) blocked += BlockedEvent(event, "No available time in calendar event slot")
                 }
@@ -545,39 +583,26 @@ class EventPlannerRegistry {
             if (aroundTime != null) {
                 val anchorMs = toMs(aroundTime.anchorHour, aroundTime.anchorMinute)
                 val flexMs = aroundTime.flexMinutes * 60_000L
-                var bestIdx = -1
-                var bestStart = -1L
-                var bestDistance = Long.MAX_VALUE
-                for (i in remaining.indices) {
-                    val (blockStart, blockEnd) = remaining[i]
-                    val lo = maxOf(blockStart, effectiveMustStartAfter ?: blockStart, anchorMs - flexMs)
-                    val hi = minOf(
-                        blockEnd - durationMs,
-                        (effectiveMustEndBefore ?: blockEnd) - durationMs,
-                        anchorMs + flexMs,
-                        deadline?.byMillis?.minus(durationMs) ?: Long.MAX_VALUE
-                    )
-                    if (hi < lo) continue
-                    val candidateStart = anchorMs.coerceIn(lo, hi)
-                    val distance = kotlin.math.abs(candidateStart - anchorMs)
-                    if (distance < bestDistance) {
-                        bestDistance = distance
-                        bestStart = candidateStart
-                        bestIdx = i
+                val hiBound = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis).minOrNull()
+                val primary = closestFitToAnchor(remaining, anchorMs, flexMs, durationMs, effectiveMustStartAfter, hiBound)
+                if (primary != null) {
+                    val (idx, start) = primary
+                    scheduled += ScheduledEvent(event, start, start + durationMs)
+                    consumeSlot(remaining, idx, start, durationMs, bufferMs)
+                    placed = true
+                } else if (beforeBlock != null && historicalSlots.isNotEmpty()) {
+                    // Same anchor/flex bounds as the primary pool — a BeforeBlock task that
+                    // couldn't fit in the remaining free time (block already started) still
+                    // must not silently land outside [anchor - flex, anchor + flex].
+                    val fallback = closestFitToAnchor(historicalSlots, anchorMs, flexMs, durationMs, effectiveMustStartAfter, hiBound)
+                    if (fallback != null) {
+                        val (idx, start) = fallback
+                        scheduled += ScheduledEvent(event, start, start + durationMs)
+                        consumeSlot(historicalSlots, idx, start, durationMs, bufferMs)
+                        placed = true
                     }
                 }
-                if (bestIdx >= 0) {
-                    val (blockStart, blockEnd) = remaining[bestIdx]
-                    scheduled += ScheduledEvent(event, bestStart, bestStart + durationMs)
-                    remaining.removeAt(bestIdx)
-                    val segs = buildList {
-                        if (bestStart > blockStart) add(blockStart to bestStart)
-                        if (bestStart + durationMs < blockEnd) add((bestStart + durationMs) to blockEnd)
-                    }
-                    remaining.addAll(bestIdx, segs)
-                } else {
-                    blocked += BlockedEvent(event, "No available time near ${"%02d:%02d".format(aroundTime.anchorHour, aroundTime.anchorMinute)}")
-                }
+                if (!placed) blocked += BlockedEvent(event, "No available time near ${"%02d:%02d".format(aroundTime.anchorHour, aroundTime.anchorMinute)}")
                 continue
             }
 
@@ -600,9 +625,9 @@ class EventPlannerRegistry {
                         blockEnd,
                         effectiveMustEndBefore ?: blockEnd,
                         tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
-                        if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
+                        if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
+                        deadline?.byMillis ?: blockEnd
                     )
-                    if (deadline != null && earliestStart + durationMs > deadline.byMillis) continue
                     if (fitEnd - earliestStart < durationMs) continue
                     val slackMs = (fitEnd - earliestStart) - durationMs
                     val jitterMs = seededJitterMs("${event.id}|$date", jitterCapMs(event.priority, slackMs))
@@ -610,12 +635,7 @@ class EventPlannerRegistry {
                     scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
                     // Split (not just truncate-from-the-left) so a jittered/bound-constrained
                     // gap before fitStart stays available to later tasks in this same pass.
-                    remaining.removeAt(i)
-                    val segs = buildList {
-                        if (fitStart > blockStart) add(blockStart to fitStart)
-                        if (fitStart + durationMs < blockEnd) add((fitStart + durationMs) to blockEnd)
-                    }
-                    remaining.addAll(i, segs)
+                    consumeSlot(remaining, i, fitStart, durationMs, bufferMs)
                     placed = true
                     break
                 }
@@ -647,12 +667,7 @@ class EventPlannerRegistry {
                         if (fitStart < lowerBound) continue
                         scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
                         // Preserve free time before and after the placed slot.
-                        remaining.removeAt(i)
-                        val newSegs = buildList {
-                            if (fitStart > blockStart) add(blockStart to fitStart)
-                            if (fitStart + durationMs < blockEnd) add((fitStart + durationMs) to blockEnd)
-                        }
-                        remaining.addAll(i, newSegs)
+                        consumeSlot(remaining, i, fitStart, durationMs, bufferMs)
                         placed = true
                         break@outer
                     }
@@ -677,12 +692,7 @@ class EventPlannerRegistry {
                     val fitStart = hi - durationMs
                     if (fitStart < lo) continue
                     scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                    historicalSlots.removeAt(i)
-                    val segs = buildList {
-                        if (fitStart > slotStart) add(slotStart to fitStart)
-                        if (fitStart + durationMs < slotEnd) add((fitStart + durationMs) to slotEnd)
-                    }
-                    historicalSlots.addAll(i, segs)
+                    consumeSlot(historicalSlots, i, fitStart, durationMs, bufferMs)
                     placed = true
                     break
                 }
@@ -769,6 +779,54 @@ class EventPlannerRegistry {
     private fun seededJitterMs(seedKey: String, capMs: Long): Long {
         if (capMs <= 0L) return 0L
         return (java.util.Random(seedKey.hashCode().toLong()).nextDouble() * capMs).toLong()
+    }
+
+    /**
+     * Finds the slot (by index) and start time in [slots] whose [durationMs]-long placement
+     * lands closest to [anchorMs], constrained to [anchorMs - flexMs, anchorMs + flexMs] and to
+     * [loBound]/[hiBound] when set. Shared by every "around time" placement path (the general
+     * free-time pool, and the DuringShift/DuringBlock/DuringCalEvent/historical-slot pools) so
+     * an AroundTime task never silently lands outside its anchor window in any of them.
+     */
+    private fun closestFitToAnchor(
+        slots: List<Pair<Long, Long>>,
+        anchorMs: Long, flexMs: Long, durationMs: Long,
+        loBound: Long?, hiBound: Long?
+    ): Pair<Int, Long>? {
+        var bestIdx = -1
+        var bestStart = -1L
+        var bestDistance = Long.MAX_VALUE
+        for (i in slots.indices) {
+            val (slotStart, slotEnd) = slots[i]
+            val lo = maxOf(slotStart, loBound ?: slotStart, anchorMs - flexMs)
+            val hi = minOf(slotEnd - durationMs, (hiBound ?: slotEnd) - durationMs, anchorMs + flexMs)
+            if (hi < lo) continue
+            val candidateStart = anchorMs.coerceIn(lo, hi)
+            val distance = kotlin.math.abs(candidateStart - anchorMs)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestStart = candidateStart
+                bestIdx = i
+            }
+        }
+        return if (bestIdx >= 0) bestIdx to bestStart else null
+    }
+
+    /**
+     * Replaces the slot at [idx] in [slots] with whatever free time remains around an event of
+     * [durationMs] starting at [start], reserving an extra [bufferMs] of consumed-but-not-shown
+     * time immediately after it (PlannerEvent.bufferMinutes) so the next task can't be placed
+     * back-to-back. The event's own displayed end time is unaffected — only what's still free.
+     */
+    private fun consumeSlot(slots: MutableList<Pair<Long, Long>>, idx: Int, start: Long, durationMs: Long, bufferMs: Long) {
+        val (slotStart, slotEnd) = slots[idx]
+        slots.removeAt(idx)
+        val occupiedEnd = (start + durationMs + bufferMs).coerceAtMost(slotEnd)
+        val segs = buildList {
+            if (start > slotStart) add(slotStart to start)
+            if (occupiedEnd < slotEnd) add(occupiedEnd to slotEnd)
+        }
+        slots.addAll(idx, segs)
     }
 
     private fun subtractIntervals(
