@@ -3,6 +3,14 @@ package com.waypoint.app.planner
 import java.time.LocalDate
 import java.util.Calendar
 
+/**
+ * Default soft gap after a task that didn't configure its own [PlannerEvent.bufferMinutes].
+ * Purely a preference, never a placement requirement: [EventPlannerRegistry.consumeSlot] just
+ * clamps it to whatever room is actually left, so two tasks still land back-to-back whenever
+ * the day is tight enough to need it.
+ */
+private const val AUTO_BUFFER_CAP_MS = 30 * 60_000L
+
 class EventPlannerRegistry {
 
     private val _events = mutableListOf<PlannerEvent>()
@@ -351,7 +359,9 @@ class EventPlannerRegistry {
         // ── Single scheduling pass in dependency order ────────────────────────
         for (event in order) {
             val durationMs  = event.durationMinutes * 60_000L
-            val bufferMs    = event.bufferMinutes * 60_000L
+            // An explicit per-task buffer is always honored as-is; otherwise fall back to the
+            // automatic soft gap (see AUTO_BUFFER_CAP_MS) rather than packing tasks flush.
+            val bufferMs    = if (event.bufferMinutes > 0) event.bufferMinutes * 60_000L else AUTO_BUFFER_CAP_MS
             val tw          = event.conditions.filterIsInstance<EventCondition.TimeWindow>().firstOrNull()
             val beforeShift = event.conditions.any { it is EventCondition.BeforeShift }
             val afterShift  = event.conditions.any { it is EventCondition.AfterShift }
