@@ -11,7 +11,6 @@ import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.persistence.TaskCompletionStore
 import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.BlockSessionStore
-import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.planner.TaskExecutionStore
@@ -41,7 +40,6 @@ class RealScriptEnvironment(
     override val alarms: AlarmSignals = RealAlarmSignals(context, AlarmStore(context))
     override val eventPlanner: EventPlannerRegistry = EventPlannerRegistry()
     val taskExecutionStore: TaskExecutionStore = TaskExecutionStore(context)
-    val bufferRulesStore: BufferRulesStore = BufferRulesStore(context)
     override val taskManager: TaskManagerScript = TaskManagerScript(
         store = TaskQueueStore(context),
         registry = eventPlanner,

@@ -82,7 +82,6 @@ import androidx.health.connect.client.PermissionController
 import com.waypoint.app.AppLogger
 import com.waypoint.app.LogEntry
 import com.waypoint.app.LogLevel
-import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.signal.HealthConnectAvailability
 import com.waypoint.app.ui.components.HsvColorPicker
 import com.waypoint.app.ui.theme.AppTheme
@@ -161,14 +160,6 @@ fun SettingsTab(
         )
 
         HealthConnectIntegration(onPermissionGranted)
-
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 12.dp),
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        val bufferStore = remember { BufferRulesStore(context) }
-        BufferRulesCard(store = bufferStore)
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),

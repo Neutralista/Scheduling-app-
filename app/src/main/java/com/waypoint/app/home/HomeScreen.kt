@@ -96,7 +96,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.waypoint.app.planner.BlockTask
-import com.waypoint.app.planner.BufferRulesStore
 import com.waypoint.app.planner.CalendarPrefsStore
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.ScheduledEvent
@@ -425,7 +424,6 @@ private fun PlanTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sleepStore = remember { SleepScheduleStore(context) }
-    val bufferStore = remember { BufferRulesStore(context) }
     val calPrefsStore = remember { CalendarPrefsStore(context) }
     val namedBlockStore = remember { NamedBlockStore(context) }
     val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
@@ -472,14 +470,9 @@ private fun PlanTab(
         eventDays = loadEventDaysForMonth(context, displayMonth)
     }
 
-    // Refresh timeline whenever sleep times change; re-sync buffer rules with latest sleep anchors
+    // Refresh timeline whenever sleep times change
     val sleepTimes by sleepTimesFlow.collectAsState()
     LaunchedEffect(sleepTimes) {
-        bufferStore.syncToRegistry(
-            registry = eventPlanner,
-            sleepStartMs = sleepTimes.first,
-            wakeMs = sleepTimes.second
-        )
         calRefreshKey++
     }
 

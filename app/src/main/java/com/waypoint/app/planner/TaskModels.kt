@@ -41,21 +41,3 @@ data class TaskExecution(
 
     val isRunning: Boolean get() = endMillis == null
 }
-
-@Serializable
-enum class AnchorType {
-    BEFORE_SHIFT_START,
-    AFTER_SHIFT_END,
-    BEFORE_SLEEP,
-    AFTER_WAKE
-}
-
-@Serializable
-data class BufferRule(
-    val id: String,
-    val label: String,
-    val anchorType: AnchorType,
-    val offsetMinutes: Int = 0,
-    val durationMinutes: Int = 15,
-    val enabled: Boolean = true
-)

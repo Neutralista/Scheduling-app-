@@ -221,7 +221,6 @@ Block events in `plan.scheduled` use `EventCategory.BLOCK` and `id = "__block__$
 | `wp_block_session` | `BlockSessionStore` | Active `ActiveBlockSession` (single key `"active"`) |
 | `waypoint_timeline` | `DayTimelineView` | Zoom index preference |
 | `wp_calendar_prefs` | `CalendarPrefsStore` | Which calendar events reserve time |
-| `wp_buffer_rules` | `BufferRulesStore` | Buffer time rules |
 | `wp_sleep_schedule` | `SleepScheduleStore` | Bed/wake times |
 | `wp_sleep_log` | `SleepLogStore` | Daily sleep log entries |
 
