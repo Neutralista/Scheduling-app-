@@ -220,7 +220,8 @@ fun TasksTab(
                     session = sess,
                     namedBlockStore = namedBlockStore,
                     blockSessionStore = blockSessionStore,
-                    taskManager = taskManager
+                    taskManager = taskManager,
+                    onRefresh = onRefresh
                 )
             } else {
                 (todayFixedBlocks + todayScheduledFloatingBlocks).forEach { inst ->
@@ -474,7 +475,8 @@ private fun BlockSessionCard(
     session: ActiveBlockSession,
     namedBlockStore: NamedBlockStore,
     blockSessionStore: BlockSessionStore,
-    taskManager: TaskManagerScript
+    taskManager: TaskManagerScript,
+    onRefresh: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val accentColor = session.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
@@ -491,6 +493,16 @@ private fun BlockSessionCard(
         mutableStateMapOf<String, Boolean>().also { map ->
             activeTasks.forEach { task -> map[task.id] = task.id in doneIds }
         }
+    }
+    // Block sub-tasks share the same completion store as flat tasks (EventPlannerRegistry
+    // synthesizes their planner event id as the BlockTask's own id), so toggling here has to
+    // persist through taskManager — otherwise this checklist's state is invisible everywhere
+    // else in the app, including the header's daily progress bar.
+    fun toggleTask(taskId: String) {
+        val next = !(checkState[taskId] ?: false)
+        checkState[taskId] = next
+        if (next) taskManager.markDone(taskId) else taskManager.unmarkDone(taskId)
+        onRefresh()
     }
 
     // Countdown: remaining time, updated every minute
@@ -631,15 +643,13 @@ private fun BlockSessionCard(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { checkState[task.id] = !(checkState[task.id] ?: false) }
+                                .clickable { toggleTask(task.id) }
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             val checked = checkState[task.id] == true
-                            RoundCheckbox(checked = checked, onClick = {
-                                checkState[task.id] = !checked
-                            })
+                            RoundCheckbox(checked = checked, onClick = { toggleTask(task.id) })
                             Text(
                                 text = task.title,
                                 style = MaterialTheme.typography.bodySmall,

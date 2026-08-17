@@ -155,8 +155,14 @@ fun HomeScreen(
             floatingBlocks = namedBlockStore.resolveFloatingInstancesForDate(today)
         )
     }
+    // Block sub-tasks (before/during/after a named block) carry the block's synthetic event id
+    // as their sourceWidgetId ("__block__<blockId>") rather than the flat-task widget id — count
+    // them too, or the header's progress bar silently ignores every task scheduled inside a block.
     val plannerScheduled = remember(headerPlan) {
-        headerPlan.scheduled.filter { it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID }
+        headerPlan.scheduled.filter {
+            it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID ||
+                it.event.sourceWidgetId?.startsWith("__block__") == true
+        }
     }
     val plannerDoneIds = remember(headerRefreshKey) { taskManager.completions.getDoneIds() }
 
