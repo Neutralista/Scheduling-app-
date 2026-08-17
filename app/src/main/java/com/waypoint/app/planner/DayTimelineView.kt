@@ -1049,6 +1049,20 @@ private fun PlannerEventBlock(
             ?: floatingBlockInstances.find { it.block.id == blockId }
     } else null
 
+    // A BEFORE/AFTER block sub-task renders as its own standalone tile (DURING sub-tasks render
+    // nested inside the parent block's tile instead — see duringSubTaskIds in TimelineBody), so
+    // without a marker it's visually indistinguishable from an unrelated flat task. Look up the
+    // parent block the same way the container tile resolves its own instance, purely to tint an
+    // edge stripe — this never affects scheduling or drag behavior.
+    val parentBlockAccent: Color? = if (!isBlock) {
+        se.event.sourceWidgetId?.takeIf { it.startsWith("__block__") }?.removePrefix("__block__")?.let { pid ->
+            val inst = blockInstances.find { it.block.id == pid }
+                ?: nextDayBlockInstances.find { it.block.id == pid }
+                ?: floatingBlockInstances.find { it.block.id == pid }
+            (inst?.block?.colorArgb?.toOpaqueColor() ?: Color(0xFF4DB6AC)).copy(alpha = 0.7f)
+        }
+    } else null
+
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val latestHourHeightPx = rememberUpdatedState(with(density) { hourHeight.toPx() })
@@ -1153,7 +1167,11 @@ private fun PlannerEventBlock(
             .then(borderMod)
             .then(if (isDragging) Modifier.border(2.dp, fg.copy(alpha = 0.8f), RoundedCornerShape(6.dp)) else Modifier)
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxSize()) {
+            if (parentBlockAccent != null) {
+                Box(Modifier.width(3.dp).fillMaxHeight().background(parentBlockAccent))
+            }
+            Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 8.dp, vertical = 4.dp)) {
             Text(
                 displayTitle,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
@@ -1183,6 +1201,7 @@ private fun PlannerEventBlock(
                         maxLines = 1
                     )
                 }
+            }
             }
         }
         if (showStartButton) {
