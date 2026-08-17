@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +45,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -106,6 +108,17 @@ fun BlockScopeView(
     var blockColorArgb by remember { mutableStateOf(session.colorArgb) }
     val blockColor = blockColorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
     var showColorPicker by remember { mutableStateOf(false) }
+
+    // Zoom — same tap-to-cycle affordance and preference key namespace as the main Plan-tab
+    // timeline (DayTimelineView), just a separate stored index since this view's base hour
+    // height and typical content density differ.
+    val zoomContext = LocalContext.current
+    val zoomPrefs = remember { zoomContext.getSharedPreferences("waypoint_timeline", android.content.Context.MODE_PRIVATE) }
+    val zoomFactors = listOf(1f, 1.5f, 2.2f)
+    val zoomLabels = listOf("1×", "1.5×", "2.2×")
+    var zoomIndex by remember { mutableIntStateOf(zoomPrefs.getInt("bs_zoom_index", 0)) }
+    LaunchedEffect(zoomIndex) { zoomPrefs.edit().putInt("bs_zoom_index", zoomIndex).apply() }
+    val hourHeight = BS_HOUR_HEIGHT * zoomFactors[zoomIndex]
 
     val blockInstances = remember(date, refreshKey) {
         namedBlockStore.resolveForDate(date).map { (block, sched) ->
@@ -170,9 +183,9 @@ fun BlockScopeView(
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
-    LaunchedEffect(viewStartMs) {
+    LaunchedEffect(viewStartMs, hourHeight) {
         val targetMin = if (isNowVisible) (nowMin - 30).coerceAtLeast(0) else 0
-        scrollState.animateScrollTo(with(density) { (targetMin / 60f * BS_HOUR_HEIGHT.toPx()).toInt() })
+        scrollState.animateScrollTo(with(density) { (targetMin / 60f * hourHeight.toPx()).toInt() })
     }
 
     // 1-second ticker: keeps the now-indicator moving smoothly
@@ -236,35 +249,64 @@ fun BlockScopeView(
         )
         HorizontalDivider(color = blockColor.copy(alpha = 0.25f))
 
-        val totalH = BS_HOUR_HEIGHT * totalHours
-        Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
-            Row(Modifier.fillMaxWidth().height(totalH)) {
-                BsHourLabels(viewStartMs, totalHours, onSV)
-                BsTimelineBody(
-                    modifier = Modifier.weight(1f),
-                    viewStartMs = viewStartMs,
-                    totalHours = totalHours,
-                    totalMinutes = totalMinutes,
-                    scheduledStartMs = scheduledStartMs,
-                    scheduledEndMs = scheduledEndMs,
-                    blockSubTasks = blockSubTasks,
-                    nowMin = nowMin,
-                    isNowVisible = isNowVisible,
-                    blockColor = blockColor,
-                    taskTileBg = taskTileBg,
-                    taskTileFg = taskTileFg,
-                    outline = outline,
-                    onSV = onSV,
-                    onTaskClick = onTaskClick,
-                    onColorPick = if (onEditTask != null) ({ se ->
-                        val task = namedBlockStore.loadTask(se.event.id)
-                        if (task != null) onEditTask(task)
-                    }) else null,
-                    onFreeSlotClick = onFreeSlotClick?.let { cb ->
-                        { startMin: Int, endMin: Int ->
-                            cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)
+        val totalH = hourHeight * totalHours
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                Row(Modifier.fillMaxWidth().height(totalH)) {
+                    BsHourLabels(viewStartMs, totalHours, onSV, hourHeight)
+                    BsTimelineBody(
+                        modifier = Modifier.weight(1f),
+                        viewStartMs = viewStartMs,
+                        totalHours = totalHours,
+                        totalMinutes = totalMinutes,
+                        hourHeight = hourHeight,
+                        scheduledStartMs = scheduledStartMs,
+                        scheduledEndMs = scheduledEndMs,
+                        blockSubTasks = blockSubTasks,
+                        nowMin = nowMin,
+                        isNowVisible = isNowVisible,
+                        blockColor = blockColor,
+                        taskTileBg = taskTileBg,
+                        taskTileFg = taskTileFg,
+                        outline = outline,
+                        onSV = onSV,
+                        onTaskClick = onTaskClick,
+                        onColorPick = if (onEditTask != null) ({ se ->
+                            val task = namedBlockStore.loadTask(se.event.id)
+                            if (task != null) onEditTask(task)
+                        }) else null,
+                        onFreeSlotClick = onFreeSlotClick?.let { cb ->
+                            { startMin: Int, endMin: Int ->
+                                cb(viewStartMs + startMin * 60_000L, viewStartMs + endMin * 60_000L)
+                            }
                         }
-                    }
+                    )
+                }
+            }
+            // Carries a magnifier icon (not just "1×" text) so it reads as interactive —
+            // mirrors DayTimelineView's own zoom control for a consistent affordance.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 6.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                    .border(1.dp, outline.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                    .clickable { zoomIndex = (zoomIndex + 1) % zoomFactors.size }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Change zoom level",
+                    tint = onSV,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = zoomLabels[zoomIndex],
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = onSV
                 )
             }
         }
@@ -346,10 +388,10 @@ private fun BsHeader(
 }
 
 @Composable
-private fun BsHourLabels(viewStartMs: Long, totalHours: Int, onSV: Color) {
+private fun BsHourLabels(viewStartMs: Long, totalHours: Int, onSV: Color, hourHeight: Dp) {
     Box(Modifier.width(BS_LABEL_WIDTH).fillMaxHeight()) {
         for (h in 0..totalHours) {
-            val yOff = (BS_HOUR_HEIGHT * h - 8.dp).coerceAtLeast(2.dp)
+            val yOff = (hourHeight * h - 8.dp).coerceAtLeast(2.dp)
             val wallHour = Calendar.getInstance().apply {
                 timeInMillis = viewStartMs + h * 3600_000L
             }.get(Calendar.HOUR_OF_DAY)
@@ -362,7 +404,7 @@ private fun BsHourLabels(viewStartMs: Long, totalHours: Int, onSV: Color) {
             // Quarter-hour labels
             if (h < totalHours) {
                 for (m in listOf(15, 30, 45)) {
-                    val minYOff = (BS_HOUR_HEIGHT * h + BS_HOUR_HEIGHT * m / 60f - 6.dp).coerceAtLeast(2.dp)
+                    val minYOff = (hourHeight * h + hourHeight * m / 60f - 6.dp).coerceAtLeast(2.dp)
                     Text(
                         text = ":%02d".format(m),
                         modifier = Modifier.bsYOffset(minYOff).padding(start = 4.dp),
@@ -381,6 +423,7 @@ private fun BsTimelineBody(
     viewStartMs: Long,
     totalHours: Int,
     totalMinutes: Int,
+    hourHeight: Dp,
     scheduledStartMs: Long,
     scheduledEndMs: Long,
     blockSubTasks: List<ScheduledEvent>,
@@ -401,11 +444,11 @@ private fun BsTimelineBody(
         // Grid lines
         Canvas(Modifier.fillMaxSize()) {
             for (h in 0..totalHours) {
-                val y = h * BS_HOUR_HEIGHT.toPx()
+                val y = h * hourHeight.toPx()
                 drawLine(outline, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.5.dp.toPx())
                 if (h < totalHours) {
                     for (q in 1..3) {
-                        val qy = y + q * BS_HOUR_HEIGHT.toPx() / 4f
+                        val qy = y + q * hourHeight.toPx() / 4f
                         drawLine(outline.copy(alpha = 0.55f), Offset(0f, qy), Offset(size.width, qy),
                             strokeWidth = 0.4.dp.toPx())
                     }
@@ -417,8 +460,8 @@ private fun BsTimelineBody(
         val blockStartMin = bsMsToMin(scheduledStartMs, viewStartMs).coerceAtLeast(0)
         val blockEndMin   = bsMsToMin(scheduledEndMs,   viewStartMs).coerceAtMost(totalMinutes)
         if (blockEndMin > blockStartMin) {
-            val bStartY = bsMinToY(blockStartMin, BS_HOUR_HEIGHT)
-            val fillH   = (bsMinToY(blockEndMin, BS_HOUR_HEIGHT) - bStartY).coerceAtLeast(0.dp)
+            val bStartY = bsMinToY(blockStartMin, hourHeight)
+            val fillH   = (bsMinToY(blockEndMin, hourHeight) - bStartY).coerceAtLeast(0.dp)
             Box(
                 Modifier
                     .bsYOffset(bStartY)
@@ -457,12 +500,12 @@ private fun BsTimelineBody(
             val gapEnd = occStart.coerceIn(blockStartMin, blockEndMin)
             val gapStart = cursor
             if (gapEnd > cursor && gapEnd - cursor >= 10)
-                BsFreeWindow(gapStart, gapEnd, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(gapStart, gapEnd) } })
+                BsFreeWindow(gapStart, gapEnd, onSV, hourHeight, onClick = onFreeSlotClick?.let { cb -> { cb(gapStart, gapEnd) } })
             if (occEnd > cursor) cursor = occEnd
         }
         val finalCursor = cursor
         if (blockEndMin > finalCursor && blockEndMin - finalCursor >= 10)
-            BsFreeWindow(finalCursor, blockEndMin, onSV, onClick = onFreeSlotClick?.let { cb -> { cb(finalCursor, blockEndMin) } })
+            BsFreeWindow(finalCursor, blockEndMin, onSV, hourHeight, onClick = onFreeSlotClick?.let { cb -> { cb(finalCursor, blockEndMin) } })
 
         // Task tiles
         blockSubTasks.sortedBy { it.startMillis }.forEach { se ->
@@ -471,7 +514,7 @@ private fun BsTimelineBody(
                 se.startMillis >= scheduledEndMs -> "after block"
                 else -> null
             }
-            BsTaskTile(se, viewStartMs, totalMinutes,
+            BsTaskTile(se, viewStartMs, totalMinutes, hourHeight,
                 defaultBg = taskTileBg,
                 defaultFg = taskTileFg,
                 placementLabel = placementLabel,
@@ -482,7 +525,7 @@ private fun BsTimelineBody(
         // Current-time indicator
         if (isNowVisible) {
             val clampedNow = nowMin.coerceIn(0, totalMinutes)
-            val nowY = bsMinToY(clampedNow, BS_HOUR_HEIGHT)
+            val nowY = bsMinToY(clampedNow, hourHeight)
             Text(
                 text = bsFmt(viewStartMs + clampedNow * 60_000L),
                 color = nowLineColor,
@@ -499,9 +542,9 @@ private fun BsTimelineBody(
 }
 
 @Composable
-private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color, onClick: (() -> Unit)? = null) {
-    val startY = bsMinToY(startMin, BS_HOUR_HEIGHT)
-    val blockH = (bsMinToY(endMin, BS_HOUR_HEIGHT) - startY).coerceAtLeast(4.dp)
+private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color, hourHeight: Dp, onClick: (() -> Unit)? = null) {
+    val startY = bsMinToY(startMin, hourHeight)
+    val blockH = (bsMinToY(endMin, hourHeight) - startY).coerceAtLeast(4.dp)
     val durMin = endMin - startMin
     val h = durMin / 60; val m = durMin % 60
     val durLabel = when {
@@ -536,6 +579,7 @@ private fun BsTaskTile(
     se: ScheduledEvent,
     viewStartMs: Long,
     totalMinutes: Int,
+    hourHeight: Dp,
     defaultBg: Color,
     defaultFg: Color,
     placementLabel: String? = null,
@@ -546,8 +590,8 @@ private fun BsTaskTile(
     val seEndMin   = bsMsToMin(se.endMillis,   viewStartMs)
     if (seStartMin >= totalMinutes || seEndMin <= 0) return
 
-    val startY = bsMinToY(seStartMin, BS_HOUR_HEIGHT)
-    val eventH = (bsMinToY(seEndMin, BS_HOUR_HEIGHT) - startY - 2.dp).coerceAtLeast(24.dp)
+    val startY = bsMinToY(seStartMin, hourHeight)
+    val eventH = (bsMinToY(seEndMin, hourHeight) - startY - 2.dp).coerceAtLeast(24.dp)
 
     // Per-task color overrides the default pair
     val tileColor = se.event.colorArgb?.toOpaqueColor()
