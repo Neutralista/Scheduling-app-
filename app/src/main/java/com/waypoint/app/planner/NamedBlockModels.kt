@@ -90,10 +90,9 @@ data class BlockTask(
     /** When set, this task runs in a fixed order relative to other sequenced tasks that share
      *  its [placement] (BEFORE/DURING/AFTER chain independently). Null = flexible placement. */
     val sequence: Int? = null,
-    /** Soft time-of-day preference, meaningful only for BEFORE/AFTER placement — free time
-     *  before/after the block can span the whole day, so this answers the same "when" question
-     *  [subPlacement] answers for DURING tasks at the block's own, much narrower scale. Only
-     *  MORNING (first-fit) and EVENING (last-fit) are offered in the UI; a soft anchor time
+    /** Soft time-of-day preference, shown in Time of day for every placement — takes precedence
+     *  over [subPlacement]'s zone translation when set (see EventPlannerRegistry.buildSubTaskEvents).
+     *  Only MORNING (first-fit) and EVENING (last-fit) are offered in the UI; a soft anchor time
      *  already covers the AFTERNOON case with more precision. */
     val zone: PlannerZone? = null,
     val conditions: List<TaskConditionSpec> = emptyList(),

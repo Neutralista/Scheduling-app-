@@ -342,17 +342,18 @@ class EventPlannerRegistry {
                     if (idx > 0) chain[idx - 1] else null
                 }
                 val seqCond = seqPredecessor?.let { EventCondition.AfterTask(setOf(it.id)) }
-                // DURING tasks answer "when" via subPlacement, scoped to the block's own window
-                // (translated to the same zone vocabulary the general placement path already
-                // understands); BEFORE/AFTER tasks have no such window-scoped control, so they
-                // use the task's own zone directly against the free time before/after the block.
-                val blockZone = if (task.placement == BlockTaskPlacement.DURING) {
+                // The task's own zone (Morning/Evening, set in Time of day) wins when present.
+                // DURING tasks can alternatively answer "when" via subPlacement (Position within
+                // block, scoped to the block's own window instead of the whole day) — translated
+                // to the same zone vocabulary the general placement path already understands —
+                // used only as a fallback when no explicit zone is set.
+                val blockZone = task.zone ?: if (task.placement == BlockTaskPlacement.DURING) {
                     when (task.subPlacement) {
                         BlockSubPlacement.MID -> PlannerZone.AFTERNOON
                         BlockSubPlacement.END -> PlannerZone.EVENING
                         else                  -> null
                     }
-                } else task.zone
+                } else null
                 PlannerEvent(
                     id = task.id,
                     title = task.title,
