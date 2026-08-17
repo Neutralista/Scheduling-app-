@@ -809,6 +809,12 @@ fun NamedBlockSheet(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                                         )
                                     } else if (autoTimeMode == "around") {
+                                        Text(
+                                            "A soft target — the block lands as close to this time as it can, drifting " +
+                                                "earlier or later within the flex range if the exact slot is busy.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
                                         Row(verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             if (autoAroundTime != null) {
@@ -837,6 +843,11 @@ fun NamedBlockSheet(
                                             }
                                         }
                                     } else if (autoTimeMode == "window") {
+                                        Text(
+                                            "The block is placed somewhere within this range once a fitting slot is found.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
                                         Row(verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Switch(checked = autoAfterEnabled, onCheckedChange = { autoAfterEnabled = it })
@@ -1128,9 +1139,9 @@ private fun BlockTaskRow(
                 IconButton(
                     onClick = { onMoveUp?.invoke() },
                     enabled = onMoveUp != null,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(16.dp),
+                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveUp != null) 0.7f else 0.2f))
                 }
                 Text("#${task.sequence + 1}", style = MaterialTheme.typography.labelSmall,
@@ -1138,9 +1149,9 @@ private fun BlockTaskRow(
                 IconButton(
                     onClick = { onMoveDown?.invoke() },
                     enabled = onMoveDown != null,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(16.dp),
+                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveDown != null) 0.7f else 0.2f))
                 }
             }

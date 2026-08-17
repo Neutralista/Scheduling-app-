@@ -465,9 +465,9 @@ private fun BlockTaskRow(
                 IconButton(
                     onClick = { onMoveUp?.invoke() },
                     enabled = onMoveUp != null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(14.dp),
+                    Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveUp != null) 0.7f else 0.2f))
                 }
                 Text("#${task.sequence + 1}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
@@ -475,9 +475,9 @@ private fun BlockTaskRow(
                 IconButton(
                     onClick = { onMoveDown?.invoke() },
                     enabled = onMoveDown != null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(14.dp),
+                    Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveDown != null) 0.7f else 0.2f))
                 }
             }
