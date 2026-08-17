@@ -741,6 +741,8 @@ private fun PlanTab(
             calendarEvents = planTabCalEvents,
             availableBlocks = allNamedBlocks.filter { it.id != slotBlockId },
             forBlock = slotBlockId,
+            eventPlanner = eventPlanner,
+            namedBlockStore = namedBlockStore,
             onDismiss = { freeSlotAddTask = false; freeSlot = null },
             onSave = { req ->
                 taskManager.submitTask(req)
@@ -935,6 +937,8 @@ private fun PlanTab(
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,
             availableBlocks = allNamedBlocks,
+            eventPlanner = eventPlanner,
+            namedBlockStore = namedBlockStore,
             onDismiss = { editingTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)

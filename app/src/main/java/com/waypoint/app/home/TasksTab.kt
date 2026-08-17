@@ -408,6 +408,8 @@ fun TasksTab(
             availableTasks = allTasks,
             calendarEvents = todayCalEvents,
             availableBlocks = availableBlocks,
+            eventPlanner = registry,
+            namedBlockStore = namedBlockStore,
             onDismiss = { showAdd = false; editTarget = null },
             onSave = { req ->
                 taskManager.submitTask(req)

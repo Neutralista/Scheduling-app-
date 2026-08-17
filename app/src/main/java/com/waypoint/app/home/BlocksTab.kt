@@ -238,6 +238,8 @@ fun BlocksTab(
             initial = editTask,
             availableTasks = allTasks,
             availableBlocks = allBlocks,
+            eventPlanner = eventPlanner,
+            namedBlockStore = namedBlockStore,
             onDismiss = { showAddTask = false; editTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)

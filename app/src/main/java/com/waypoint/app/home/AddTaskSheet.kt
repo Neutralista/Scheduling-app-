@@ -41,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -61,7 +62,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.BlockSubPlacement
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
+import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
+import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TASK_REF_SLEEP
@@ -76,7 +80,10 @@ import com.waypoint.app.ui.components.HsvColorPicker
 import com.waypoint.app.ui.components.RecurrencePicker
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
+import java.time.LocalDate
+import java.util.Calendar
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private enum class DayRelation { ANY, SAME_DAY_AS, NOT_SAME_DAY_AS }
 
@@ -107,6 +114,10 @@ fun AddTaskSheet(
     // Block-task mode: when set, the sheet saves a BlockTask instead of a floating TaskRequest.
     forBlock: String? = null,
     initialBlockTask: BlockTask? = null,
+    // Optional — when both are provided (floating-task mode only), a live "when will this
+    // actually land" preview is shown, computed against a throwaway copy of today's real plan.
+    eventPlanner: EventPlannerRegistry? = null,
+    namedBlockStore: NamedBlockStore? = null,
     onDismiss: () -> Unit,
     onSave: (TaskRequest) -> Unit = {},
     onSaveBlockTask: ((BlockTask) -> Unit)? = null
@@ -291,6 +302,47 @@ fun AddTaskSheet(
             }
         }
 
+    // Shared between save() and the live scheduling preview below, so the two can never drift.
+    fun buildFloatingConditions(): List<TaskConditionSpec> = buildList {
+        when (dayRelation) {
+            DayRelation.SAME_DAY_AS    -> if (dayRelationTaskIds.isNotEmpty())
+                add(TaskConditionSpec("sameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+            DayRelation.NOT_SAME_DAY_AS -> if (dayRelationTaskIds.isNotEmpty())
+                add(TaskConditionSpec("notSameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
+            DayRelation.ANY            -> Unit
+        }
+        if (afterTaskIds.isNotEmpty())
+            add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
+        if (beforeTaskIds.isNotEmpty())
+            add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
+        if (aroundTime != null) {
+            add(TaskConditionSpec("aroundTime", start = aroundTime, flexMinutes = aroundFlexMinutes))
+        } else if (afterTime != null || beforeTime != null) {
+            add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
+        }
+        if (selectedDays.isNotEmpty()) {
+            add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
+        }
+        afterCalEventIds.forEach { evtId ->
+            add(TaskConditionSpec("afterCalEvent", calendarEventId = evtId))
+        }
+        beforeCalEventIds.forEach { evtId ->
+            add(TaskConditionSpec("beforeCalEvent", calendarEventId = evtId))
+        }
+        duringCalEventId?.let { evtId ->
+            add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId))
+        }
+        afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
+        beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
+        when (val r = taskRecurrenceRule) {
+            is RecurrenceRule.OneOff       -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
+            is RecurrenceRule.EveryNDays   -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
+            is RecurrenceRule.EveryNWeeks  -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
+            is RecurrenceRule.EveryNMonths -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
+            else -> Unit
+        }
+    }
+
     // ── Save logic ───────────────────────────────────────────────────────────
     fun save() {
         titleError    = title.trim().isEmpty()
@@ -356,45 +408,7 @@ fun AddTaskSheet(
             return
         }
 
-        val conditions = buildList {
-            when (dayRelation) {
-                DayRelation.SAME_DAY_AS    -> if (dayRelationTaskIds.isNotEmpty())
-                    add(TaskConditionSpec("sameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
-                DayRelation.NOT_SAME_DAY_AS -> if (dayRelationTaskIds.isNotEmpty())
-                    add(TaskConditionSpec("notSameDayAs", referenceTaskIds = dayRelationTaskIds.sorted()))
-                DayRelation.ANY            -> Unit
-            }
-            if (afterTaskIds.isNotEmpty())
-                add(TaskConditionSpec("afterTask", referenceTaskIds = afterTaskIds.sorted()))
-            if (beforeTaskIds.isNotEmpty())
-                add(TaskConditionSpec("beforeTask", referenceTaskIds = beforeTaskIds.sorted()))
-            if (aroundTime != null) {
-                add(TaskConditionSpec("aroundTime", start = aroundTime, flexMinutes = aroundFlexMinutes))
-            } else if (afterTime != null || beforeTime != null) {
-                add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
-            }
-            if (selectedDays.isNotEmpty()) {
-                add(TaskConditionSpec("daysOfWeek", days = selectedDays.sorted()))
-            }
-            afterCalEventIds.forEach { evtId ->
-                add(TaskConditionSpec("afterCalEvent", calendarEventId = evtId))
-            }
-            beforeCalEventIds.forEach { evtId ->
-                add(TaskConditionSpec("beforeCalEvent", calendarEventId = evtId))
-            }
-            duringCalEventId?.let { evtId ->
-                add(TaskConditionSpec("duringCalEvent", calendarEventId = evtId))
-            }
-            afterBlockId?.let { add(TaskConditionSpec("afterBlock", blockId = it)) }
-            beforeBlockId?.let { add(TaskConditionSpec("beforeBlock", blockId = it)) }
-            when (val r = taskRecurrenceRule) {
-                is RecurrenceRule.OneOff       -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
-                is RecurrenceRule.EveryNDays   -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
-                is RecurrenceRule.EveryNWeeks  -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
-                is RecurrenceRule.EveryNMonths -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
-                else -> Unit
-            }
-        }
+        val conditions = buildFloatingConditions()
 
         onSave(
             TaskRequest(
@@ -414,6 +428,60 @@ fun AddTaskSheet(
                 colorArgb           = taskColor
             )
         )
+    }
+
+    // ── Live scheduling preview (floating tasks only) ───────────────────────
+    // Runs against a throwaway EventPlannerRegistry seeded from a snapshot of today's real
+    // events (minus this task's own current placement, if editing) plus the in-progress draft
+    // — never mutates the shared registry, so nothing else in the app ever sees an unsaved
+    // edit. Best-effort: work-shift bounds aren't available here, so a DuringShift-constrained
+    // task may preview slightly differently than it will actually place.
+    var previewText by remember { mutableStateOf<String?>(null) }
+    val previewTaskId = remember { initial?.id ?: UUID.randomUUID().toString() }
+    if (!isBlockMode && eventPlanner != null && namedBlockStore != null) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                val resolvedDur = if (customDuration) customDurText.toIntOrNull() ?: 0 else durationMinutes
+                if (title.isNotBlank() && resolvedDur > 0) {
+                    val resolvedBuf = if (customBuffer) customBufText.toIntOrNull() ?: 0 else bufferMinutes
+                    val candidate = PlannerEvent(
+                        id = previewTaskId,
+                        title = title.trim(),
+                        durationMinutes = resolvedDur,
+                        priority = priority,
+                        conditions = buildFloatingConditions(),
+                        bufferMinutes = resolvedBuf,
+                        scheduleLate = aroundMode == "zone" && zone == PlannerZone.EVENING,
+                        zone = if (aroundMode == "zone") zone else null
+                    )
+                    val today = LocalDate.now()
+                    val preview = EventPlannerRegistry()
+                    eventPlanner.events.forEach { if (it.id != previewTaskId) preview.register(it) }
+                    preview.register(candidate)
+                    val calBlocks = calendarEvents
+                        .filter { !it.allDay && !it.title.equals("sleep", ignoreCase = true) }
+                        .associate { it.eventId to (it.startMillis to it.endMillis) }
+                    val plan = preview.planForDate(
+                        today,
+                        calendarEventBlocks = calBlocks,
+                        reservingBlocks = calBlocks.values.toList(),
+                        namedBlockInstances = namedBlockStore.resolveFixedInstancesForDate(today),
+                        floatingBlocks = namedBlockStore.resolveFloatingInstancesForDate(today),
+                        nowMs = System.currentTimeMillis()
+                    )
+                    val landed = plan.scheduled.find { it.event.id == previewTaskId }
+                    val rejected = plan.blocked.find { it.event.id == previewTaskId }
+                    previewText = when {
+                        landed != null -> "≈ lands ${fmtPreviewTime(landed.startMillis)} – ${fmtPreviewTime(landed.endMillis)} today"
+                        rejected != null -> "Can't be scheduled today — ${rejected.reason}"
+                        else -> null
+                    }
+                } else {
+                    previewText = null
+                }
+                delay(600)
+            }
+        }
     }
 
     Dialog(
@@ -449,6 +517,20 @@ fun AddTaskSheet(
                     }
                 }
                 HorizontalDivider()
+
+                if (previewText != null) {
+                    Text(
+                        text = previewText!!,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (previewText!!.startsWith("Can't"))
+                            MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
+                    )
+                }
 
                 // ── Form ─────────────────────────────────────────────────────
                 Column(
@@ -1687,6 +1769,10 @@ fun AddTaskSheet(
         }
     }
 }
+
+private fun fmtPreviewTime(ms: Long): String =
+    Calendar.getInstance().apply { timeInMillis = ms }
+        .let { "%02d:%02d".format(it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE)) }
 
 /**
  * Builds a "comes before" adjacency map from the declared constraints of all tasks.
