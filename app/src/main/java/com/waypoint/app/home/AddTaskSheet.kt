@@ -154,11 +154,10 @@ fun AddTaskSheet(
     var showBeforeTimePicker by remember { mutableStateOf(false) }
 
     // Lives in the "Time of day" section as one unified, mutually-exclusive "when" control:
-    // "zone" = a loose Morning/Afternoon/Evening preference — full set for floating tasks;
-    // block-mode offers Morning/Evening for every placement (DURING tasks also still have
-    // "Position within block" as a block-window-scoped alternative — the two aren't mutually
-    // exclusive, zone wins when both are set); "anchor" = a soft target time that drifts within
-    // a flex range if the exact slot is busy; "window" = a hard two-sided range,
+    // "zone" = a loose Morning/Afternoon/Evening preference (floating tasks only — block tasks
+    // use "Position within block" instead, scoped to the block's own window rather than the
+    // whole day); "anchor" = a soft target time that drifts within a flex range if the exact
+    // slot is busy; "window" = a hard two-sided range,
     // UI sugar over the same After/Before pair used standalone in Constraints (a combined
     // start+end picker framed as a range) — placement within it already scatters by priority
     // since the scheduler's forward-fit path jitters any task, constrained or not. Switching
@@ -233,8 +232,7 @@ fun AddTaskSheet(
     var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: initialBlockTask?.useMeasuredDuration ?: false) }
     // Migrate old scheduleLate=true tasks that pre-date the zone field
     var zone by remember { mutableStateOf(
-        initial?.zone ?: initialBlockTask?.zone
-            ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
+        initial?.zone ?: if (initial?.scheduleLate == true) PlannerZone.EVENING else null
     ) }
 
     // Color (both modes). Task/block accent colors are solid identity colors, never meant to
@@ -347,7 +345,6 @@ fun AddTaskSheet(
                     subPlacement        = if (blockPlacement == BlockTaskPlacement.DURING) blockSubPlace else null,
                     sequence            = if (blockPlacement == BlockTaskPlacement.DURING && blockSequenced)
                                               initialBlockTask?.sequence ?: -1 else null,
-                    zone                = if (aroundMode == "zone") zone else null,
                     conditions          = blockConditions,
                     useMeasuredDuration = useMeasuredDuration,
                     triggers            = triggers.toList(),
@@ -771,30 +768,6 @@ fun AddTaskSheet(
                                         onClick  = { aroundMode = "zone"; zone = PlannerZone.EVENING; aroundTime = null; afterTime = null; beforeTime = null },
                                         label    = { Text("Evening") }
                                     )
-                                } else {
-                                    // Block mode: Morning (first-fit) / Evening (last-fit), shown
-                                    // alongside Around a time / Between two times same as floating
-                                    // tasks — Afternoon is skipped since "Around a time" already
-                                    // targets midday with more precision. No explicit "Any" chip:
-                                    // tapping the active one clears it.
-                                    FilterChip(
-                                        selected = aroundMode == "zone" && zone == PlannerZone.MORNING,
-                                        onClick  = {
-                                            aroundMode = "zone"
-                                            zone = if (zone == PlannerZone.MORNING) null else PlannerZone.MORNING
-                                            aroundTime = null; afterTime = null; beforeTime = null
-                                        },
-                                        label    = { Text("Morning") }
-                                    )
-                                    FilterChip(
-                                        selected = aroundMode == "zone" && zone == PlannerZone.EVENING,
-                                        onClick  = {
-                                            aroundMode = "zone"
-                                            zone = if (zone == PlannerZone.EVENING) null else PlannerZone.EVENING
-                                            aroundTime = null; afterTime = null; beforeTime = null
-                                        },
-                                        label    = { Text("Evening") }
-                                    )
                                 }
                                 FilterChip(
                                     selected = aroundMode == "anchor",
@@ -811,9 +784,9 @@ fun AddTaskSheet(
                             when (aroundMode) {
                                 "zone" -> Text(
                                     text = when (zone) {
-                                        PlannerZone.MORNING   -> if (isBlockMode) "Scheduled in the earliest available slot" else "Scheduled first thing after wake"
+                                        PlannerZone.MORNING   -> "Scheduled first thing after wake"
                                         PlannerZone.AFTERNOON -> "Scheduled in the middle third of your day"
-                                        PlannerZone.EVENING   -> if (isBlockMode) "Scheduled in the latest available slot" else "Scheduled as late as possible before sleep"
+                                        PlannerZone.EVENING   -> "Scheduled as late as possible before sleep"
                                         null                  -> "No preference — fills wherever it fits"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
