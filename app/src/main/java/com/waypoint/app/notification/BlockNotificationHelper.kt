@@ -6,7 +6,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.waypoint.app.planner.ActiveBlockSession
 
@@ -77,16 +76,18 @@ object BlockNotificationHelper {
 
     fun postSessionLiveNotification(context: Context, session: ActiveBlockSession) {
         val nm = context.getSystemService(NotificationManager::class.java)
-        val endOffsetMs = session.scheduledEndMs - System.currentTimeMillis()
-        val chronometerBase = SystemClock.elapsedRealtime() + endOffsetMs
 
+        // setWhen() takes a wall-clock epoch-millis timestamp — the system derives the
+        // chronometer's elapsedRealtime-based base from it internally (base = when +
+        // (elapsedRealtime - currentTimeMillis)). Passing an elapsedRealtime-based value here
+        // double-counts that offset and makes the displayed countdown wildly wrong.
         val notif = NotificationCompat.Builder(context, SESSION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(session.blockName)
             .setContentText("Block in progress")
             .setUsesChronometer(true)
             .setChronometerCountDown(true)
-            .setWhen(chronometerBase)
+            .setWhen(session.scheduledEndMs)
             .setShowWhen(true)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
