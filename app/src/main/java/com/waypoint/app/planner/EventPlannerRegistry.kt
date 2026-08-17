@@ -273,7 +273,12 @@ class EventPlannerRegistry {
                     placed = true
                 }
             } else {
-                for (i in remaining.indices) {
+                // Plain forward first-fit by default (MORNING is the same thing — no extra
+                // handling needed). EVENING reverses the scan and places as late as possible
+                // within the fitting slot, mirroring the generic pass's own last-fit branch.
+                val useLast = inst.block.zone == PlannerZone.EVENING
+                val indices = if (useLast) remaining.indices.reversed() else remaining.indices
+                for (i in indices) {
                     val (bStart, bEnd) = remaining[i]
                     val fitStart = maxOf(
                         parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> maxOf(bStart, toMs(h, m)) } ?: bStart,
@@ -284,13 +289,14 @@ class EventPlannerRegistry {
                         floatUpperBound ?: bEnd
                     )
                     if (fitEnd - fitStart < durationMs) continue
+                    val placeStart = if (useLast) fitEnd - durationMs else fitStart
                     floatingResolved += NamedBlockInstance(
                         block = inst.block,
-                        scheduledStartMs = fitStart,
-                        estimatedEndMs = fitStart + durationMs,
+                        scheduledStartMs = placeStart,
+                        estimatedEndMs = placeStart + durationMs,
                         activeTasks = inst.activeTasks
                     )
-                    consumeSlot(remaining, i, fitStart, durationMs, blockBufferMs)
+                    consumeSlot(remaining, i, placeStart, durationMs, blockBufferMs)
                     placed = true
                     break
                 }
@@ -899,7 +905,8 @@ class EventPlannerRegistry {
                     priority = inst.block.priority,
                     bufferMinutes = inst.block.bufferMinutes,
                     category = EventCategory.BLOCK,
-                    conditions = conds
+                    conditions = conds,
+                    zone = inst.block.zone
                 )
                 if (dayReason != null) { blocked += BlockedEvent(ev, dayReason); continue }
                 round2BlockEvents += ev

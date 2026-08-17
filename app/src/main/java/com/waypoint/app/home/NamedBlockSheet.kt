@@ -72,6 +72,7 @@ import com.waypoint.app.planner.EventCondition
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockSchedule
 import com.waypoint.app.planner.NamedBlockStore
+import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
@@ -221,19 +222,23 @@ fun NamedBlockSheet(
         )
     }
 
-    // Time of day (optional) — mirrors AddTaskSheet's unified Any/Around/Between control:
-    // "around" is a soft anchor (aroundTime), "window" is the existing hard After/Before pair.
+    // Time of day (optional) — mirrors AddTaskSheet's unified Any/Zone/Around/Between control:
+    // "zone" is a loose Morning (first-fit, the scheduler's default anyway)/Evening (last-fit)
+    // preference, "around" is a soft anchor (aroundTime), "window" is the existing hard
+    // After/Before pair.
     val initAutoAround = initial?.floatingConditions?.firstOrNull { it.type == "aroundTime" }
     val initAutoTw = initial?.floatingConditions?.firstOrNull { it.type == "timeWindow" }
     var autoTimeMode by remember {
         mutableStateOf(
             when {
+                initial?.zone != null  -> "zone"
                 initAutoAround != null -> "around"
                 initAutoTw != null     -> "window"
                 else                    -> "any"
             }
         )
     }
+    var autoZone by remember { mutableStateOf(initial?.zone) }
     var autoAroundTime by remember { mutableStateOf(initAutoAround?.start) }
     var autoAroundFlexMinutes by remember { mutableIntStateOf(initAutoAround?.flexMinutes ?: 60) }
     var showAutoAroundPicker by remember { mutableStateOf(false) }
@@ -350,7 +355,8 @@ fun NamedBlockSheet(
                             floatingConditions = autoConditions,
                             useTotalTaskDuration = useTotalTaskDuration,
                             recurrenceRule = fixedRule,
-                            notificationsEnabled = notificationsEnabled
+                            notificationsEnabled = notificationsEnabled,
+                            zone = if (schedulingMode == BlockSchedulingMode.AUTO && autoTimeMode == "zone") autoZone else null
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -742,7 +748,7 @@ fun NamedBlockSheet(
                                     }
                                 }
 
-                                // Time of day (optional) — Any / Around a time / Between two times
+                                // Time of day (optional) — Any / Morning / Evening / Around a time / Between two times
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Time of day (optional)", style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -751,26 +757,58 @@ fun NamedBlockSheet(
                                             selected = autoTimeMode == "any",
                                             onClick = {
                                                 autoTimeMode = "any"
+                                                autoZone = null
                                                 autoAroundTime = null
                                                 autoAfterEnabled = false; autoBeforeEnabled = false
                                             },
                                             label = { Text("Any time") }
                                         )
                                         FilterChip(
+                                            selected = autoTimeMode == "zone" && autoZone == PlannerZone.MORNING,
+                                            onClick = {
+                                                autoTimeMode = "zone"
+                                                autoZone = PlannerZone.MORNING
+                                                autoAroundTime = null
+                                                autoAfterEnabled = false; autoBeforeEnabled = false
+                                            },
+                                            label = { Text("Morning") }
+                                        )
+                                        FilterChip(
+                                            selected = autoTimeMode == "zone" && autoZone == PlannerZone.EVENING,
+                                            onClick = {
+                                                autoTimeMode = "zone"
+                                                autoZone = PlannerZone.EVENING
+                                                autoAroundTime = null
+                                                autoAfterEnabled = false; autoBeforeEnabled = false
+                                            },
+                                            label = { Text("Evening") }
+                                        )
+                                        FilterChip(
                                             selected = autoTimeMode == "around",
                                             onClick = {
                                                 autoTimeMode = "around"
+                                                autoZone = null
                                                 autoAfterEnabled = false; autoBeforeEnabled = false
                                             },
                                             label = { Text("Around a time") }
                                         )
                                         FilterChip(
                                             selected = autoTimeMode == "window",
-                                            onClick = { autoTimeMode = "window"; autoAroundTime = null },
+                                            onClick = { autoTimeMode = "window"; autoZone = null; autoAroundTime = null },
                                             label = { Text("Between two times") }
                                         )
                                     }
-                                    if (autoTimeMode == "around") {
+                                    if (autoTimeMode == "zone") {
+                                        Text(
+                                            text = when (autoZone) {
+                                                PlannerZone.MORNING -> "Scheduled in the earliest available slot"
+                                                PlannerZone.EVENING -> "Scheduled in the latest available slot"
+                                                else -> "No preference — fills wherever it fits"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                        )
+                                    } else if (autoTimeMode == "around") {
                                         Row(verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             if (autoAroundTime != null) {

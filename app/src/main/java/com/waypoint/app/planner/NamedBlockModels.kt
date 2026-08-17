@@ -53,7 +53,11 @@ data class NamedBlock(
     val notificationsEnabled: Boolean = true,
     /** Soft gap reserved after this block when the scheduler places it (floating blocks only).
      *  0 = use the scheduler's automatic default gap, same as an unset task buffer. */
-    val bufferMinutes: Int = 0
+    val bufferMinutes: Int = 0,
+    /** Soft time-of-day preference for floating blocks — MORNING is the scheduler's default
+     *  first-fit behavior anyway; EVENING places the block as late as possible instead. Shown
+     *  in the block's own Time of day section, alongside Around a time/Between two times. */
+    val zone: PlannerZone? = null
 )
 
 /**
