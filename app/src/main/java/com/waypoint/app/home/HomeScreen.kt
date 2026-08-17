@@ -434,6 +434,12 @@ private fun PlanTab(
     val namedBlockStore = remember { NamedBlockStore(context) }
     val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
     val activeSession by blockSessionStore.sessionFlow.collectAsState()
+    // Whether the user has stepped out of the active session's block-scope view back to the
+    // normal timeline. Purely a local UI choice — it never touches the session itself, so the
+    // block keeps running (timer, notification) until the user explicitly ends it. Keyed on the
+    // session's blockId so a genuinely new session (not just a day-navigation blip) re-shows
+    // scope by default.
+    var blockScopeHidden by remember(activeSession?.blockId) { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
@@ -626,7 +632,7 @@ private fun PlanTab(
         }
 
 
-        val sessionForToday = if (selectedDate == today) activeSession else null
+        val sessionForToday = if (selectedDate == today && !blockScopeHidden) activeSession else null
         val planningSession = planningBlockId?.let { blockId ->
             val block = namedBlockStore.loadBlock(blockId)
             val window = planningWindow
@@ -656,6 +662,7 @@ private fun PlanTab(
                     if (sessionForToday != null) blockSessionStore.endSession()
                     else { planningBlockId = null; planningWindow = null }
                 },
+                onExitScope = if (sessionForToday != null) { { blockScopeHidden = true } } else null,
                 onTaskClick = { selectedPlannerEvent = it },
                 onEditTask = { task -> editingBlockTask = task.blockId to task },
                 onColorChanged = { argb -> if (sessionForToday != null) blockSessionStore.updateColor(argb) },
@@ -888,6 +895,12 @@ private fun PlanTab(
                         blockSessionStore.startSession(block, selPlanner.endMillis, selectedDate)
                     }
                 }
+            } else null,
+            // The tile for the currently-running (but hidden) session's own block — reachable
+            // here only because block scope was hidden, since it would otherwise be showing
+            // full-screen instead of this timeline. Offer to step back in rather than "Start".
+            onResume = if (blockTileId != null && blockTileId == activeSession?.blockId) {
+                { blockScopeHidden = false }
             } else null,
             onPlan = if (blockTileId != null && activeSession == null && planningBlockId == null) {
                 {

@@ -97,6 +97,7 @@ fun BlockScopeView(
     isPlanningMode: Boolean = false,
     modifier: Modifier = Modifier,
     onEndSession: () -> Unit,
+    onExitScope: (() -> Unit)? = null,
     onTaskClick: ((ScheduledEvent) -> Unit)? = null,
     onEditTask: ((BlockTask) -> Unit)? = null,
     onColorChanged: ((Int?) -> Unit)? = null,
@@ -230,7 +231,8 @@ fun BlockScopeView(
             blockColor = blockColor,
             isPlanningMode = isPlanningMode,
             onColorPick = { showColorPicker = true },
-            onEndSession = onEndSession
+            onEndSession = onEndSession,
+            onExitScope = onExitScope
         )
         HorizontalDivider(color = blockColor.copy(alpha = 0.25f))
 
@@ -275,7 +277,8 @@ private fun BsHeader(
     blockColor: Color,
     isPlanningMode: Boolean = false,
     onColorPick: () -> Unit,
-    onEndSession: () -> Unit
+    onEndSession: () -> Unit,
+    onExitScope: (() -> Unit)? = null
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -312,6 +315,22 @@ private fun BsHeader(
                 .clickable(onClick = onColorPick)
         )
         Spacer(Modifier.width(8.dp))
+        // Leaving this view is a separate choice from ending the block: the session (timer,
+        // notification) keeps running in the background — "Hide" only steps back to the normal
+        // timeline, "End Block" is the only action that actually stops the session.
+        if (!isPlanningMode && onExitScope != null) {
+            TextButton(
+                onClick = onExitScope,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    "Hide",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+        }
         OutlinedButton(
             onClick = onEndSession,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),

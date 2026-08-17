@@ -64,6 +64,7 @@ fun TimelineEventDetailSheet(
     onStart: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
     onBlockStart: (() -> Unit)? = null,
+    onResume: (() -> Unit)? = null,
     onPlan: (() -> Unit)? = null,
     onSleepMode: (() -> Unit)? = null,
     isSleepModeActive: Boolean = false,
@@ -98,7 +99,7 @@ fun TimelineEventDetailSheet(
             }
 
             // Primary action buttons (start / complete / start block / sleep mode)
-            val hasActions = onStart != null || onComplete != null || onBlockStart != null || onPlan != null || onSleepMode != null
+            val hasActions = onStart != null || onComplete != null || onBlockStart != null || onResume != null || onPlan != null || onSleepMode != null
             if (hasActions) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -113,7 +114,7 @@ fun TimelineEventDetailSheet(
                             Text(if (isSleepModeActive) "Stop sleep mode" else "Start sleep mode")
                         }
                     }
-                    if (onPlan != null || onBlockStart != null) {
+                    if (onPlan != null || onBlockStart != null || onResume != null) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -129,6 +130,12 @@ fun TimelineEventDetailSheet(
                                     onClick = { onBlockStart(); onDismiss() },
                                     modifier = Modifier.weight(1f)
                                 ) { Text("▶ Start") }
+                            }
+                            if (onResume != null) {
+                                Button(
+                                    onClick = { onResume(); onDismiss() },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Resume") }
                             }
                         }
                     }
