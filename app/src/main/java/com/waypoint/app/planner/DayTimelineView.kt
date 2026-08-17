@@ -1244,7 +1244,7 @@ private fun BoxScope.ResizeHandle(
         Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
-            .height(18.dp)
+            .height(28.dp)
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { accumPx = 0f },
@@ -1266,11 +1266,11 @@ private fun BoxScope.ResizeHandle(
     ) {
         Box(
             Modifier
-                .padding(bottom = 2.dp)
-                .width(24.dp)
-                .height(3.dp)
+                .padding(bottom = 3.dp)
+                .width(32.dp)
+                .height(4.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(accent.copy(alpha = 0.6f))
+                .background(accent.copy(alpha = 0.7f))
         )
     }
 }
