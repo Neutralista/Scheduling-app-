@@ -449,7 +449,7 @@ fun AddTaskSheet(
                         title = title.trim(),
                         durationMinutes = resolvedDur,
                         priority = priority,
-                        conditions = buildFloatingConditions(),
+                        conditions = buildFloatingConditions().mapNotNull { it.toEventCondition() },
                         bufferMinutes = resolvedBuf,
                         scheduleLate = aroundMode == "zone" && zone == PlannerZone.EVENING,
                         zone = if (aroundMode == "zone") zone else null
