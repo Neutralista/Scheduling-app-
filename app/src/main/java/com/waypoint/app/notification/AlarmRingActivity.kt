@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -18,20 +19,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.ui.theme.ThemeStore
+import com.waypoint.app.ui.theme.WaypointTheme
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -53,12 +57,26 @@ class AlarmRingActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
+        // A fresh, standalone ThemeStore rather than pulling from WaypointApplication — this
+        // screen must render even if app init failed elsewhere (startupCrash), so it can't
+        // depend on anything the rest of the app wires up.
+        val themeStore = ThemeStore(this)
+        val snoozeMinutes = intent.getIntExtra(AlarmRingService.EXTRA_SNOOZE_MINUTES, 10)
+
         setContent {
-            BackHandler { /* block back — alarm must be dismissed explicitly */ }
-            AlarmRingScreen(
-                onDismiss = { sendServiceAction(AlarmRingService.ACTION_DISMISS) },
-                onSnooze  = { sendServiceAction(AlarmRingService.ACTION_SNOOZE) }
-            )
+            val selectedThemeId by themeStore.selectedThemeIdFlow.collectAsState()
+            val appTheme = remember(selectedThemeId) { themeStore.resolveTheme(selectedThemeId) }
+            val darkModeOverride by themeStore.darkModeOverrideFlow.collectAsState()
+            val isDark = darkModeOverride ?: isSystemInDarkTheme()
+
+            WaypointTheme(darkTheme = isDark, appTheme = appTheme) {
+                BackHandler { /* block back — alarm must be dismissed explicitly */ }
+                AlarmRingScreen(
+                    snoozeMinutes = snoozeMinutes,
+                    onDismiss = { sendServiceAction(AlarmRingService.ACTION_DISMISS) },
+                    onSnooze  = { sendServiceAction(AlarmRingService.ACTION_SNOOZE) }
+                )
+            }
         }
     }
 
@@ -73,7 +91,7 @@ class AlarmRingActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AlarmRingScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
+private fun AlarmRingScreen(snoozeMinutes: Int, onDismiss: () -> Unit, onSnooze: () -> Unit) {
     var timeText by remember { mutableStateOf(nowHHMM()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -85,7 +103,7 @@ private fun AlarmRingScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0D0D))
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -95,7 +113,7 @@ private fun AlarmRingScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = timeText,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 80.sp,
                 fontWeight = FontWeight.Thin,
                 letterSpacing = 4.sp
@@ -103,7 +121,7 @@ private fun AlarmRingScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text(
                 text = "Wake up",
-                color = Color.White.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                 fontSize = 16.sp,
                 letterSpacing = 3.sp
             )
@@ -118,17 +136,22 @@ private fun AlarmRingScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(60.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
             ) {
-                Text("Dismiss", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Text("Dismiss", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
                 onClick = onSnooze,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White.copy(alpha = 0.7f))
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
             ) {
-                Text("Snooze 10 min", fontSize = 15.sp)
+                Text("Snooze $snoozeMinutes min", fontSize = 15.sp)
             }
         }
     }
