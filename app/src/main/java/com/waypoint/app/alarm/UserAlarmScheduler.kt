@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import com.waypoint.app.AppLogger
 import com.waypoint.app.notification.AlarmRingActivity
+import com.waypoint.app.notification.SleepNotificationHelper
 import java.util.Calendar
 
 object UserAlarmScheduler {
@@ -36,17 +37,20 @@ object UserAlarmScheduler {
             cancelOne(context, am, alarm)
             if (alarm.enabled) scheduleOne(context, am, alarm)
         }
+        refreshStatusNotification(context, alarms)
     }
 
     fun schedule(context: Context, alarm: AlarmEntry) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         cancelOne(context, am, alarm)
         if (alarm.enabled) scheduleOne(context, am, alarm)
+        refreshStatusNotification(context, AlarmStore(context).loadAll())
     }
 
     fun cancel(context: Context, alarm: AlarmEntry) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         cancelOne(context, am, alarm)
+        refreshStatusNotification(context, AlarmStore(context).loadAll())
     }
 
     /** Re-arms this alarm at its next occurrence after the immediate next one, skipping it once. */
@@ -57,6 +61,28 @@ object UserAlarmScheduler {
         val fireMs = nextFireTimeSkippingOne(alarm)
         if (fireMs < 0) return
         scheduleOne(context, am, alarm, fireMs)
+        refreshStatusNotification(context, AlarmStore(context).loadAll())
+    }
+
+    /**
+     * Pins a persistent, non-dismissible status notification showing the soonest upcoming
+     * user alarm, mirroring the existing sleep-alarm status card — clears it when nothing is
+     * scheduled. Call after any change to what's armed (add/edit/delete/enable/skip/fire).
+     */
+    fun refreshStatusNotification(context: Context, alarms: List<AlarmEntry>) {
+        val now = System.currentTimeMillis()
+        val next = alarms.asSequence()
+            .filter { it.enabled }
+            .mapNotNull { a ->
+                val fireMs = nextFireTime(a)
+                if (fireMs > now) (a.label.ifBlank { a.displayTime } to fireMs) else null
+            }
+            .minByOrNull { it.second }
+        if (next != null) {
+            SleepNotificationHelper.showUserAlarmStatus(context, next.first, next.second)
+        } else {
+            SleepNotificationHelper.clearUserAlarmStatus(context)
+        }
     }
 
     /** Schedules a one-shot snooze re-fire, independent of the alarm's regular schedule. */

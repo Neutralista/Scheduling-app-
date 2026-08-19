@@ -30,6 +30,7 @@ object SleepNotificationHelper {
     private const val NOTIF_BEDTIME      = 101
     private const val NOTIF_NUDGE        = 102
     private const val NOTIF_ALARM_STATUS = 120
+    private const val NOTIF_USER_ALARM_STATUS = 121
 
     private const val NUDGE_COOLDOWN_MS = 20 * 60_000L
 
@@ -181,6 +182,38 @@ object SleepNotificationHelper {
     fun clearAlarmStatus(context: Context) {
         nm(context).cancel(NOTIF_ALARM_STATUS)
     }
+
+    // ─── User alarm status (persistent, silent) ───────────────────────────────
+
+    fun showUserAlarmStatus(context: Context, label: String, fireMs: Long) {
+        val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        nm(context).notify(
+            NOTIF_USER_ALARM_STATUS,
+            NotificationCompat.Builder(context, CH_ALARM_STATUS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Alarm set")
+                .setContentText("$label · ${fmt.format(Date(fireMs))}")
+                .setContentIntent(openAlarmsTabPi(context, 221))
+                .setOngoing(true)
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+        )
+    }
+
+    fun clearUserAlarmStatus(context: Context) {
+        nm(context).cancel(NOTIF_USER_ALARM_STATUS)
+    }
+
+    private fun openAlarmsTabPi(context: Context, reqCode: Int): PendingIntent =
+        PendingIntent.getActivity(
+            context, reqCode,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("tab", 5)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
     private fun openAppPi(context: Context, reqCode: Int): PendingIntent =
         PendingIntent.getActivity(

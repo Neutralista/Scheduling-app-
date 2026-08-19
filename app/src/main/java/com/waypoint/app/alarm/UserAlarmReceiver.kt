@@ -34,6 +34,7 @@ class UserAlarmReceiver : BroadcastReceiver() {
                         UserAlarmScheduler.schedule(context, alarm)
                     } else {
                         store.setEnabledSync(id, false)
+                        UserAlarmScheduler.refreshStatusNotification(context, store.loadAll())
                     }
                 }
             } catch (e: Throwable) {
