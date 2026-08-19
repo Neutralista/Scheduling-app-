@@ -14,6 +14,7 @@ class BlockStartReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_BLOCK_START    = "com.waypoint.app.BLOCK_START"
         const val ACTION_PROCEED_BLOCK  = "com.waypoint.app.PROCEED_BLOCK"
+        const val ACTION_DISMISS_BLOCK_START = "com.waypoint.app.DISMISS_BLOCK_START"
         const val EXTRA_BLOCK_ID        = "blockId"
         const val EXTRA_BLOCK_NAME      = "blockName"
         const val EXTRA_COLOR_ARGB      = "colorArgb"
@@ -24,8 +25,9 @@ class BlockStartReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            ACTION_BLOCK_START  -> handleBlockStart(context, intent)
+            ACTION_BLOCK_START   -> handleBlockStart(context, intent)
             ACTION_PROCEED_BLOCK -> handleProceed(context, intent)
+            ACTION_DISMISS_BLOCK_START -> handleDismiss(context, intent)
         }
     }
 
@@ -62,5 +64,9 @@ class BlockStartReceiver : BroadcastReceiver() {
         AppLogger.i(TAG, "Proceed: started session for $blockId, launching Tasks tab")
     }
 
-
+    private fun handleDismiss(context: Context, intent: Intent) {
+        val blockId = intent.getStringExtra(EXTRA_BLOCK_ID) ?: return
+        BlockNotificationHelper.cancelBlockStartNotification(context, blockId)
+        AppLogger.i(TAG, "Dismiss: cleared start prompt for $blockId without starting session")
+    }
 }

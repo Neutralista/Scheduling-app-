@@ -56,13 +56,25 @@ object BlockNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val dismissIntent = Intent(context, BlockStartReceiver::class.java).apply {
+            action = BlockStartReceiver.ACTION_DISMISS_BLOCK_START
+            putExtra(BlockStartReceiver.EXTRA_BLOCK_ID, blockId)
+        }
+        val dismissPi = PendingIntent.getBroadcast(
+            context,
+            blockId.hashCode() + 2,
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("$blockName starts now")
             .setContentText("Tap Proceed to enter the time block")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .addAction(0, "Proceed", proceedPi)
+            .addAction(0, "Dismiss", dismissPi)
             .setContentIntent(proceedPi)
             .build()
 
