@@ -2,6 +2,7 @@ package com.waypoint.app.home
 
 import com.waypoint.app.AppLogger
 import android.app.NotificationManager
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -9,6 +10,7 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -192,11 +194,19 @@ fun AlarmsTab(
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
                         .clickable {
-                            fullScreenLauncher.launch(
-                                Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENTS").apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                            )
+                            try {
+                                fullScreenLauncher.launch(
+                                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                )
+                            } catch (e: ActivityNotFoundException) {
+                                fullScreenLauncher.launch(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                )
+                            }
                         }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically

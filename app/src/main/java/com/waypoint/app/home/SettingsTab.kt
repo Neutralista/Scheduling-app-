@@ -3,6 +3,7 @@ package com.waypoint.app.home
 import android.Manifest
 import android.app.AlarmManager
 import android.app.NotificationManager
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -836,11 +837,21 @@ private fun FullScreenIntentIntegration() {
         granted = granted,
         connectLabel = "Open Settings",
         onConnect = {
-            launcher.launch(
-                Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENTS").apply {
-                    data = Uri.parse("package:${context.packageName}")
-                }
-            )
+            try {
+                launcher.launch(
+                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                )
+            } catch (e: ActivityNotFoundException) {
+                // Some OEM builds don't ship this exact screen — fall back to the app's own
+                // settings page rather than leaving the tap looking like it did nothing.
+                launcher.launch(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                )
+            }
         }
     )
 }
