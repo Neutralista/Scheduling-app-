@@ -1,11 +1,14 @@
 package com.waypoint.app.home
 
 import com.waypoint.app.AppLogger
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -97,6 +100,15 @@ fun AlarmsTab(
     val alarmList by alarms.alarmsFlow.collectAsState()
     val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
+
+    val notificationManager = remember { context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
+    fun fullScreenGrantedNow() =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE || notificationManager.canUseFullScreenIntent()
+    var fullScreenGranted by remember { mutableStateOf(fullScreenGrantedNow()) }
+    val fullScreenLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { fullScreenGranted = fullScreenGrantedNow() }
+
     var showDialog by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<AlarmEntry?>(null) }
 
@@ -172,6 +184,38 @@ fun AlarmsTab(
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
+            if (!fullScreenGranted && (alarmList.isNotEmpty() || hasSleepTimes)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
+                        .clickable {
+                            fullScreenLauncher.launch(
+                                Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENTS").apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Lock-screen alarms may not wake you",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            "Full-screen alarm permission is off, so alarms may ring as a quiet notification instead. Tap to fix in system settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+            }
+
             if (nextAlarm != null) {
                 val (label, fireMs) = nextAlarm
                 Row(
