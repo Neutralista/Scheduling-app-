@@ -21,9 +21,14 @@ object SleepNotificationHelper {
 
     const val CH_SLEEP_REMINDER = "waypoint_sleep_reminder"
     const val CH_SLEEP_NUDGE    = "waypoint_sleep_nudge"
-    const val CH_WAKE_GENTLE    = "waypoint_wake_gentle"
-    const val CH_WAKE_MEDIUM    = "waypoint_wake_medium"
-    const val CH_WAKE_FULL      = "waypoint_wake_full"
+    // _v2 — these three previously had no setSound(null, null), so posting to them played the
+    // system's default notification chime on top of the app's own MediaPlayer-driven alarm tone
+    // (and, for CH_WAKE_FULL, its own channel vibration pattern on top of the app's manual
+    // Vibrator calls too). Channels are immutable once created, so renaming forces every
+    // existing install to pick up the silenced version instead of keeping the broken one forever.
+    const val CH_WAKE_GENTLE    = "waypoint_wake_gentle_v2"
+    const val CH_WAKE_MEDIUM    = "waypoint_wake_medium_v2"
+    const val CH_WAKE_FULL      = "waypoint_wake_full_v2"
     const val CH_ALARM_STATUS   = "waypoint_alarm_status"
 
     private const val NOTIF_PRE_SLEEP    = 100
@@ -50,18 +55,30 @@ object SleepNotificationHelper {
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_WAKE_GENTLE, "Gentle wake", NotificationManager.IMPORTANCE_DEFAULT)
-                .apply { description = "Soft pre-wake alarm 15 minutes before wake time" }
+                .apply {
+                    description = "Soft pre-wake alarm 15 minutes before wake time — sound and " +
+                        "vibration are played by the app directly, not this channel"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_WAKE_MEDIUM, "Wake alarm", NotificationManager.IMPORTANCE_HIGH)
-                .apply { description = "Wake alarm 10 minutes before scheduled wake time" }
+                .apply {
+                    description = "Wake alarm 10 minutes before scheduled wake time — sound and " +
+                        "vibration are played by the app directly, not this channel"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val fullCh = NotificationChannel(CH_WAKE_FULL, "Full wake alarm", NotificationManager.IMPORTANCE_MAX)
                 .apply {
-                    description = "Full alarm at wake time — maximum volume and vibration"
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(500, 1000, 500, 1000)
+                    description = "Full alarm at wake time — sound and vibration (including " +
+                        "custom sound/volume/snooze settings) are played by the app directly, " +
+                        "not this channel"
+                    setSound(null, null)
+                    enableVibration(false)
                 }
             nm.createNotificationChannel(fullCh)
         }
