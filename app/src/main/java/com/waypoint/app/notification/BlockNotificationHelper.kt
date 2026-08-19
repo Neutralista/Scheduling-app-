@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.waypoint.app.R
 import com.waypoint.app.planner.ActiveBlockSession
 
 object BlockNotificationHelper {
@@ -68,7 +69,7 @@ object BlockNotificationHelper {
         )
 
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("$blockName starts now")
             .setContentText("Tap Proceed to enter the time block")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -97,7 +98,7 @@ object BlockNotificationHelper {
         // (elapsedRealtime - currentTimeMillis)). Passing an elapsedRealtime-based value here
         // double-counts that offset and makes the displayed countdown wildly wrong.
         val notif = NotificationCompat.Builder(context, SESSION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(session.blockName)
             .setContentText("Block in progress")
             .setUsesChronometer(true)
