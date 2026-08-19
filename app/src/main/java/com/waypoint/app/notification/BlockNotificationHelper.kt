@@ -76,14 +76,17 @@ object BlockNotificationHelper {
             .addAction(0, "Proceed", proceedPi)
             .addAction(0, "Dismiss", dismissPi)
             .setContentIntent(proceedPi)
+            .setGroup(WaypointNotificationGroup.GROUP_KEY)
             .build()
 
         nm.notify(notifId(blockId), notif)
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun cancelBlockStartNotification(context: Context, blockId: String) {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.cancel(notifId(blockId))
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun postSessionLiveNotification(context: Context, session: ActiveBlockSession) {
@@ -103,15 +106,25 @@ object BlockNotificationHelper {
             .setShowWhen(true)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setGroup(WaypointNotificationGroup.GROUP_KEY)
             .build()
 
         nm.notify(SESSION_NOTIF_ID, notif)
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun cancelSessionLiveNotification(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.cancel(SESSION_NOTIF_ID)
+        WaypointNotificationGroup.refresh(context)
     }
+
+    /** True while the live block-session countdown card is currently showing in the shade. */
+    fun isSessionLiveNotificationShowing(context: Context): Boolean =
+        try {
+            context.getSystemService(NotificationManager::class.java)
+                .activeNotifications.any { it.id == SESSION_NOTIF_ID }
+        } catch (e: Throwable) { true }
 
     private fun notifId(blockId: String) = NOTIF_ID_BASE + (blockId.hashCode() and 0x7FFFFFFF) % 1000
 }

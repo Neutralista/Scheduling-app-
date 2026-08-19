@@ -90,8 +90,10 @@ object SleepNotificationHelper {
                 .setContentIntent(openPi)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun sendBedtimeNotification(context: Context) {
@@ -111,8 +113,10 @@ object SleepNotificationHelper {
                 .addAction(0, "Start Sleep Mode", sleepModePi)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
+        WaypointNotificationGroup.refresh(context)
     }
 
     /**
@@ -155,8 +159,10 @@ object SleepNotificationHelper {
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
+                .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
+        WaypointNotificationGroup.refresh(context)
     }
 
     // ─── Alarm status (persistent, silent) ────────────────────────────────────
@@ -175,13 +181,20 @@ object SleepNotificationHelper {
                 .setOngoing(true)
                 .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun clearAlarmStatus(context: Context) {
         nm(context).cancel(NOTIF_ALARM_STATUS)
+        WaypointNotificationGroup.refresh(context)
     }
+
+    /** True while the sleep-alarm status card is currently showing in the shade. */
+    fun isAlarmStatusShowing(context: Context): Boolean =
+        try { nm(context).activeNotifications.any { it.id == NOTIF_ALARM_STATUS } } catch (e: Throwable) { true }
 
     // ─── User alarm status (persistent, silent) ───────────────────────────────
 
@@ -197,13 +210,20 @@ object SleepNotificationHelper {
                 .setOngoing(true)
                 .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
+        WaypointNotificationGroup.refresh(context)
     }
 
     fun clearUserAlarmStatus(context: Context) {
         nm(context).cancel(NOTIF_USER_ALARM_STATUS)
+        WaypointNotificationGroup.refresh(context)
     }
+
+    /** True while the user-alarm status card is currently showing in the shade. */
+    fun isUserAlarmStatusShowing(context: Context): Boolean =
+        try { nm(context).activeNotifications.any { it.id == NOTIF_USER_ALARM_STATUS } } catch (e: Throwable) { true }
 
     private fun openAlarmsTabPi(context: Context, reqCode: Int): PendingIntent =
         PendingIntent.getActivity(

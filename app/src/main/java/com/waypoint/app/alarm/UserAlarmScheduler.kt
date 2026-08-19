@@ -65,6 +65,17 @@ object UserAlarmScheduler {
     }
 
     /**
+     * Re-posts the status notification if the user swiped it away (Android 14+ allows dismissing
+     * ongoing notifications) but the underlying schedule still calls for one showing. No-op if
+     * it's already showing or nothing is scheduled. Meant for a periodic background tick — not a
+     * reaction to the dismiss itself, which would just fight the user's swipe.
+     */
+    fun healStatusNotification(context: Context) {
+        if (SleepNotificationHelper.isUserAlarmStatusShowing(context)) return
+        refreshStatusNotification(context, AlarmStore(context).loadAll())
+    }
+
+    /**
      * Pins a persistent, non-dismissible status notification showing the soonest upcoming
      * user alarm, mirroring the existing sleep-alarm status card — clears it when nothing is
      * scheduled. Call after any change to what's armed (add/edit/delete/enable/skip/fire).

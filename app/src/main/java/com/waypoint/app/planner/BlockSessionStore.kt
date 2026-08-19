@@ -93,6 +93,17 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
         AppLogger.i(TAG, "extendSession: +${extraMs / 60_000L}m → ends at ${updated.scheduledEndMs}")
     }
 
+    /**
+     * Re-posts the live block-session countdown card if the user swiped it away but a session
+     * is still active. Meant for a periodic background tick, not an instant reaction to the
+     * dismiss — see UserAlarmScheduler.healStatusNotification for the same pattern.
+     */
+    fun healSessionNotification() {
+        val session = loadCurrent() ?: return
+        if (BlockNotificationHelper.isSessionLiveNotificationShowing(appContext)) return
+        BlockNotificationHelper.postSessionLiveNotification(appContext, session)
+    }
+
     fun loadCurrent(): ActiveBlockSession? {
         val session = loadFromPrefs() ?: return null
         if (isExpired(session)) {

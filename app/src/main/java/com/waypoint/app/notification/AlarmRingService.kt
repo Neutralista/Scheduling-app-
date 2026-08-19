@@ -58,6 +58,7 @@ class AlarmRingService : Service() {
         AppLogger.i(TAG, "dismiss")
         stopSoundAndVibration()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        WaypointNotificationGroup.refresh(this)
         stopSelf()
         // User explicitly dismissed the wake alarm — most authoritative wake signal available.
         // recordActive() will close the sleeping cycle and open a new one.
@@ -78,6 +79,7 @@ class AlarmRingService : Service() {
             WakeAlarmScheduler.scheduleRingAlarm(this, snoozeMs)
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
+        WaypointNotificationGroup.refresh(this)
         stopSelf()
     }
 
@@ -105,8 +107,10 @@ class AlarmRingService : Service() {
             .setOngoing(true)
             .setAutoCancel(false)
             .setSound(null)
+            .setGroup(WaypointNotificationGroup.GROUP_KEY)
         if (fullScreen) builder.setFullScreenIntent(ringActivityPi, true)
         startForeground(NOTIF_ID, builder.build())
+        WaypointNotificationGroup.refresh(this)
     }
 
     private fun startForegroundPlaceholder() {

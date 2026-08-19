@@ -122,6 +122,21 @@ class SleepScheduleStore(private val context: Context) {
     }
     fun resetToDefaults() = save(SleepSchedule())
 
+    /**
+     * Re-posts the sleep-alarm status card if the user swiped it away but the schedule still
+     * calls for one showing. Meant for a periodic background tick, not an instant reaction to
+     * the dismiss — see UserAlarmScheduler.healStatusNotification for the same pattern.
+     */
+    fun healAlarmStatus() {
+        if (SleepNotificationHelper.isAlarmStatusShowing(context)) return
+        val (bedMs, wakeMs) = _scheduledTimes.value
+        if (bedMs == null || wakeMs == null) return
+        val s = load()
+        val anyActive = s.preSleepAlarmEnabled || s.bedtimeAlarmEnabled ||
+            s.gentleWakeEnabled || s.mediumWakeEnabled || s.wakeAlarmEnabled
+        if (anyActive) SleepNotificationHelper.showAlarmStatus(context, bedMs, wakeMs)
+    }
+
     private fun rescheduleFromStored() {
         val (bedMs, wakeMs) = _scheduledTimes.value
         if (bedMs == null || wakeMs == null) return

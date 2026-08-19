@@ -3,6 +3,7 @@ package com.waypoint.app.background
 import android.content.Context
 import androidx.work.CoroutineWorker
 import com.waypoint.app.alarm.AlarmBlockSync
+import com.waypoint.app.alarm.UserAlarmScheduler
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -31,6 +32,13 @@ class ScriptTickWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
         // Keep block-synced alarms' enabled state current — without this, an alarm linked to a
         // block only re-syncs on boot or app-open, and can sit stale for days otherwise.
         runCatching { AlarmBlockSync.sync(app) }
+
+        // Android 14+ lets users swipe away "ongoing" notifications — passively restore any of
+        // ours that got dismissed but are still relevant, on this same 15-min cadence rather
+        // than fighting the swipe in real time.
+        runCatching { UserAlarmScheduler.healStatusNotification(app) }
+        runCatching { app.env.sleepStore.healAlarmStatus() }
+        runCatching { app.env.blockSessionStore.healSessionNotification() }
 
         withContext(Dispatchers.Default) {
             ScriptRegistry.all()
