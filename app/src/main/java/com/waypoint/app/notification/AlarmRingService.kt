@@ -5,9 +5,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -16,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import com.waypoint.app.AppLogger
 import com.waypoint.app.R
 import com.waypoint.app.WaypointApplication
+import com.waypoint.app.alarm.UserAlarmScheduler
 
 class AlarmRingService : Service() {
 
@@ -26,27 +30,28 @@ class AlarmRingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_RING -> {
-                val volume     = intent.getFloatExtra(EXTRA_VOLUME, 1.0f)
-                val channel    = intent.getStringExtra(EXTRA_CHANNEL) ?: SleepNotificationHelper.CH_WAKE_FULL
-                val title      = intent.getStringExtra(EXTRA_TITLE) ?: "Wake up!"
-                val fullScreen = intent.getBooleanExtra(EXTRA_FULL_SCREEN, true)
-                startRinging(volume, channel, title, fullScreen)
-            }
+            ACTION_RING    -> startRinging(intent)
             ACTION_DISMISS -> dismiss()
-            ACTION_SNOOZE  -> snooze()
+            ACTION_SNOOZE  -> snooze(intent)
             else           -> { startForegroundPlaceholder(); stopSelf() }
         }
         return START_NOT_STICKY
     }
 
-    private fun startRinging(volume: Float, channel: String, title: String, fullScreen: Boolean) {
-        AppLogger.i(TAG, "startRinging: volume=$volume channel=$channel fullScreen=$fullScreen")
+    private fun startRinging(intent: Intent) {
+        val volume     = intent.getFloatExtra(EXTRA_VOLUME, 1.0f)
+        val channel    = intent.getStringExtra(EXTRA_CHANNEL) ?: SleepNotificationHelper.CH_WAKE_FULL
+        val title      = intent.getStringExtra(EXTRA_TITLE) ?: "Wake up!"
+        val fullScreen = intent.getBooleanExtra(EXTRA_FULL_SCREEN, true)
+        val soundUri   = intent.getStringExtra(EXTRA_SOUND_URI)
+        val vibrate    = intent.getBooleanExtra(EXTRA_VIBRATE, true)
+        AppLogger.i(TAG, "startRinging: volume=$volume channel=$channel fullScreen=$fullScreen vibrate=$vibrate")
+        if (intent.getBooleanExtra(EXTRA_MAX_VOLUME, false)) applyMaxVolume()
         stopSound()
         stopVibration()
-        showNotification(channel, title, fullScreen)
-        startSound(volume)
-        startVibration(volume)
+        showNotification(channel, title, fullScreen, intent)
+        startSound(volume, soundUri)
+        if (vibrate) startVibration(volume)
     }
 
     private fun dismiss() {
@@ -59,31 +64,42 @@ class AlarmRingService : Service() {
         (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
     }
 
-    private fun snooze() {
-        val snoozeMs = System.currentTimeMillis() + SNOOZE_MS
-        AppLogger.i(TAG, "snooze: rescheduling to $snoozeMs")
+    private fun snooze(intent: Intent?) {
+        val source        = intent?.getStringExtra(EXTRA_SOURCE) ?: SOURCE_SLEEP
+        val alarmId       = intent?.getStringExtra(EXTRA_ALARM_ID)
+        val label         = intent?.getStringExtra(EXTRA_TITLE) ?: "Alarm"
+        val snoozeMinutes = intent?.getIntExtra(EXTRA_SNOOZE_MINUTES, DEFAULT_SNOOZE_MINUTES) ?: DEFAULT_SNOOZE_MINUTES
+        val snoozeMs = System.currentTimeMillis() + snoozeMinutes * 60_000L
+        AppLogger.i(TAG, "snooze: source=$source alarmId=$alarmId minutes=$snoozeMinutes rescheduling to $snoozeMs")
         stopSoundAndVibration()
-        WakeAlarmScheduler.scheduleRingAlarm(this, snoozeMs)
+        if (source == SOURCE_USER && alarmId != null) {
+            UserAlarmScheduler.scheduleSnooze(this, alarmId, label, snoozeMs)
+        } else {
+            WakeAlarmScheduler.scheduleRingAlarm(this, snoozeMs)
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun showNotification(channel: String, title: String, fullScreen: Boolean) {
-        val dismissPi = pendingServiceIntent(0, ACTION_DISMISS)
-        val snoozePi  = pendingServiceIntent(1, ACTION_SNOOZE)
+    private fun showNotification(channel: String, title: String, fullScreen: Boolean, sourceIntent: Intent) {
+        val extras = sourceIntent.extras ?: Bundle()
+        val dismissPi = pendingServiceIntent(0, ACTION_DISMISS, extras)
+        val snoozePi  = pendingServiceIntent(1, ACTION_SNOOZE, extras)
         val ringActivityPi = PendingIntent.getActivity(
             this, 2,
             Intent(this, AlarmRingActivity::class.java)
+                .putExtras(extras)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val snoozeMinutes = sourceIntent.getIntExtra(EXTRA_SNOOZE_MINUTES, DEFAULT_SNOOZE_MINUTES)
         val builder = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText("Waypoint alarm")
             .setContentIntent(ringActivityPi)
             .addAction(0, "Dismiss", dismissPi)
-            .addAction(0, "Snooze ${SNOOZE_MS / 60_000} min", snoozePi)
+            .addAction(0, "Snooze $snoozeMinutes min", snoozePi)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
@@ -102,9 +118,20 @@ class AlarmRingService : Service() {
         startForeground(NOTIF_ID, notif)
     }
 
-    private fun startSound(volume: Float) {
+    private fun applyMaxVolume() {
         try {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, max, 0)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "applyMaxVolume threw", e)
+        }
+    }
+
+    private fun startSound(volume: Float, soundUri: String?) {
+        try {
+            val uri = soundUri?.let { Uri.parse(it) }
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
@@ -165,10 +192,13 @@ class AlarmRingService : Service() {
         stopVibration()
     }
 
-    private fun pendingServiceIntent(reqCode: Int, action: String): PendingIntent =
+    private fun pendingServiceIntent(reqCode: Int, action: String, extras: Bundle): PendingIntent =
         PendingIntent.getService(
             this, reqCode,
-            Intent(this, AlarmRingService::class.java).apply { this.action = action },
+            Intent(this, AlarmRingService::class.java).apply {
+                this.action = action
+                putExtras(extras)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -181,12 +211,21 @@ class AlarmRingService : Service() {
         const val ACTION_RING    = "com.waypoint.app.ALARM_RING"
         const val ACTION_DISMISS = "com.waypoint.app.ALARM_DISMISS"
         const val ACTION_SNOOZE  = "com.waypoint.app.ALARM_SNOOZE"
-        const val EXTRA_VOLUME      = "volume"
-        const val EXTRA_CHANNEL     = "channel"
-        const val EXTRA_TITLE       = "title"
-        const val EXTRA_FULL_SCREEN = "full_screen"
+        const val EXTRA_VOLUME         = "volume"
+        const val EXTRA_CHANNEL        = "channel"
+        const val EXTRA_TITLE          = "title"
+        const val EXTRA_FULL_SCREEN    = "full_screen"
+        /** Which subsystem started this ring — determines what a Snooze tap reschedules. */
+        const val EXTRA_SOURCE         = "source"
+        const val EXTRA_ALARM_ID       = "alarm_id"
+        const val EXTRA_SNOOZE_MINUTES = "snooze_minutes"
+        const val EXTRA_SOUND_URI      = "sound_uri"
+        const val EXTRA_MAX_VOLUME     = "max_volume_override"
+        const val EXTRA_VIBRATE        = "vibrate"
+        const val SOURCE_USER  = "user"
+        const val SOURCE_SLEEP = "sleep"
         private const val NOTIF_ID  = 112
-        private const val SNOOZE_MS = 10 * 60_000L
+        private const val DEFAULT_SNOOZE_MINUTES = 10
         private const val TAG       = "AlarmRingService"
     }
 }

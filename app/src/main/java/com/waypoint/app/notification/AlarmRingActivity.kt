@@ -63,7 +63,11 @@ class AlarmRingActivity : ComponentActivity() {
     }
 
     private fun sendServiceAction(action: String) {
-        startService(Intent(this, AlarmRingService::class.java).apply { this.action = action })
+        val svcIntent = Intent(this, AlarmRingService::class.java).apply {
+            this.action = action
+            intent.extras?.let { putExtras(it) }
+        }
+        startService(svcIntent)
         finish()
     }
 }

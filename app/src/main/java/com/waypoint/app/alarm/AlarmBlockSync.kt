@@ -32,6 +32,11 @@ object AlarmBlockSync {
             val shouldBeEnabled = alarm.linkedBlockId in scheduledBlockIds
             if (alarm.enabled != shouldBeEnabled) {
                 alarmStore.setEnabledSync(alarm.id, shouldBeEnabled)
+                // setEnabledSync only persists the flag — it doesn't touch AlarmManager, so the
+                // actual OS-level trigger must be armed/disarmed here to match.
+                val updated = alarm.copy(enabled = shouldBeEnabled)
+                if (shouldBeEnabled) UserAlarmScheduler.schedule(context, updated)
+                else UserAlarmScheduler.cancel(context, updated)
             }
         }
     }

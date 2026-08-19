@@ -2,6 +2,7 @@ package com.waypoint.app.background
 
 import android.content.Context
 import androidx.work.CoroutineWorker
+import com.waypoint.app.alarm.AlarmBlockSync
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -26,6 +27,10 @@ class ScriptTickWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
 
         // Refresh location cache so scripts see fresh coordinates
         runCatching { app.env.location.refreshCache() }
+
+        // Keep block-synced alarms' enabled state current — without this, an alarm linked to a
+        // block only re-syncs on boot or app-open, and can sit stale for days otherwise.
+        runCatching { AlarmBlockSync.sync(app) }
 
         withContext(Dispatchers.Default) {
             ScriptRegistry.all()

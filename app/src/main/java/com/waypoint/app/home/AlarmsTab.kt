@@ -1,6 +1,13 @@
 package com.waypoint.app.home
 
 import com.waypoint.app.AppLogger
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,12 +47,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,12 +70,16 @@ import androidx.compose.ui.unit.dp
 import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.AlarmEntry
 import com.waypoint.app.alarm.AlarmSignals
+import com.waypoint.app.alarm.UserAlarmScheduler
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepScheduleStore
 import com.waypoint.app.ui.components.TimePickerDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 import androidx.compose.ui.platform.LocalContext
 
@@ -77,7 +91,9 @@ fun AlarmsTab(
     val context = LocalContext.current
     val sleepStore = remember { SleepScheduleStore(context) }
     val blockStore = remember { NamedBlockStore(context) }
-    val syncableBlocks = remember { blockStore.loadAllBlocks().filter { !it.isFloating } }
+    val allBlocks = remember { blockStore.loadAllBlocks() }
+    val syncableBlocks = remember { allBlocks.filter { !it.isFloating } }
+    val floatingBlockCount = remember { allBlocks.count { it.isFloating } }
     val alarmList by alarms.alarmsFlow.collectAsState()
     val sleepTimes by sleepTimesFlow.collectAsState()
     val scope = rememberCoroutineScope()
@@ -102,6 +118,47 @@ fun AlarmsTab(
     val (bedMs, wakeMs) = sleepTimes
     val hasSleepTimes = bedMs != null && wakeMs != null
 
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) { delay(30_000); tick++ }
+    }
+    val nextAlarm = remember(
+        alarmList, bedMs, wakeMs, preSleepAlarmEnabled, bedtimeAlarmEnabled,
+        gentleWakeEnabled, mediumWakeEnabled, wakeAlarmEnabled,
+        wakeAlarmCount, wakeAlarmIntervalMinutes, preSleepReminderMinutes, tick
+    ) {
+        val now = System.currentTimeMillis()
+        val candidates = mutableListOf<Pair<String, Long>>()
+        alarmList.filter { it.enabled }.forEach { a ->
+            val fire = UserAlarmScheduler.nextFireTime(a)
+            if (fire > now) candidates += (a.label.ifBlank { a.displayTime } to fire)
+        }
+        if (hasSleepTimes) {
+            val intervalMs = wakeAlarmIntervalMinutes * 60_000L
+            if (preSleepAlarmEnabled && preSleepReminderMinutes > 0) {
+                val t = bedMs!! - preSleepReminderMinutes * 60_000L
+                if (t > now) candidates += ("Pre-sleep reminder" to t)
+            }
+            if (bedtimeAlarmEnabled) {
+                val t = bedMs!!
+                if (t > now) candidates += ("Bedtime" to t)
+            }
+            if (wakeAlarmCount >= 3 && gentleWakeEnabled) {
+                val t = wakeMs!! - 2 * intervalMs
+                if (t > now) candidates += ("Gentle wake" to t)
+            }
+            if (wakeAlarmCount >= 2 && mediumWakeEnabled) {
+                val t = wakeMs!! - intervalMs
+                if (t > now) candidates += ("Medium wake" to t)
+            }
+            if (wakeAlarmEnabled) {
+                val t = wakeMs!!
+                if (t > now) candidates += ("Wake up" to t)
+            }
+        }
+        candidates.minByOrNull { it.second }
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = { editTarget = null; showDialog = true }) {
@@ -115,6 +172,38 @@ fun AlarmsTab(
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
+            if (nextAlarm != null) {
+                val (label, fireMs) = nextAlarm
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            "Next: $label",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            fmtHHmm(fireMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                    Text(
+                        "in ${formatRelative(fireMs)}",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
             if (!hasSleepTimes && alarmList.isEmpty()) {
                 Column(
                     Modifier.fillMaxSize(),
@@ -281,6 +370,9 @@ fun AlarmsTab(
                                         try { alarms.delete(alarm.id) }
                                         catch (e: Throwable) { AppLogger.e("AlarmsTab", "delete threw ${e.javaClass.name}: ${e.message}", e) }
                                     }
+                                },
+                                onSkipNext = {
+                                    scope.launch { UserAlarmScheduler.skipNext(context, alarm) }
                                 }
                             )
                             Spacer(Modifier.height(8.dp))
@@ -295,6 +387,7 @@ fun AlarmsTab(
         AlarmEditDialog(
             initial = editTarget,
             syncableBlocks = syncableBlocks,
+            floatingBlockCount = floatingBlockCount,
             onDismiss = { showDialog = false },
             onSave = { entry ->
                 scope.launch {
@@ -311,12 +404,58 @@ fun AlarmsTab(
     }
 }
 
+private fun formatRelative(ms: Long): String {
+    val diff = ms - System.currentTimeMillis()
+    if (diff <= 0) return "now"
+    val totalMin = diff / 60_000L
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return when {
+        h > 0 && m > 0 -> "${h}h ${m}m"
+        h > 0 -> "${h}h"
+        else -> "${m}m"
+    }
+}
+
+private fun fmtHHmm(ms: Long): String =
+    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
+
+private suspend fun playTestSound(context: android.content.Context, soundUri: String?, volume: Float) {
+    withContext(Dispatchers.IO) {
+        var player: MediaPlayer? = null
+        try {
+            val uri = soundUri?.let { Uri.parse(it) }
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                setDataSource(context, uri)
+                setVolume(volume, volume)
+                prepare()
+                start()
+            }
+            delay(3000)
+        } catch (e: Throwable) {
+            AppLogger.e("AlarmsTab", "playTestSound threw ${e.javaClass.name}: ${e.message}", e)
+        } finally {
+            try { player?.stop() } catch (_: Throwable) {}
+            player?.release()
+        }
+    }
+}
+
 @Composable
 private fun AlarmRow(
     alarm: AlarmEntry,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onSkipNext: () -> Unit
 ) {
     val isSynced = alarm.blockSyncEnabled && alarm.linkedBlockId != null
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -370,6 +509,15 @@ private fun AlarmRow(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
                     )
                 }
+                if (alarm.enabled && alarm.repeatDays.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "Skip next",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { onSkipNext() }
+                    )
+                }
             }
             IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(36.dp)) {
                 Icon(
@@ -393,9 +541,12 @@ private fun AlarmRow(
 private fun AlarmEditDialog(
     initial: AlarmEntry?,
     syncableBlocks: List<NamedBlock>,
+    floatingBlockCount: Int,
     onDismiss: () -> Unit,
     onSave: (AlarmEntry) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var hour by remember { mutableIntStateOf(initial?.hour ?: 7) }
     var minute by remember { mutableIntStateOf(initial?.minute ?: 0) }
     var label by remember { mutableStateOf(initial?.label ?: "") }
@@ -405,8 +556,27 @@ private fun AlarmEditDialog(
     var blockSyncEnabled by remember { mutableStateOf(initial?.blockSyncEnabled ?: false) }
     var linkedBlockId by remember { mutableStateOf(initial?.linkedBlockId) }
     var blockDropdownExpanded by remember { mutableStateOf(false) }
+    var soundUri by remember { mutableStateOf(initial?.soundUri) }
+    var volume by remember { mutableFloatStateOf(initial?.volume ?: 1.0f) }
+    var snoozeMinutes by remember { mutableIntStateOf(initial?.snoozeMinutes ?: 10) }
+    var stagedWake by remember { mutableStateOf(initial?.stagedWake ?: false) }
+    var maxVolumeOverride by remember { mutableStateOf(initial?.maxVolumeOverride ?: false) }
+    var isTesting by remember { mutableStateOf(false) }
 
     val selectedBlockName = syncableBlocks.find { it.id == linkedBlockId }?.name ?: "None"
+    val soundLabel = remember(soundUri) {
+        soundUri?.let { raw ->
+            try { RingtoneManager.getRingtone(context, Uri.parse(raw)).getTitle(context) ?: "Custom" }
+            catch (e: Throwable) { "Custom" }
+        } ?: "Default"
+    }
+    val soundPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        @Suppress("DEPRECATION")
+        val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        soundUri = uri?.toString()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -469,59 +639,162 @@ private fun AlarmEditDialog(
                     Switch(checked = vibrate, onCheckedChange = { vibrate = it })
                 }
 
-                if (syncableBlocks.isNotEmpty()) {
-                    HorizontalDivider()
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Sync with block", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "Auto-enable when block is scheduled",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            val existing = soundUri?.let { Uri.parse(it) }
+                                ?: RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
+                            val pickerIntent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existing)
+                            }
+                            soundPickerLauncher.launch(pickerIntent)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Sound", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        soundLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Column {
+                    Text("Volume", style = MaterialTheme.typography.bodyMedium)
+                    Slider(value = volume, onValueChange = { volume = it }, valueRange = 0.1f..1.0f)
+                }
+
+                TextButton(
+                    onClick = {
+                        if (!isTesting) {
+                            isTesting = true
+                            scope.launch {
+                                playTestSound(context, soundUri, volume)
+                                isTesting = false
+                            }
                         }
-                        Switch(
-                            checked = blockSyncEnabled,
-                            onCheckedChange = { blockSyncEnabled = it }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isTesting) "Playing…" else "Test sound") }
+
+                Text(
+                    "Snooze duration",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(5, 10, 15, 20).forEach { mins ->
+                        FilterChip(
+                            selected = snoozeMinutes == mins,
+                            onClick = { snoozeMinutes = mins },
+                            label = { Text("${mins}m", style = MaterialTheme.typography.labelSmall) }
                         )
                     }
+                }
 
-                    if (blockSyncEnabled) {
-                        ExposedDropdownMenuBox(
-                            expanded = blockDropdownExpanded,
-                            onExpandedChange = { blockDropdownExpanded = it }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Gentle wake-up", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Two quiet reminder pulses ring 10 and 5 minutes before this alarm",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = stagedWake, onCheckedChange = { stagedWake = it })
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Force max volume", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Overrides the device's alarm volume when this alarm rings",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = maxVolumeOverride, onCheckedChange = { maxVolumeOverride = it })
+                }
+
+                if (syncableBlocks.isNotEmpty() || floatingBlockCount > 0) {
+                    HorizontalDivider()
+                    if (syncableBlocks.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            OutlinedTextField(
-                                value = selectedBlockName,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Block") },
-                                trailingIcon = {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = blockDropdownExpanded)
-                                },
-                                modifier = Modifier
-                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                                    .fillMaxWidth()
+                            Column(Modifier.weight(1f)) {
+                                Text("Sync with block", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Auto-enable when block is scheduled",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = blockSyncEnabled,
+                                onCheckedChange = { blockSyncEnabled = it }
                             )
-                            ExposedDropdownMenu(
+                        }
+
+                        if (blockSyncEnabled) {
+                            ExposedDropdownMenuBox(
                                 expanded = blockDropdownExpanded,
-                                onDismissRequest = { blockDropdownExpanded = false }
+                                onExpandedChange = { blockDropdownExpanded = it }
                             ) {
-                                syncableBlocks.forEach { block ->
-                                    DropdownMenuItem(
-                                        text = { Text(block.name) },
-                                        onClick = {
-                                            linkedBlockId = block.id
-                                            blockDropdownExpanded = false
-                                        }
-                                    )
+                                OutlinedTextField(
+                                    value = selectedBlockName,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Block") },
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = blockDropdownExpanded)
+                                    },
+                                    modifier = Modifier
+                                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                        .fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = blockDropdownExpanded,
+                                    onDismissRequest = { blockDropdownExpanded = false }
+                                ) {
+                                    syncableBlocks.forEach { block ->
+                                        DropdownMenuItem(
+                                            text = { Text(block.name) },
+                                            onClick = {
+                                                linkedBlockId = block.id
+                                                blockDropdownExpanded = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
+                    }
+                    if (floatingBlockCount > 0) {
+                        Text(
+                            "$floatingBlockCount floating block${if (floatingBlockCount == 1) "" else "s"} " +
+                                "can't be synced here — only fixed-time blocks can drive an alarm.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
                     }
                 }
             }
@@ -539,7 +812,13 @@ private fun AlarmEditDialog(
                         repeatDays = repeatDays,
                         vibrate = vibrate,
                         linkedBlockId = if (syncOn) linkedBlockId else null,
-                        blockSyncEnabled = syncOn
+                        blockSyncEnabled = syncOn,
+                        seq = initial?.seq ?: -1,
+                        soundUri = soundUri,
+                        volume = volume,
+                        snoozeMinutes = snoozeMinutes,
+                        stagedWake = stagedWake,
+                        maxVolumeOverride = maxVolumeOverride
                     )
                 )
             }) { Text("Save") }

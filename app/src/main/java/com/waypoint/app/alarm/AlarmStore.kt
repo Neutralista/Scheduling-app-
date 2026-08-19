@@ -28,6 +28,7 @@ class AlarmStore(context: Context) {
         }
         return try {
             val result = json.decodeFromString<List<AlarmEntry>>(raw)
+                .sortedWith(compareBy({ it.hour }, { it.minute }))
             AppLogger.i(TAG, "loadAll: decoded ${result.size} alarm(s): ${result.map { "${it.id.take(8)}@${it.displayTime}" }}")
             result
         } catch (e: Throwable) {
@@ -37,13 +38,20 @@ class AlarmStore(context: Context) {
     }
 
     suspend fun add(alarm: AlarmEntry): AlarmEntry = withContext(Dispatchers.IO) {
-        val entry = if (alarm.id.isBlank()) alarm.copy(id = UUID.randomUUID().toString()) else alarm
-        AppLogger.i(TAG, "add: id=${entry.id.take(8)} time=${entry.displayTime} repeat=${entry.repeatDays} enabled=${entry.enabled}")
+        val withId = if (alarm.id.isBlank()) alarm.copy(id = UUID.randomUUID().toString()) else alarm
+        val entry = if (withId.seq >= 0) withId else withId.copy(seq = nextSeq())
+        AppLogger.i(TAG, "add: id=${entry.id.take(8)} time=${entry.displayTime} repeat=${entry.repeatDays} enabled=${entry.enabled} seq=${entry.seq}")
         val current = loadAll()
         val updated = current.filter { it.id != entry.id } + entry
         AppLogger.i(TAG, "add: list size ${current.size} → ${updated.size}")
         persist(updated)
         entry
+    }
+
+    private fun nextSeq(): Int {
+        val n = prefs.getInt(KEY_NEXT_SEQ, 0)
+        prefs.edit().putInt(KEY_NEXT_SEQ, n + 1).apply()
+        return n
     }
 
     suspend fun update(alarm: AlarmEntry) = withContext(Dispatchers.IO) {
@@ -93,5 +101,6 @@ class AlarmStore(context: Context) {
         private const val TAG       = "AlarmStore"
         private const val PREFS_NAME = "waypoint_user_alarms"
         private const val KEY_LIST   = "alarms"
+        private const val KEY_NEXT_SEQ = "next_seq"
     }
 }
