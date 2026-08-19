@@ -32,6 +32,13 @@ class CycleTracker(private val context: Context) {
 
         // Continuous inactivity threshold for sleep onset detection.
         private const val SLEEP_INACTIVITY_MS = 60 * 60_000L    // 60 minutes
+
+        // Fallback threshold used when sleep was never detected at all (sleep mode never armed,
+        // or its periodic inactivity check never ran). Deliberately much longer than
+        // SLEEP_INACTIVITY_MS — a plain gap in opening the app during a normal day (a few hours
+        // of not checking Waypoint while awake) should never look like sleep on its own. Combined
+        // with also requiring the gap to cross a calendar date, this stays conservative.
+        private const val FALLBACK_INACTIVITY_MS = 3 * 3600_000L  // 3 hours
     }
 
     /**
@@ -60,20 +67,38 @@ class CycleTracker(private val context: Context) {
                 }
             }
             else -> {
-                // No sleep onset was recorded. Only apply the fallback close when sleep mode
-                // is active AND the phone has been inactive long enough to suggest sleep
-                // occurred (detection alarm was probably missed). Without both guards this
-                // fires during normal waking hours and fragments the day into 4-hour chunks.
+                // No sleep onset was recorded. Two independent ways to still catch this as a
+                // genuinely new day:
+                //  1. Sleep mode was armed and the phone was inactive long enough — the original,
+                //     more sensitive signal (sleep mode being on already implies the user expected
+                //     sleep detection to matter here).
+                //  2. No sleep mode at all, but a much longer inactivity gap (FALLBACK_INACTIVITY_MS)
+                //     that also crosses a calendar date — e.g. sleep detection never ran because
+                //     sleep mode was never armed, but the cycle has clearly outlived a whole day.
+                //     Requiring both the long gap AND a date change (not just duration) keeps a
+                //     single long daytime gap in opening the app from ever looking like sleep.
                 val openMs = now - current.wakeMillis
                 val lastActive = prefs.getLong(KEY_LAST_ACTIVE, now)
                 val inactiveDuration = now - lastActive
                 val sleepModeActive = sleepLogStore.getSleepModeState() != SleepModeState.IDLE
-                if (openMs >= MIN_NEW_CYCLE_GAP_MS && inactiveDuration >= SLEEP_INACTIVITY_MS && sleepModeActive) {
-                    AppLogger.i(TAG, "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, inactive ${inactiveDuration / 60_000}min — closing as fallback")
+                val crossedCalendarDay = Cycle.dateLabel(lastActive) != Cycle.dateLabel(now)
+
+                val closeViaSleepMode = openMs >= MIN_NEW_CYCLE_GAP_MS &&
+                    inactiveDuration >= SLEEP_INACTIVITY_MS && sleepModeActive
+                val closeViaUndetectedGap = openMs >= MIN_NEW_CYCLE_GAP_MS &&
+                    inactiveDuration >= FALLBACK_INACTIVITY_MS && crossedCalendarDay
+
+                if (closeViaSleepMode || closeViaUndetectedGap) {
+                    AppLogger.i(
+                        TAG,
+                        "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, " +
+                            "inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, " +
+                            "crossedDay=$crossedCalendarDay — closing as fallback"
+                    )
                     store.save(current.copy(nextWakeMillis = now))
                     openCycle(now)
                 } else {
-                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive)")
+                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, crossedDay=$crossedCalendarDay)")
                 }
             }
         }
