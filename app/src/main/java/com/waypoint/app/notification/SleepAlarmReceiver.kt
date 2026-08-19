@@ -3,7 +3,10 @@ package com.waypoint.app.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.waypoint.app.cycle.WakeCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
+import com.waypoint.app.planner.SleepScheduleStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,6 +25,13 @@ class SleepAlarmReceiver : BroadcastReceiver() {
             }
             ACTION_BEDTIME -> {
                 SleepNotificationHelper.sendBedtimeNotification(context)
+                // If the user doesn't manually start Sleep Mode, silently begin inactivity
+                // polling anyway so a forgotten-to-arm night still gets detected — bounded to
+                // the bedtime→wake window by WakeCheckReceiver/SleepScheduleStore.
+                val sleepModeIdle = SleepLogStore(context).getSleepModeState() == SleepModeState.IDLE
+                if (sleepModeIdle && SleepScheduleStore(context).isWithinPassiveSleepWindow()) {
+                    WakeCheckReceiver.scheduleCheck(context)
+                }
             }
         }
     }

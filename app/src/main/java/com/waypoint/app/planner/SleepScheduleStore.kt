@@ -47,7 +47,11 @@ data class SleepSchedule(
     val bedtimeSync: SleepAlarmSync = SleepAlarmSync(),
     val gentleWakeSync: SleepAlarmSync = SleepAlarmSync(),
     val mediumWakeSync: SleepAlarmSync = SleepAlarmSync(),
-    val wakeUpSync: SleepAlarmSync = SleepAlarmSync()
+    val wakeUpSync: SleepAlarmSync = SleepAlarmSync(),
+    /** Silently start inactivity-based sleep detection at the scheduled bedtime even if Sleep
+     *  Mode was never manually started — bounded to the bedtime→wake window, see
+     *  SleepScheduleStore.isWithinPassiveSleepWindow(). */
+    val passiveSleepDetectionEnabled: Boolean = true
 )
 
 data class EffectiveSleepTimes(
@@ -91,6 +95,22 @@ class SleepScheduleStore(private val context: Context) {
         save(load().copy(wakeAlarmIntervalMinutes = minutes.coerceAtLeast(1)))
         rescheduleFromStored()
     }
+    fun setPassiveSleepDetectionEnabled(enabled: Boolean) =
+        save(load().copy(passiveSleepDetectionEnabled = enabled))
+
+    /**
+     * True while we're between the scheduled bedtime and (wake time + a buffer), and passive
+     * detection is turned on — the window where CycleTracker/WakeCheckReceiver may silently
+     * start inactivity polling even though Sleep Mode was never manually armed.
+     */
+    fun isWithinPassiveSleepWindow(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!load().passiveSleepDetectionEnabled) return false
+        val logStore = SleepLogStore(context)
+        val bedMs = logStore.getScheduledBedMs() ?: return false
+        val wakeMs = logStore.getScheduledWakeMs() ?: return false
+        return nowMs in bedMs..(wakeMs + PASSIVE_WINDOW_BUFFER_MS)
+    }
+
     fun setPreSleepReminderMinutes(minutes: Int) {
         save(load().copy(preSleepReminderMinutes = minutes.coerceAtLeast(0)))
         rescheduleFromStored()
@@ -339,5 +359,11 @@ class SleepScheduleStore(private val context: Context) {
             }
         }
         return events
+    }
+
+    companion object {
+        // How long past the scheduled wake time the passive-detection window stays open, to
+        // also catch oversleeping past the alarm rather than cutting off exactly at wake time.
+        private const val PASSIVE_WINDOW_BUFFER_MS = 3 * 3600_000L  // 3 hours
     }
 }

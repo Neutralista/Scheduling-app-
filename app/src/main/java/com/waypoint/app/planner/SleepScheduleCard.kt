@@ -90,6 +90,25 @@ fun SleepScheduleCard(
                     modifier = Modifier.padding(top = 6.dp)
                 )
 
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Detect sleep automatically", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "If you forget to start Sleep Mode, silently start watching for it near bedtime",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = schedule.passiveSleepDetectionEnabled,
+                        onCheckedChange = { store.setPassiveSleepDetectionEnabled(it); commit() }
+                    )
+                }
             }
         }
     }

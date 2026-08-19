@@ -10,6 +10,7 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.WaypointApplication
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
+import com.waypoint.app.planner.SleepScheduleStore
 
 class WakeCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,12 +22,15 @@ class WakeCheckReceiver : BroadcastReceiver() {
                 app.cycleTracker.recordActive()
             }
             ACTION_WAKE_CHECK -> {
-                // Only run the inactivity check while sleep mode is active; cancel the
-                // alarm otherwise so it doesn't keep firing through the waking day.
-                if (SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE) {
+                // Run the inactivity check while sleep mode is actively armed, or — even if it
+                // isn't — while we're still inside the bedtime→wake passive-detection window.
+                // Cancel otherwise so this doesn't keep firing through the rest of the day.
+                val sleepModeActive = SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE
+                val withinPassiveWindow = SleepScheduleStore(context).isWithinPassiveSleepWindow()
+                if (sleepModeActive || withinPassiveWindow) {
                     app.cycleTracker.checkInactivity()
                 } else {
-                    AppLogger.i(TAG, "onReceive: WAKE_CHECK but sleep mode is IDLE — cancelling")
+                    AppLogger.i(TAG, "onReceive: WAKE_CHECK outside active/passive window — cancelling")
                     cancel(context)
                 }
             }

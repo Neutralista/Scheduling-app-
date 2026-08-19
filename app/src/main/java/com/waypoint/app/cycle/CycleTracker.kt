@@ -6,6 +6,7 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
+import com.waypoint.app.planner.SleepScheduleStore
 import java.util.UUID
 
 class CycleTracker(private val context: Context) {
@@ -14,6 +15,7 @@ class CycleTracker(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("waypoint_cycle_tracker", Context.MODE_PRIVATE)
     private val sleepLogStore = SleepLogStore(context)
+    private val sleepScheduleStore = SleepScheduleStore(context)
 
     /**
      * Called every time a new cycle opens — both automatic and manual.
@@ -104,8 +106,12 @@ class CycleTracker(private val context: Context) {
         }
 
         updateLastActive(now)
-        // Only keep the periodic check alive when sleep mode is active.
-        if (sleepLogStore.getSleepModeState() != SleepModeState.IDLE) {
+        // Keep the periodic check alive when sleep mode is active, or — even if it isn't —
+        // while we're inside the bedtime→wake passive-detection window. This is a defensive
+        // backup to the bedtime alarm's own scheduleCheck() call, in case that alarm was
+        // delayed (e.g. Doze) or the app was foregrounded mid-window before it fired.
+        val sleepModeActive = sleepLogStore.getSleepModeState() != SleepModeState.IDLE
+        if (sleepModeActive || sleepScheduleStore.isWithinPassiveSleepWindow(now)) {
             WakeCheckReceiver.scheduleCheck(context)
         }
     }
