@@ -8,14 +8,16 @@ import android.os.Build
 
 object SleepAlarmScheduler {
 
-    private const val RC_PRE_SLEEP  = 8010
-    private const val RC_BEDTIME    = 8011
+    private const val RC_PRE_SLEEP   = 8010
+    private const val RC_BEDTIME     = 8011
+    private const val RC_PASSIVE_ARM = 8012
 
     fun scheduleAlarms(
         context: Context, bedMs: Long, wakeMs: Long,
         preSleepReminderMinutes: Int = 30,
         preSleepEnabled: Boolean = true,
-        bedtimeEnabled: Boolean = true
+        bedtimeEnabled: Boolean = true,
+        passiveDetectionEnabled: Boolean = false
     ) {
         cancelAlarms(context)
         val now = System.currentTimeMillis()
@@ -33,11 +35,18 @@ object SleepAlarmScheduler {
             }
         }
         if (bedtimeEnabled && bedMs > now) scheduleExact(context, bedMs, buildPi(context, RC_BEDTIME, SleepAlarmReceiver.ACTION_BEDTIME))
+        // Scheduled independently of bedtimeEnabled — passive detection shouldn't depend on
+        // whether the user also wants the "Time to sleep" notification; those are two separate
+        // preferences that happened to share one alarm before this was split out.
+        if (passiveDetectionEnabled && bedMs > now) {
+            scheduleExact(context, bedMs, buildPi(context, RC_PASSIVE_ARM, SleepAlarmReceiver.ACTION_ARM_PASSIVE_DETECTION))
+        }
     }
 
     fun cancelAlarms(context: Context) {
-        cancel(context, RC_PRE_SLEEP,  SleepAlarmReceiver.ACTION_PRE_SLEEP)
-        cancel(context, RC_BEDTIME,    SleepAlarmReceiver.ACTION_BEDTIME)
+        cancel(context, RC_PRE_SLEEP,   SleepAlarmReceiver.ACTION_PRE_SLEEP)
+        cancel(context, RC_BEDTIME,     SleepAlarmReceiver.ACTION_BEDTIME)
+        cancel(context, RC_PASSIVE_ARM, SleepAlarmReceiver.ACTION_ARM_PASSIVE_DETECTION)
     }
 
     private fun scheduleExact(context: Context, triggerMs: Long, pi: PendingIntent) {

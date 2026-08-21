@@ -163,7 +163,8 @@ class SleepScheduleStore(private val context: Context) {
         val s = load()
         SleepAlarmScheduler.scheduleAlarms(
             context, bedMs, wakeMs,
-            s.preSleepReminderMinutes, s.preSleepAlarmEnabled, s.bedtimeAlarmEnabled
+            s.preSleepReminderMinutes, s.preSleepAlarmEnabled, s.bedtimeAlarmEnabled,
+            s.passiveSleepDetectionEnabled
         )
         WakeAlarmScheduler.scheduleAlarms(
             context, wakeMs, s.wakeAlarmCount, s.wakeAlarmIntervalMinutes,
@@ -242,7 +243,8 @@ class SleepScheduleStore(private val context: Context) {
 
                 SleepAlarmScheduler.scheduleAlarms(
                     context, bedMs, wakeMs,
-                    s.preSleepReminderMinutes, s.preSleepAlarmEnabled, s.bedtimeAlarmEnabled
+                    s.preSleepReminderMinutes, s.preSleepAlarmEnabled, s.bedtimeAlarmEnabled,
+                    s.passiveSleepDetectionEnabled
                 )
                 AppLogger.i("SleepSync", "syncToRegistry: computed wakeMs=$wakeMs bedMs=$bedMs")
                 _scheduledTimes.value = bedMs to wakeMs
