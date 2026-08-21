@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.waypoint.app.AppLogger
-import com.waypoint.app.cycle.WakeCheckReceiver
+import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.SleepScheduleStore
@@ -30,20 +30,28 @@ class SleepAlarmReceiver : BroadcastReceiver() {
             ACTION_ARM_PASSIVE_DETECTION -> {
                 // Scheduled independently of the bedtime notification toggle (see
                 // SleepAlarmScheduler) so passive detection still works even if the user turned
-                // the "Time to sleep" notification off but left auto-detect on.
+                // the "Time to sleep" notification off but left auto-detect on. This arms the
+                // *real* sleep-mode state machine (SleepLogStore/SleepCheckReceiver) — the same
+                // one "Start Sleep Mode" arms manually — rather than a separate mechanism, so
+                // the Monitoring/Sleeping status, calendar logging, and cycle bridging all work
+                // exactly as they do when armed by hand.
                 try {
-                    val sleepModeIdle = SleepLogStore(context).getSleepModeState() == SleepModeState.IDLE
-                    if (sleepModeIdle && SleepScheduleStore(context).isWithinPassiveSleepWindow()) {
-                        WakeCheckReceiver.scheduleCheck(context)
+                    val logStore = SleepLogStore(context)
+                    val alreadyArmed = logStore.getSleepModeState() != SleepModeState.IDLE
+                    if (!alreadyArmed && SleepScheduleStore(context).isWithinPassiveSleepWindow()) {
+                        logStore.enterSleepMode()
+                        SleepCheckReceiver.scheduleNextCheck(context)
+                        AppLogger.i(TAG, "ACTION_ARM_PASSIVE_DETECTION: entered MONITORING automatically")
                     }
                 } catch (e: Throwable) {
-                    AppLogger.e("SleepAlarmReceiver", "ACTION_ARM_PASSIVE_DETECTION threw", e)
+                    AppLogger.e(TAG, "ACTION_ARM_PASSIVE_DETECTION threw", e)
                 }
             }
         }
     }
 
     companion object {
+        private const val TAG                  = "SleepAlarmReceiver"
         const val ACTION_PRE_SLEEP             = "com.waypoint.app.SLEEP_PRE_REMINDER"
         const val ACTION_BEDTIME               = "com.waypoint.app.SLEEP_BEDTIME"
         const val ACTION_ARM_PASSIVE_DETECTION = "com.waypoint.app.SLEEP_ARM_PASSIVE_DETECTION"
