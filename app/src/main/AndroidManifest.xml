@@ -101,6 +101,7 @@
                 <action android:name="com.waypoint.app.SLEEP_PRE_REMINDER" />
                 <action android:name="com.waypoint.app.SLEEP_BEDTIME" />
                 <action android:name="com.waypoint.app.SLEEP_LATE_NUDGE" />
+                <action android:name="com.waypoint.app.SLEEP_ARM_PASSIVE_DETECTION" />
             </intent-filter>
         </receiver>
 
@@ -136,6 +137,7 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.BLOCK_START" />
                 <action android:name="com.waypoint.app.PROCEED_BLOCK" />
+                <action android:name="com.waypoint.app.DISMISS_BLOCK_START" />
             </intent-filter>
         </receiver>
 
