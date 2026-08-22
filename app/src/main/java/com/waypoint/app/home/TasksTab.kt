@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -879,7 +880,9 @@ private fun writeDaySchedule(
     resolved: ResolvedDay,
     enabled: Boolean = resolved.enabled,
     startHour: Int = resolved.startHour,
-    startMinute: Int = resolved.startMinute
+    startMinute: Int = resolved.startMinute,
+    endHour: Int = resolved.endHour,
+    endMinute: Int = resolved.endMinute
 ) {
     namedBlockStore.setSchedule(
         NamedBlockSchedule(
@@ -888,8 +891,8 @@ private fun writeDaySchedule(
             enabled = enabled,
             startHour = startHour,
             startMinute = startMinute,
-            endHour = resolved.endHour,
-            endMinute = resolved.endMinute
+            endHour = endHour,
+            endMinute = endMinute
         )
     )
 }
@@ -976,15 +979,88 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
         val (targetBlock, targetDate) = target
         val r = resolvedByBlock[targetBlock.id]?.get(targetDate)
             ?: ResolvedDay(false, targetBlock.defaultStartHour, targetBlock.defaultStartMinute, targetBlock.defaultEndHour, targetBlock.defaultEndMinute)
-        TimePickerDialog(
-            initialHour = r.startHour,
-            initialMinute = r.startMinute,
+        DayScheduleEditDialog(
+            resolved = r,
             onDismiss = { editingTarget = null },
-            onConfirm = { h, m ->
-                writeDaySchedule(namedBlockStore, targetBlock, targetDate, r, enabled = true, startHour = h, startMinute = m)
+            onConfirm = { startH, startM, endH, endM ->
+                writeDaySchedule(
+                    namedBlockStore, targetBlock, targetDate, r,
+                    enabled = true, startHour = startH, startMinute = startM,
+                    endHour = endH, endMinute = endM
+                )
                 localRefreshKey++
                 editingTarget = null
             }
+        )
+    }
+}
+
+// A day's end time can be a fixed override set via a timeline resize-drag even when the block
+// itself defaults to an estimated (no fixed end) duration, so this dialog exposes start, end
+// (when one is set), and a way to clear a stray fixed end back to the block's usual behavior —
+// none of which the timeline drag itself offers a way to undo precisely.
+@Composable
+private fun DayScheduleEditDialog(
+    resolved: ResolvedDay,
+    onDismiss: () -> Unit,
+    onConfirm: (startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) -> Unit
+) {
+    var startH by remember { mutableIntStateOf(resolved.startHour) }
+    var startM by remember { mutableIntStateOf(resolved.startMinute) }
+    var endH by remember { mutableIntStateOf(resolved.endHour) }
+    var endM by remember { mutableIntStateOf(resolved.endMinute) }
+    var editingStart by remember { mutableStateOf(false) }
+    var editingEnd by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit schedule") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Start", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { editingStart = true }) {
+                        Text("%02d:%02d".format(startH, startM))
+                    }
+                }
+                if (endH != -1) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("End", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { editingEnd = true }) {
+                            Text("%02d:%02d".format(endH, endM))
+                        }
+                        TextButton(onClick = { endH = -1; endM = 0 }) { Text("Clear") }
+                    }
+                    Text(
+                        "Clearing removes this day's fixed end time and falls back to the block's usual length.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(startH, startM, endH, endM) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+
+    if (editingStart) {
+        TimePickerDialog(
+            initialHour = startH,
+            initialMinute = startM,
+            onDismiss = { editingStart = false },
+            onConfirm = { h, m -> startH = h; startM = m; editingStart = false }
+        )
+    }
+    if (editingEnd) {
+        TimePickerDialog(
+            initialHour = endH.takeIf { it != -1 } ?: 12,
+            initialMinute = endM,
+            onDismiss = { editingEnd = false },
+            onConfirm = { h, m -> endH = h; endM = m; editingEnd = false }
         )
     }
 }
@@ -1095,7 +1171,7 @@ private fun MiniDayChip(
         ) {
             Icon(
                 Icons.Default.Edit,
-                contentDescription = "Edit start time",
+                contentDescription = "Edit schedule",
                 tint = if (scheduled) accent.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                 modifier = Modifier.size(13.dp)
             )

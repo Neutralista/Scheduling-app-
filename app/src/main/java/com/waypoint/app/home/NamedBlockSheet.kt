@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.waypoint.app.ui.components.ColorPreviewSwatch
 import com.waypoint.app.ui.components.HsvColorPicker
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.BlockTask
@@ -364,12 +365,17 @@ fun NamedBlockSheet(
                                 val key = d.format(dateFmt)
                                 val ov = dateOverrides[key]
                                 if (ov != null) {
+                                    // Persist the override's end time as-is, regardless of the
+                                    // block's own default duration mode: a duration-mode block can
+                                    // still carry a per-date fixed end set via a timeline
+                                    // resize-drag, and saving this sheet for any other reason (e.g.
+                                    // renaming the block) must not silently wipe that out.
                                     store.setSchedule(NamedBlockSchedule(
                                         blockId = blockId, date = key,
                                         enabled = ov.enabled,
                                         startHour = ov.startH, startMinute = ov.startM,
-                                        endHour = if (useTimeRange) ov.endH else -1,
-                                        endMinute = if (useTimeRange) ov.endM else 0
+                                        endHour = ov.endH,
+                                        endMinute = ov.endM
                                     ))
                                 }
                             }
@@ -678,13 +684,20 @@ fun NamedBlockSheet(
                                             val effectiveEndH = ov?.endH?.takeIf { it != -1 } ?: defaultEndHour
                                             val effectiveEndM = ov?.endM ?: defaultEndMinute
                                             val isModified = ov != null
+                                            // A per-date override can carry a fixed end time even
+                                            // when the block itself defaults to Estimate/From-tasks
+                                            // mode — e.g. set via a timeline resize-drag. Surface it
+                                            // here regardless of useTimeRange so it's visible and
+                                            // editable, not just from the timeline that created it.
+                                            val overrideEndH = ov?.endH
+                                            val overrideHasFixedEnd = overrideEndH != null && overrideEndH != -1
 
                                             DayScheduleCard(
                                                 date = date,
                                                 enabled = effectiveEnabled,
                                                 hour = effectiveStartH,
                                                 minute = effectiveStartM,
-                                                endHour = if (useTimeRange) effectiveEndH else -1,
+                                                endHour = if (useTimeRange || overrideHasFixedEnd) effectiveEndH else -1,
                                                 endMinute = effectiveEndM,
                                                 isModified = isModified,
                                                 onToggle = {
@@ -695,7 +708,10 @@ fun NamedBlockSheet(
                                                     )
                                                 },
                                                 onStartTimeTap = { showDayTimePicker = key to true },
-                                                onEndTimeTap = { showDayTimePicker = key to false }
+                                                onEndTimeTap = { showDayTimePicker = key to false },
+                                                onClearEndOverride = if (overrideHasFixedEnd) {
+                                                    { dateOverrides[key] = ov!!.copy(endH = -1, endM = 0) }
+                                                } else null
                                             )
                                         }
                                     }
@@ -1034,7 +1050,8 @@ private fun DayScheduleCard(
     isModified: Boolean,
     onToggle: () -> Unit,
     onStartTimeTap: () -> Unit,
-    onEndTimeTap: () -> Unit = {}
+    onEndTimeTap: () -> Unit = {},
+    onClearEndOverride: (() -> Unit)? = null
 ) {
     val dayName = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
     val accent = MaterialTheme.colorScheme.primary
@@ -1088,6 +1105,16 @@ private fun DayScheduleCard(
                         "→%02d:%02d".format(endHour, endMinute),
                         style = MaterialTheme.typography.labelSmall,
                         color = accent.copy(alpha = 0.75f)
+                    )
+                }
+                if (onClearEndOverride != null) {
+                    Text(
+                        "clear",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                        modifier = Modifier
+                            .clickable(onClick = onClearEndOverride)
+                            .padding(top = 1.dp, bottom = 2.dp)
                     )
                 }
             }
