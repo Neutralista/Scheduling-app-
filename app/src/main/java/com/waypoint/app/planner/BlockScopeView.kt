@@ -120,8 +120,8 @@ fun BlockScopeView(
     LaunchedEffect(zoomIndex) { zoomPrefs.edit().putInt("bs_zoom_index", zoomIndex).apply() }
     val hourHeight = BS_HOUR_HEIGHT * zoomFactors[zoomIndex]
 
-    val blockInstances = remember(date, refreshKey) {
-        namedBlockStore.resolveForDate(date).map { (block, sched) ->
+    val blockInstances = remember(date, refreshKey, session) {
+        val resolved = namedBlockStore.resolveForDate(date).map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val activeTasks = namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore)
@@ -134,6 +134,10 @@ fun BlockScopeView(
             }
             NamedBlockInstance(block, startMs, endMs, activeTasks)
         }
+        // This block's window reflects when the session actually started (and its current,
+        // possibly-extended end), not the merely-planned schedule — otherwise other floating
+        // events could never be rescheduled into time freed by a late start or early finish.
+        resolved.reconciledWithActualSessions(date, session, blockLogStore)
     }
     val floatingInstances = remember(date, refreshKey) {
         namedBlockStore.loadAllBlocks().filter { it.isFloating }.map { block ->
@@ -198,8 +202,9 @@ fun BlockScopeView(
         }
     }
 
-    // 5-second ticker: re-plans the day
-    LaunchedEffect(viewStartMs, date, refreshKey) {
+    // 5-second ticker: re-plans the day. Keyed on session too so extending the session mid-run
+    // reflects promptly instead of waiting up to 5s on a stale closure.
+    LaunchedEffect(viewStartMs, date, refreshKey, session) {
         while (true) {
             delay(5_000L)
             plan = registry.planForDate(

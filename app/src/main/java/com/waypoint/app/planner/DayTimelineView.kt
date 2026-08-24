@@ -135,6 +135,7 @@ fun DayTimelineView(
     modifier: Modifier = Modifier,
     sleepSchedule: SleepSchedule? = null,
     activeBlockId: String? = null,
+    activeSession: ActiveBlockSession? = null,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
@@ -150,8 +151,8 @@ fun DayTimelineView(
     // the parent screen.
     var localRefreshKey by remember { mutableIntStateOf(0) }
 
-    val blockInstances = remember(date, refreshKey, localRefreshKey) {
-        namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
+    val blockInstances = remember(date, refreshKey, localRefreshKey, activeSession) {
+        val resolved = namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val activeTasks = namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore)
@@ -164,6 +165,10 @@ fun DayTimelineView(
             }
             NamedBlockInstance(block, startMs, endMs, activeTasks)
         } ?: emptyList()
+        // A block that's actually running late/early (or already finished) reserves its real
+        // window, not the merely-planned one — otherwise other floating events can never be
+        // rescheduled into time the block freed up by starting late or ending early.
+        resolved.reconciledWithActualSessions(date, activeSession, blockLogStore)
     }
     val floatingBlockInstances = remember(date, refreshKey) {
         namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
@@ -408,7 +413,9 @@ fun DayTimelineView(
     // Keyed on localRefreshKey too — otherwise this loop keeps a closure over whatever
     // blockInstances were current when it first launched and silently reverts a drag/resize
     // commit up to 60s later, same staleness bug already fixed on the 5-second ticker below.
-    LaunchedEffect(date, refreshKey, localRefreshKey) {
+    // Also keyed on activeSession so a block session starting/extending/ending replans promptly
+    // instead of waiting for the next periodic fire.
+    LaunchedEffect(date, refreshKey, localRefreshKey, activeSession) {
         fetchAndSync()
         while (true) { delay(60_000L); fetchAndSync() }
     }
@@ -423,10 +430,11 @@ fun DayTimelineView(
         }
     }
 
-    // 5-second ticker: re-plans the day. Keyed on refreshKey/localRefreshKey too — otherwise
-    // this loop keeps a closure over whatever blockInstances were current when it first
-    // launched and can silently revert a drag/resize commit the next time it fires.
-    LaunchedEffect(viewStartMs, refreshKey, localRefreshKey) {
+    // 5-second ticker: re-plans the day. Keyed on refreshKey/localRefreshKey/activeSession too —
+    // otherwise this loop keeps a closure over whatever blockInstances were current when it first
+    // launched, and can silently revert a drag/resize commit, or keep reserving a block's stale
+    // planned window after its live session actually starts/extends/ends, until the next fire.
+    LaunchedEffect(viewStartMs, refreshKey, localRefreshKey, activeSession) {
         while (true) {
             delay(5_000L)
             val now = System.currentTimeMillis()

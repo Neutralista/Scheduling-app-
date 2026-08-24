@@ -1,6 +1,7 @@
 package com.waypoint.app.planner
 
 import kotlinx.serialization.Serializable
+import java.time.LocalDate
 
 // TaskConditionSpec is defined in TaskQueueStore.kt (same package)
 
@@ -167,3 +168,31 @@ data class NamedBlockInstance(
     val estimatedEndMs: Long,
     val activeTasks: List<BlockTask> = emptyList()
 )
+
+/**
+ * For today's date, overrides a fixed block instance's bounds with what actually happened once a
+ * session exists for it — a live session's real start (and its current, possibly-extended
+ * scheduled end), or a completed session's real start and end — instead of the merely-planned
+ * schedule. Without this the planner keeps reserving the whole originally-scheduled window even
+ * after a late start or an early finish, so time freed by the block never becomes available to
+ * reschedule other floating events into. No-ops for any date other than today, since only today
+ * can have a live or logged session to reconcile against.
+ */
+fun List<NamedBlockInstance>.reconciledWithActualSessions(
+    date: LocalDate,
+    activeSession: ActiveBlockSession?,
+    logStore: BlockSessionLogStore?
+): List<NamedBlockInstance> {
+    if (date != LocalDate.now()) return this
+    val dateKey = date.toString()
+    val loggedToday = logStore?.loadAll()?.filter { it.date == dateKey }.orEmpty()
+    return map { inst ->
+        when {
+            activeSession != null && activeSession.blockId == inst.block.id ->
+                inst.copy(scheduledStartMs = activeSession.startedAtMs, estimatedEndMs = activeSession.scheduledEndMs)
+            else -> loggedToday.firstOrNull { it.blockId == inst.block.id }
+                ?.let { inst.copy(scheduledStartMs = it.startedAtMs, estimatedEndMs = it.endedAtMs) }
+                ?: inst
+        }
+    }
+}
