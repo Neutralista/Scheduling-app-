@@ -64,6 +64,22 @@ class NamedBlockStore(private val context: Context) {
             try { json.decodeFromString<NamedBlockSchedule>(it) } catch (_: Exception) { null }
         }
 
+    /**
+     * Skip a single occurrence of [blockId] on [date] entirely — same effect as disabling
+     * that day via the 14-day schedule editor, just reachable from wherever the block is
+     * about to start (the "starts now" notification, the Plan-tab timeline). Works for both
+     * fixed and floating blocks; setSchedule's resync also cancels any already-armed start
+     * alarm for the day, and resolveForDate/resolveFloatingInstancesForDate both honor it so
+     * the block stops reserving time on the timeline too.
+     */
+    fun skipForDate(blockId: String, date: LocalDate) {
+        val existing = getSchedule(blockId, date)
+        setSchedule((existing ?: NamedBlockSchedule(blockId = blockId, date = date.format(dateFmt))).copy(enabled = false))
+    }
+
+    fun isSkippedForDate(blockId: String, date: LocalDate): Boolean =
+        getSchedule(blockId, date)?.enabled == false
+
     /** Returns all block instances that are active on [date], with their resolved start times. */
     fun resolveForDate(date: LocalDate): List<Pair<NamedBlock, NamedBlockSchedule>> {
         val dateStr = date.format(dateFmt)
@@ -202,9 +218,11 @@ class NamedBlockStore(private val context: Context) {
     }
 
     /** Resolves floating blocks into unscheduled [NamedBlockInstance] placeholders (start/end
-     *  filled in later by the planner) with their active tasks for [date]. */
+     *  filled in later by the planner) with their active tasks for [date]. Excludes blocks
+     *  skipped for this date (see [skipForDate]) — floating blocks have no schedule record to
+     *  disable, so this is the only place their skip actually takes effect. */
     fun resolveFloatingInstancesForDate(date: LocalDate): List<NamedBlockInstance> =
-        loadAllBlocks().filter { it.isFloating }.map { block ->
+        loadAllBlocks().filter { it.isFloating && !isSkippedForDate(it.id, date) }.map { block ->
             NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date))
         }
 }

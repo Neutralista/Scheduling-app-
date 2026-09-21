@@ -140,7 +140,7 @@ fun BlockScopeView(
         resolved.reconciledWithActualSessions(date, session, blockLogStore)
     }
     val floatingInstances = remember(date, refreshKey) {
-        namedBlockStore.loadAllBlocks().filter { it.isFloating }.map { block ->
+        namedBlockStore.loadAllBlocks().filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }

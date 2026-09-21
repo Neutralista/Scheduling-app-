@@ -48,6 +48,7 @@ class TaskManagerScript(
     fun getAllTasks(): List<TaskRequest> = store.loadAll()
 
     fun markDone(taskId: String) = completions.markDone(taskId)
+    fun markDoneAt(taskId: String, whenMs: Long) = completions.markDoneAt(taskId, whenMs)
     fun unmarkDone(taskId: String) = completions.unmarkDone(taskId)
     fun isDone(taskId: String) = completions.isDone(taskId)
 
@@ -59,6 +60,14 @@ class TaskManagerScript(
     fun stopExecution(taskId: String): TaskExecution? = executions.stop(taskId)
     fun getRunningExecution(): TaskExecution? = executions.getRunning()
     fun getExecution(taskId: String): TaskExecution? = executions.get(taskId)
+
+    /** Logs a completed occurrence of a measured-duration task without running its timer live —
+     *  for something that actually happened earlier and just wasn't logged at the time. */
+    fun logPastExecution(taskId: String, startMs: Long, endMs: Long) {
+        executions.update(TaskExecution(taskId = taskId, startMillis = startMs, endMillis = endMs))
+        completions.markDoneAt(taskId, endMs)
+        syncToRegistry()
+    }
 
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)

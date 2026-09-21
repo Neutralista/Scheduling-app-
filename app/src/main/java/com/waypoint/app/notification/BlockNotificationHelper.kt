@@ -57,14 +57,14 @@ object BlockNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val dismissIntent = Intent(context, BlockStartReceiver::class.java).apply {
-            action = BlockStartReceiver.ACTION_DISMISS_BLOCK_START
+        val skipIntent = Intent(context, BlockStartReceiver::class.java).apply {
+            action = BlockStartReceiver.ACTION_SKIP_BLOCK_START
             putExtra(BlockStartReceiver.EXTRA_BLOCK_ID, blockId)
         }
-        val dismissPi = PendingIntent.getBroadcast(
+        val skipPi = PendingIntent.getBroadcast(
             context,
             blockId.hashCode() + 2,
-            dismissIntent,
+            skipIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -75,7 +75,7 @@ object BlockNotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
             .addAction(0, "Proceed", proceedPi)
-            .addAction(0, "Dismiss", dismissPi)
+            .addAction(0, "Skip today", skipPi)
             .setContentIntent(proceedPi)
             .setGroup(WaypointNotificationGroup.GROUP_KEY)
             .build()

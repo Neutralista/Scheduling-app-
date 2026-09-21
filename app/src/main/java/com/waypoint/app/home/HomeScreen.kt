@@ -687,6 +687,14 @@ private fun PlanTab(
                     val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
                     blockSessionStore.startSession(block, endMs, selectedDate)
                 },
+                onBlockStartAt = { blockId, endMs, startedAtMs ->
+                    val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
+                    blockSessionStore.startSession(block, endMs, selectedDate, startedAtMs)
+                },
+                onBlockSkip = { blockId ->
+                    namedBlockStore.skipForDate(blockId, selectedDate)
+                    calRefreshKey++
+                },
                 onCalendarEventClick = { selectedCalEvent = it },
                 onPlannerEventClick = { selectedPlannerEvent = it },
                 onCalEventsChanged = { planTabCalEvents = it },

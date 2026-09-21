@@ -37,19 +37,24 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
-    fun startSession(block: NamedBlock, scheduledEndMs: Long, date: LocalDate) {
+    fun startSession(
+        block: NamedBlock,
+        scheduledEndMs: Long,
+        date: LocalDate,
+        startedAtMs: Long = System.currentTimeMillis()
+    ) {
         val session = ActiveBlockSession(
             blockId = block.id,
             blockName = block.name,
             colorArgb = block.colorArgb,
-            startedAtMs = System.currentTimeMillis(),
+            startedAtMs = startedAtMs,
             scheduledEndMs = scheduledEndMs,
             date = date.toString()
         )
         prefs.edit().putString("active", json.encodeToString(session)).apply()
         sessionFlow.value = session
         BlockNotificationHelper.postSessionLiveNotification(appContext, session)
-        AppLogger.i(TAG, "startSession: blockId=${block.id} name=${block.name}")
+        AppLogger.i(TAG, "startSession: blockId=${block.id} name=${block.name} startedAtMs=$startedAtMs")
     }
 
     fun endSession(

@@ -31,14 +31,32 @@ class TaskCompletionStore(context: Context) {
     fun isDone(id: String): Boolean = id in loadDoneIds()
     fun isSkipped(id: String): Boolean = id in loadSkippedIds()
 
-    fun markDone(id: String) {
+    fun markDone(id: String) = markDoneAt(id, System.currentTimeMillis())
+
+    /** Marks [id] done as of [whenMs] — lets a completion be logged for a time other than
+     *  "right now" (e.g. something that actually finished a bit earlier). */
+    fun markDoneAt(id: String, whenMs: Long) {
         val done = loadDoneIds().toMutableSet().apply { add(id) }
-        prefs.edit().putString("cycle_id", getCycleId()).putStringSet("done_ids", done).apply()
+        prefs.edit()
+            .putString("cycle_id", getCycleId())
+            .putStringSet("done_ids", done)
+            .putLong("done_at_$id", whenMs)
+            .apply()
+    }
+
+    /** When [id] was marked done, or null if it isn't done or predates this field existing. */
+    fun getDoneAt(id: String): Long? {
+        if (!ensureCycle()) return null
+        return prefs.getLong("done_at_$id", -1L).takeIf { it >= 0 }
     }
 
     fun unmarkDone(id: String) {
         val done = loadDoneIds().toMutableSet().apply { remove(id) }
-        prefs.edit().putString("cycle_id", getCycleId()).putStringSet("done_ids", done).apply()
+        prefs.edit()
+            .putString("cycle_id", getCycleId())
+            .putStringSet("done_ids", done)
+            .remove("done_at_$id")
+            .apply()
     }
 
     fun skipTask(id: String) {

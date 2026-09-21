@@ -7,6 +7,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -354,6 +357,17 @@ fun TasksTab(
                             taskManager.retractTask(se.event.id)
                             refreshKey++
                             onRefresh()
+                        },
+                        onMarkDoneAt = { whenMs ->
+                            taskManager.markDoneAt(se.event.id, whenMs)
+                            doneIds = taskManager.completions.getDoneIds()
+                            onRefresh()
+                        },
+                        onLogPastExecution = { startMs, endMs ->
+                            taskManager.logPastExecution(se.event.id, startMs, endMs)
+                            doneIds = taskManager.completions.getDoneIds()
+                            refreshKey++
+                            onRefresh()
                         }
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -498,6 +512,7 @@ private fun BlockSessionCard(
             activeTasks.forEach { task -> map[task.id] = task.id in doneIds }
         }
     }
+    var backdateTarget by remember { mutableStateOf<String?>(null) }
     // Block sub-tasks share the same completion store as flat tasks (EventPlannerRegistry
     // synthesizes their planner event id as the BlockTask's own id), so toggling here has to
     // persist through taskManager — otherwise this checklist's state is invisible everywhere
@@ -506,6 +521,11 @@ private fun BlockSessionCard(
         val next = !(checkState[taskId] ?: false)
         checkState[taskId] = next
         if (next) taskManager.markDone(taskId) else taskManager.unmarkDone(taskId)
+        onRefresh()
+    }
+
+    fun skipBlockTask(taskId: String) {
+        taskManager.skipTask(taskId)
         onRefresh()
     }
 
@@ -629,7 +649,8 @@ private fun BlockSessionCard(
                 )
             } else {
                 BlockTaskPlacement.entries.forEach { placement ->
-                    val tasksForPlacement = activeTasks.filter { it.placement == placement }
+                    val tasksForPlacement = activeTasks
+                        .filter { it.placement == placement && !taskManager.completions.isSkipped(it.id) }
                         .sortedBy { it.sequence ?: Int.MAX_VALUE }
                     if (tasksForPlacement.isEmpty()) return@forEach
                     val placementLabel = when (placement) {
@@ -653,7 +674,11 @@ private fun BlockSessionCard(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             val checked = checkState[task.id] == true
-                            RoundCheckbox(checked = checked, onClick = { toggleTask(task.id) })
+                            RoundCheckbox(
+                                checked = checked,
+                                onClick = { toggleTask(task.id) },
+                                onLongClick = if (!checked) { { backdateTarget = task.id } } else null
+                            )
                             Text(
                                 text = task.title,
                                 style = MaterialTheme.typography.bodySmall,
@@ -726,6 +751,17 @@ private fun BlockSessionCard(
                                     text = "${task.durationMinutes}m",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                            IconButton(
+                                onClick = { skipBlockTask(task.id) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.SkipNext,
+                                    contentDescription = "Skip today",
+                                    modifier = Modifier.size(15.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                 )
                             }
                         }
@@ -846,6 +882,18 @@ private fun BlockSessionCard(
             }
         }
         Spacer(Modifier.height(4.dp))
+    }
+
+    backdateTarget?.let { taskId ->
+        BackdateCompletionDialog(
+            onDismiss = { backdateTarget = null },
+            onConfirm = { whenMs ->
+                checkState[taskId] = true
+                taskManager.markDoneAt(taskId, whenMs)
+                backdateTarget = null
+                onRefresh()
+            }
+        )
     }
 }
 
@@ -1181,10 +1229,12 @@ private fun MiniDayChip(
 
 // ── Round checkbox ────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RoundCheckbox(
     checked: Boolean,
     onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val primary = MaterialTheme.colorScheme.primary
@@ -1194,7 +1244,10 @@ private fun RoundCheckbox(
         modifier = modifier
             .size(22.dp)
             .clip(CircleShape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                else Modifier
+            )
             .background(if (checked) primary else Color.Transparent)
             .border(1.5.dp, if (checked) primary else outline.copy(alpha = 0.45f), CircleShape),
         contentAlignment = Alignment.Center
@@ -1208,6 +1261,29 @@ private fun RoundCheckbox(
             )
         }
     }
+}
+
+/** Long-press-on-checkbox dialog: "actually finished a bit earlier, not just now". Hour/minute
+ *  only (no date) — if the picked time is later than now, it can only mean yesterday, since a
+ *  completion log is never in the future. */
+@Composable
+private fun BackdateCompletionDialog(onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+    val now = remember { Calendar.getInstance() }
+    TimePickerDialog(
+        initialHour = now.get(Calendar.HOUR_OF_DAY),
+        initialMinute = now.get(Calendar.MINUTE),
+        onDismiss = onDismiss,
+        onConfirm = { h, m ->
+            val picked = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            if (picked.timeInMillis > System.currentTimeMillis()) picked.add(Calendar.DAY_OF_MONTH, -1)
+            onConfirm(picked.timeInMillis)
+        }
+    )
 }
 
 // ── Sleep task card ───────────────────────────────────────────────────────────
@@ -1460,7 +1536,9 @@ private fun PlannerTaskRow(
     onNextSubtask: () -> Unit,
     onEdit: () -> Unit,
     onSkip: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMarkDoneAt: (Long) -> Unit,
+    onLogPastExecution: (startMs: Long, endMs: Long) -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
@@ -1468,6 +1546,33 @@ private fun PlannerTaskRow(
             taskTitle = se.event.title,
             onDelete = onDelete,
             onDismiss = { showDeleteDialog = false }
+        )
+    }
+    // Long-press the checkbox to log a completion that actually happened a bit earlier —
+    // a plain time for a regular task, or a start+end pair (asked one after another, reusing
+    // the same picker) for a measured-duration one.
+    var showBackdateStart by remember { mutableStateOf(false) }
+    var pendingBackdateStart by remember { mutableStateOf<Long?>(null) }
+    if (showBackdateStart) {
+        BackdateCompletionDialog(
+            onDismiss = { showBackdateStart = false },
+            onConfirm = { startMs ->
+                showBackdateStart = false
+                if (taskReq?.useMeasuredDuration == true) {
+                    pendingBackdateStart = startMs
+                } else {
+                    onMarkDoneAt(startMs)
+                }
+            }
+        )
+    }
+    pendingBackdateStart?.let { startMs ->
+        BackdateCompletionDialog(
+            onDismiss = { pendingBackdateStart = null },
+            onConfirm = { endMs ->
+                pendingBackdateStart = null
+                onLogPastExecution(startMs, maxOf(endMs, startMs + 60_000L))
+            }
         )
     }
     val primary = MaterialTheme.colorScheme.primary
@@ -1487,7 +1592,11 @@ private fun PlannerTaskRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            RoundCheckbox(checked = done, onClick = if (!isRunning) onToggle else null)
+            RoundCheckbox(
+                checked = done,
+                onClick = if (!isRunning) onToggle else null,
+                onLongClick = if (!isRunning && !done) { { showBackdateStart = true } } else null
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = se.event.title,
@@ -1569,6 +1678,16 @@ private fun PlannerTaskRow(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                 )
             }
+            if (!done) {
+                IconButton(onClick = onSkip, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Default.SkipNext,
+                        contentDescription = "Skip today",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    )
+                }
+            }
             IconButton(onClick = { showDeleteDialog = true }) {
                 Icon(
                     Icons.Default.Close,
@@ -1629,6 +1748,14 @@ private fun BlockedTaskRow(
                 Icons.Default.Edit,
                 contentDescription = "Edit task",
                 modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+            )
+        }
+        IconButton(onClick = onSkip, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Default.SkipNext,
+                contentDescription = "Skip today",
+                modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
             )
         }

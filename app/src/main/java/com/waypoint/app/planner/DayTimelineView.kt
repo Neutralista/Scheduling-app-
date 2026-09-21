@@ -1,6 +1,8 @@
 package com.waypoint.app.planner
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -65,6 +67,7 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.ui.components.TimePickerDialog
 import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -137,6 +140,8 @@ fun DayTimelineView(
     activeBlockId: String? = null,
     activeSession: ActiveBlockSession? = null,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
+    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)? = null,
+    onBlockSkip: ((blockId: String) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null,
@@ -171,7 +176,7 @@ fun DayTimelineView(
         resolved.reconciledWithActualSessions(date, activeSession, blockLogStore)
     }
     val floatingBlockInstances = remember(date, refreshKey) {
-        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
+        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }?.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
@@ -203,7 +208,7 @@ fun DayTimelineView(
     }
     val nextDayFloatingInstances = remember(date, refreshKey) {
         val nextDate = date.plusDays(1)
-        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating }?.map { block ->
+        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, nextDate) }?.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore))
         } ?: emptyList()
@@ -537,6 +542,8 @@ fun DayTimelineView(
                     sleepSchedule = sleepSchedule,
                     activeBlockId = activeBlockId,
                     onBlockStart = onBlockStart,
+                    onBlockStartAt = onBlockStartAt,
+                    onBlockSkip = onBlockSkip,
                     outline = outline,
                     onSV = onSV,
                     secCont = secCont,
@@ -661,6 +668,8 @@ private fun TimelineBody(
     sleepSchedule: SleepSchedule?,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
+    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)?,
+    onBlockSkip: ((blockId: String) -> Unit)?,
     outline: Color,
     onSV: Color,
     secCont: Color,
@@ -800,6 +809,8 @@ private fun TimelineBody(
                 isToday = isToday,
                 activeBlockId = activeBlockId,
                 onBlockStart = onBlockStart,
+                onBlockStartAt = onBlockStartAt,
+                onBlockSkip = onBlockSkip,
                 onPlannerEventClick = onPlannerEventClick,
                 onBlockDrag = onBlockDrag,
                 onTaskDrag = onTaskDrag
@@ -1022,6 +1033,7 @@ private fun CalendarEventBlock(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun PlannerEventBlock(
     se: ScheduledEvent,
     viewStartMs: Long,
@@ -1034,6 +1046,8 @@ private fun PlannerEventBlock(
     isToday: Boolean,
     activeBlockId: String?,
     onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
+    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)?,
+    onBlockSkip: ((blockId: String) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
     onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null,
     onTaskDrag: ((taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
@@ -1127,6 +1141,7 @@ private fun PlannerEventBlock(
 
     val rawBlockId = if (isBlock) se.event.id.removePrefix("__block__") else null
     val showStartButton = isBlock && isToday && onBlockStart != null && rawBlockId != activeBlockId
+    var showStartAtPicker by remember { mutableStateOf(false) }
 
     Box(
         Modifier
@@ -1214,17 +1229,62 @@ private fun PlannerEventBlock(
         }
         if (showStartButton) {
             Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) {
-                androidx.compose.material3.TextButton(
-                    onClick = { onBlockStart!!(rawBlockId!!, se.endMillis) },
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        "▶ Start",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = fg
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onBlockSkip != null) {
+                        androidx.compose.material3.TextButton(
+                            onClick = { onBlockSkip(rawBlockId!!) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "Skip",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = fg.copy(alpha = 0.75f)
+                            )
+                        }
+                    }
+                    // Long-press starts the block at a picked past time instead of now — for
+                    // something that actually began a bit earlier and wasn't logged at the time.
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .then(
+                                if (onBlockStartAt != null) Modifier.combinedClickable(
+                                    onClick = { onBlockStart!!(rawBlockId!!, se.endMillis) },
+                                    onLongClick = { showStartAtPicker = true }
+                                ) else Modifier.clickable { onBlockStart!!(rawBlockId!!, se.endMillis) }
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "▶ Start",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = fg
+                        )
+                    }
                 }
             }
+        }
+        if (showStartAtPicker) {
+            val now = remember { Calendar.getInstance() }
+            TimePickerDialog(
+                initialHour = now.get(Calendar.HOUR_OF_DAY),
+                initialMinute = now.get(Calendar.MINUTE),
+                onDismiss = { showStartAtPicker = false },
+                onConfirm = { h, m ->
+                    val picked = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, h)
+                        set(Calendar.MINUTE, m)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    // A backdated block start is never in the future, so a picked time later
+                    // than now can only mean "yesterday" the same way BackdateCompletionDialog
+                    // (TasksTab.kt) treats it — no date field on this picker to say so directly.
+                    if (picked.timeInMillis > System.currentTimeMillis()) picked.add(Calendar.DAY_OF_MONTH, -1)
+                    showStartAtPicker = false
+                    onBlockStartAt!!(rawBlockId!!, se.endMillis, picked.timeInMillis)
+                }
+            )
         }
         if (resizeDraggable) {
             ResizeHandle(

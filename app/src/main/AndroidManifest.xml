@@ -156,7 +156,7 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.BLOCK_START" />
                 <action android:name="com.waypoint.app.PROCEED_BLOCK" />
-                <action android:name="com.waypoint.app.DISMISS_BLOCK_START" />
+                <action android:name="com.waypoint.app.SKIP_BLOCK_START" />
             </intent-filter>
         </receiver>
 
