@@ -15,23 +15,31 @@ class WakeCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext as? WaypointApplication ?: return
         AppLogger.i(TAG, "onReceive: action=${intent.action}")
-        when (intent.action) {
-            Intent.ACTION_USER_PRESENT -> {
-                app.cycleTracker.updateLastActive()
-                app.cycleTracker.recordActive()
-            }
-            ACTION_WAKE_CHECK -> {
-                // Only run the inactivity check while sleep mode is active; cancel the
-                // alarm otherwise so it doesn't keep firing through the waking day. Passive
-                // sleep detection (SleepAlarmReceiver.ACTION_ARM_PASSIVE_DETECTION) arms sleep
-                // mode itself via SleepCheckReceiver, so this stays sleep-mode-gated only.
-                if (SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE) {
-                    app.cycleTracker.checkInactivity()
-                } else {
-                    AppLogger.i(TAG, "onReceive: WAKE_CHECK but sleep mode is IDLE — cancelling")
-                    cancel(context)
+        // ACTION_USER_PRESENT fires on every single unlock — CycleTracker's own methods are
+        // now defensive too, but this wrapper is cheap insurance against anything else here
+        // (SleepLogStore reads, the AlarmManager cancel call) ever taking the whole app down
+        // on what should be a routine, frequent event.
+        try {
+            when (intent.action) {
+                Intent.ACTION_USER_PRESENT -> {
+                    app.cycleTracker.updateLastActive()
+                    app.cycleTracker.recordActive()
+                }
+                ACTION_WAKE_CHECK -> {
+                    // Only run the inactivity check while sleep mode is active; cancel the
+                    // alarm otherwise so it doesn't keep firing through the waking day. Passive
+                    // sleep detection (SleepAlarmReceiver.ACTION_ARM_PASSIVE_DETECTION) arms sleep
+                    // mode itself via SleepCheckReceiver, so this stays sleep-mode-gated only.
+                    if (SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE) {
+                        app.cycleTracker.checkInactivity()
+                    } else {
+                        AppLogger.i(TAG, "onReceive: WAKE_CHECK but sleep mode is IDLE — cancelling")
+                        cancel(context)
+                    }
                 }
             }
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "onReceive: action=${intent.action} threw", e)
         }
     }
 

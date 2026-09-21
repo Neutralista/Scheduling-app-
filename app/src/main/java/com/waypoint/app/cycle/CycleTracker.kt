@@ -44,8 +44,23 @@ class CycleTracker(private val context: Context) {
     /**
      * Call when the user is confirmed active (screen unlocked, app foregrounded).
      * Opens a new cycle or closes the previous sleeping cycle and opens a fresh one.
+     *
+     * This runs from several BroadcastReceivers that never wrap their onReceive() in a
+     * try/catch of their own — most notably ACTION_USER_PRESENT, which fires on literally
+     * every phone unlock. An uncaught exception here used to crash the whole app on every
+     * single unlock if any stored state ever triggered one, which looks exactly like "the
+     * app doesn't come back" since re-opening it just hits onResume() -> recordActive() and
+     * crashes again immediately. Swallow and log instead of ever propagating.
      */
     fun recordActive() {
+        try {
+            recordActiveInternal()
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "recordActive threw — leaving cycle state as-is", e)
+        }
+    }
+
+    private fun recordActiveInternal() {
         val now = System.currentTimeMillis()
         val current = store.loadCurrent()
 
@@ -115,6 +130,14 @@ class CycleTracker(private val context: Context) {
      * Checks phone inactivity and marks sleep onset if threshold is exceeded.
      */
     fun checkInactivity() {
+        try {
+            checkInactivityInternal()
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "checkInactivity threw — leaving cycle state as-is", e)
+        }
+    }
+
+    private fun checkInactivityInternal() {
         val now = System.currentTimeMillis()
         val current = store.loadCurrent() ?: return
         if (current.sleepStartMillis != null) return  // already sleeping
@@ -150,10 +173,14 @@ class CycleTracker(private val context: Context) {
      * already has a calibrated estimate of the onset time.
      */
     fun recordSleepAt(sleepStartMs: Long) {
-        val current = store.loadCurrent() ?: return
-        if (current.sleepStartMillis != null) return  // already recorded
-        AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler)")
-        store.save(current.copy(sleepStartMillis = sleepStartMs))
+        try {
+            val current = store.loadCurrent() ?: return
+            if (current.sleepStartMillis != null) return  // already recorded
+            AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler)")
+            store.save(current.copy(sleepStartMillis = sleepStartMs))
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "recordSleepAt threw — leaving cycle state as-is", e)
+        }
     }
 
     /**

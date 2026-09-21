@@ -215,6 +215,25 @@ fun HistoryTab(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
             }
 
+            // Nudge for a cycle that's been open far longer than a normal day — most likely
+            // because automatic sleep detection missed it. Shown regardless of whether the
+            // section is expanded, since it needs attention either way. Not wrapped in
+            // remember() — this whole content lambda already re-runs on every `tick`
+            // increment (read elsewhere here via CycleRow's tick param), so this plain call
+            // re-evaluates against the current time on the same cadence.
+            if (currentCycle != null && currentCycle.isStale()) {
+                item("cycle_stale") {
+                    StaleCycleCard(
+                        cycle = currentCycle,
+                        onLooksRight = {
+                            cycleTracker.store.save(currentCycle.copy(staleAcknowledgedAtMs = System.currentTimeMillis()))
+                            localKey++
+                        },
+                        onCloseNow = { editCycle = currentCycle }
+                    )
+                }
+            }
+
             if ("cycles" in expandedIds) {
                 if (currentCycle != null) {
                     item("cycle_active") {
@@ -842,6 +861,29 @@ private fun CycleRow(cycle: Cycle, isActive: Boolean, tick: Int, onClick: () -> 
             )
         }
         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+    }
+}
+
+/** Prompts to confirm or fix a cycle that's been open unusually long — see [Cycle.isStale]. */
+@Composable
+private fun StaleCycleCard(cycle: Cycle, onLooksRight: () -> Unit, onCloseNow: () -> Unit) {
+    val openFor = Cycle.formatDuration(System.currentTimeMillis() - cycle.wakeMillis)
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "This cycle has been open for $openFor — did we miss your sleep?",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCloseNow) { Text("I slept — close it") }
+                TextButton(onClick = onLooksRight) { Text("Looks right") }
+            }
+        }
     }
 }
 
