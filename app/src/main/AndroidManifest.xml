@@ -3,6 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
+        Lets a companion app (e.g. Training-app) report a completed workout to be logged into
+        this app's block-session history. "normal" protection = granted automatically to any
+        app that declares <uses-permission> for it, no runtime prompt — appropriate for this
+        low-sensitivity, opt-in-by-installing-the-other-app integration.
+    -->
+    <permission
+        android:name="com.waypoint.app.permission.LOG_BLOCK_SESSION"
+        android:protectionLevel="normal" />
+
+    <!--
         Usage Access — special permission granted manually via Settings → Apps →
         Special app access → Usage access. Not a runtime dialog; the app redirects
         the user to Settings when a widget needs it.
@@ -59,6 +69,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".integration.ExternalBlockSessionReceiver"
+            android:exported="true"
+            android:permission="com.waypoint.app.permission.LOG_BLOCK_SESSION">
+            <intent-filter>
+                <action android:name="com.waypoint.app.LOG_BLOCK_SESSION" />
             </intent-filter>
         </receiver>
 
