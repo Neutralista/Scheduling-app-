@@ -1800,7 +1800,7 @@ private fun isReachable(from: String, to: String, graph: Map<String, Set<String>
     val visited = mutableSetOf<String>()
     val queue = ArrayDeque(graph[from]?.toList() ?: emptyList())
     while (queue.isNotEmpty()) {
-        val cur = queue.removeFirst()
+        val cur = queue.removeAt(0)
         if (cur == to) return true
         if (visited.add(cur)) graph[cur]?.forEach { if (it !in visited) queue.add(it) }
     }

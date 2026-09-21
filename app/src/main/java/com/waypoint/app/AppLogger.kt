@@ -120,7 +120,7 @@ object AppLogger {
         val entry = LogEntry(System.currentTimeMillis(), level, tag, message)
         val snapshot: List<LogEntry>
         synchronized(lock) {
-            if (buffer.size >= MAX_CURRENT) buffer.removeFirst()
+            if (buffer.size >= MAX_CURRENT) buffer.removeAt(0)
             buffer.addLast(entry)
             snapshot = buffer.toList()
             // Synchronous append — ensures on-disk before we return, surviving crashes

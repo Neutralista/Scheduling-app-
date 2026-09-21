@@ -493,7 +493,7 @@ class EventPlannerRegistry {
             val order = mutableListOf<PlannerEvent>()
 
             while (ready.isNotEmpty()) {
-                val event = ready.removeFirst()
+                val event = ready.removeAt(0)
                 order += event
                 for (other in schedulableBatch) {
                     if (event.id !in (predecessors[other.id] ?: emptySet())) continue
