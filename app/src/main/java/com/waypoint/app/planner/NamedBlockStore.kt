@@ -41,6 +41,46 @@ class NamedBlockStore(private val context: Context) {
         BlockAlarmScheduler.resync(context, blockId)
     }
 
+    /**
+     * Creates or updates a floating block owned by an external app (e.g. Training-app) along
+     * with one always-on DURING task per entry in [exercises] — the block's own duration then
+     * tracks their sum via useTotalTaskDuration, so a re-sync that only changes durations (an
+     * updated average) reshapes the block automatically. [exercises] is (externalId, title,
+     * durationMinutes, orderIndex); task ids are derived as "$blockId-$externalId" so re-syncing
+     * updates existing tasks in place rather than duplicating them, and any task whose externalId
+     * is no longer present (e.g. an exercise removed from the source program) is deleted. An
+     * empty [exercises] list deletes the whole block instead of leaving an empty one behind.
+     */
+    fun upsertExternalBlock(blockId: String, name: String, exercises: List<ExternalBlockExercise>) {
+        if (exercises.isEmpty()) {
+            deleteBlock(blockId)
+            return
+        }
+        val existing = loadBlock(blockId)
+        saveBlock(
+            (existing ?: NamedBlock(id = blockId, name = name, isFloating = true, useTotalTaskDuration = true))
+                .copy(name = name)
+        )
+        val previousTaskIds = loadTasksForBlock(blockId).map { it.id }.toSet()
+        val currentTaskIds = mutableSetOf<String>()
+        exercises.forEachIndexed { index, ex ->
+            val taskId = "$blockId-${ex.externalId}"
+            currentTaskIds += taskId
+            saveTask(
+                BlockTask(
+                    id = taskId,
+                    blockId = blockId,
+                    title = ex.title,
+                    durationMinutes = ex.durationMinutes.coerceAtLeast(1),
+                    placement = BlockTaskPlacement.DURING,
+                    isAlways = true,
+                    sequence = index
+                )
+            )
+        }
+        (previousTaskIds - currentTaskIds).forEach { deleteTask(it) }
+    }
+
     fun loadAllBlocks(): List<NamedBlock> = blocks.all.values.mapNotNull { raw ->
         try { json.decodeFromString<NamedBlock>(raw as? String ?: return@mapNotNull null) }
         catch (_: Exception) { null }

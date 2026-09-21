@@ -61,6 +61,15 @@ data class NamedBlock(
     val zone: PlannerZone? = null
 )
 
+/** One entry an external app (e.g. Training-app) sends when syncing a block's task list — see
+ *  [NamedBlockStore.upsertExternalBlock]. [externalId] is that app's own stable id for the
+ *  entry (e.g. its exercise id), not a Waypoint [BlockTask] id. */
+data class ExternalBlockExercise(
+    val externalId: String,
+    val title: String,
+    val durationMinutes: Int
+)
+
 /**
  * Per-date schedule entry for a named block.
  * Overrides the recurring default for a specific calendar date.

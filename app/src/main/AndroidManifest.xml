@@ -81,6 +81,15 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".integration.ExternalBlockDefinitionReceiver"
+            android:exported="true"
+            android:permission="com.waypoint.app.permission.LOG_BLOCK_SESSION">
+            <intent-filter>
+                <action android:name="com.waypoint.app.UPSERT_TRAINING_BLOCK" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="shortService"
