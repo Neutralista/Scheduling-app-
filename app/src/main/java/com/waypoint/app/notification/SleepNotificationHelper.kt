@@ -1,5 +1,6 @@
 package com.waypoint.app.notification
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -39,6 +40,9 @@ object SleepNotificationHelper {
 
     private const val NUDGE_COOLDOWN_MS = 20 * 60_000L
 
+    // IMPORTANCE_MAX (5) is a real NotificationManager constant one step above IMPORTANCE_HIGH,
+    // just not part of the public @IntDef lint checks against — hence the suppress below.
+    @SuppressLint("WrongConstant")
     fun createChannels(context: Context) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
