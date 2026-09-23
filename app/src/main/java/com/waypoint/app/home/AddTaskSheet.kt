@@ -1492,7 +1492,7 @@ fun AddTaskSheet(
                     // Routine & subtasks — block tasks can save isRoutine/subtasks, but
                     // BlockSessionCard's checklist has no subtask-stepping UI to run them, so
                     // hide the control rather than let it silently do nothing in block mode.
-                    if (!isBlockMode)
+                    if (!isBlockMode) {
                     FormSection(title = "Routine") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Row(
@@ -1579,6 +1579,7 @@ fun AddTaskSheet(
                                 }
                             }
                         }
+                    }
                     }
 
                     // Options
