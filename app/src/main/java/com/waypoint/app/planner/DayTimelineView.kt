@@ -32,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +64,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.integration.openTrainingAppWorkout
+import com.waypoint.app.integration.trainingAppWorkoutId
 import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.signal.CalendarSignals
@@ -1142,6 +1145,8 @@ private fun PlannerEventBlock(
     val rawBlockId = if (isBlock) se.event.id.removePrefix("__block__") else null
     val showStartButton = isBlock && isToday && onBlockStart != null && rawBlockId != activeBlockId
     var showStartAtPicker by remember { mutableStateOf(false) }
+    val linkedWorkoutId = rawBlockId?.let { trainingAppWorkoutId(it) }
+    val context = LocalContext.current
 
     Box(
         Modifier
@@ -1230,6 +1235,19 @@ private fun PlannerEventBlock(
         if (showStartButton) {
             Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (linkedWorkoutId != null) {
+                        androidx.compose.material3.IconButton(
+                            onClick = { openTrainingAppWorkout(context, linkedWorkoutId) },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.OpenInNew,
+                                contentDescription = "Open in Training app",
+                                tint = fg.copy(alpha = 0.75f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                     if (onBlockSkip != null) {
                         androidx.compose.material3.TextButton(
                             onClick = { onBlockSkip(rawBlockId!!) },

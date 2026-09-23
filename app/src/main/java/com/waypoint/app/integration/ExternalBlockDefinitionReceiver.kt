@@ -9,14 +9,14 @@ import com.waypoint.app.planner.NamedBlockStore
 
 /**
  * Accepts a workout-block definition pushed by Training-app (com.neutralista.trainingapp) and
- * creates/updates a real, schedulable floating [com.waypoint.app.planner.NamedBlock] for it in
- * Waypoint — unlike [ExternalBlockSessionReceiver] (a retroactive history-only log), this is what
- * actually puts the workout on Waypoint's live day-planner timeline.
+ * creates/updates a real, schedulable [com.waypoint.app.planner.NamedBlock] for it in Waypoint —
+ * unlike [ExternalBlockSessionReceiver] (a retroactive history-only log), this is what actually
+ * puts the workout on Waypoint's live day-planner timeline. Fixed on [EXTRA_RECURRING_DAYS] when
+ * given, otherwise floating ("any day, planner decides").
  *
- * Sent once when a split day is first used (with Training-app's own initial time assumptions,
- * before any workout has been logged for it) and again after every completed workout (with
- * per-exercise durations averaged from logged history) — see WAYPOINT_INTEGRATION.md. Both cases
- * are the same idempotent upsert: matching by blockId, replacing the task list, and removing any
+ * Sent on every visit to that workout in Training-app and again after each logged set (with
+ * per-exercise durations refined from logged history) — see WAYPOINT_INTEGRATION.md. Every call
+ * is the same idempotent upsert: matching by blockId, replacing the task list, and removing any
  * task whose exercise is no longer present.
  *
  * Gated by the same ACTION_LOG_BLOCK_SESSION permission as [ExternalBlockSessionReceiver] — same
@@ -31,6 +31,7 @@ class ExternalBlockDefinitionReceiver : BroadcastReceiver() {
         val exerciseIds = intent.getStringArrayExtra(EXTRA_EXERCISE_IDS) ?: emptyArray()
         val exerciseNames = intent.getStringArrayExtra(EXTRA_EXERCISE_NAMES) ?: emptyArray()
         val exerciseMinutes = intent.getIntArrayExtra(EXTRA_EXERCISE_MINUTES) ?: IntArray(0)
+        val recurringDays = (intent.getIntArrayExtra(EXTRA_RECURRING_DAYS) ?: IntArray(0)).toList()
 
         if (exerciseIds.size != exerciseNames.size || exerciseIds.size != exerciseMinutes.size) {
             AppLogger.w(
@@ -49,8 +50,12 @@ class ExternalBlockDefinitionReceiver : BroadcastReceiver() {
             )
         }
 
-        NamedBlockStore(context).upsertExternalBlock(blockId, blockName, exercises)
-        AppLogger.i(TAG, "onReceive: synced '$blockName' ($blockId) with ${exercises.size} exercises")
+        NamedBlockStore(context).upsertExternalBlock(blockId, blockName, exercises, recurringDays)
+        AppLogger.i(
+            TAG,
+            "onReceive: synced '$blockName' ($blockId) with ${exercises.size} exercises, " +
+                "recurringDays=$recurringDays"
+        )
     }
 
     companion object {
@@ -60,6 +65,7 @@ class ExternalBlockDefinitionReceiver : BroadcastReceiver() {
         const val EXTRA_EXERCISE_IDS = "exerciseIds"
         const val EXTRA_EXERCISE_NAMES = "exerciseNames"
         const val EXTRA_EXERCISE_MINUTES = "exerciseMinutes"
+        const val EXTRA_RECURRING_DAYS = "recurringDays"
         private const val TAG = "ExternalBlockDef"
     }
 }

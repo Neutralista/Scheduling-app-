@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.AlertDialog
@@ -66,6 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.integration.openTrainingAppWorkout
+import com.waypoint.app.integration.trainingAppWorkoutId
 import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.BlockTaskMeasurement
@@ -617,6 +620,15 @@ private fun BlockSessionCard(
                 )
             }
             if (!completionMode) {
+                trainingAppWorkoutId(session.blockId)?.let { workoutId ->
+                    IconButton(onClick = { openTrainingAppWorkout(context, workoutId) }) {
+                        Icon(
+                            Icons.Filled.OpenInNew,
+                            contentDescription = "Open in Training app",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 TextButton(onClick = { blockSessionStore.extendSession(30 * 60_000L) }) {
                     Text("+ 30m", style = MaterialTheme.typography.labelSmall)
                 }

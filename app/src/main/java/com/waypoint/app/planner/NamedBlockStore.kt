@@ -42,24 +42,33 @@ class NamedBlockStore(private val context: Context) {
     }
 
     /**
-     * Creates or updates a floating block owned by an external app (e.g. Training-app) along
-     * with one always-on DURING task per entry in [exercises] — the block's own duration then
-     * tracks their sum via useTotalTaskDuration, so a re-sync that only changes durations (an
-     * updated average) reshapes the block automatically. [exercises] is (externalId, title,
-     * durationMinutes, orderIndex); task ids are derived as "$blockId-$externalId" so re-syncing
-     * updates existing tasks in place rather than duplicating them, and any task whose externalId
-     * is no longer present (e.g. an exercise removed from the source program) is deleted. An
-     * empty [exercises] list deletes the whole block instead of leaving an empty one behind.
+     * Creates or updates a block owned by an external app (e.g. Training-app) along with one
+     * always-on DURING task per entry in [exercises] — the block's own duration then tracks their
+     * sum via useTotalTaskDuration, so a re-sync that only changes durations (an updated average)
+     * reshapes the block automatically. [exercises] is (externalId, title, durationMinutes,
+     * orderIndex); task ids are derived as "$blockId-$externalId" so re-syncing updates existing
+     * tasks in place rather than duplicating them, and any task whose externalId is no longer
+     * present (e.g. an exercise removed from the source workout) is deleted. An empty [exercises]
+     * list deletes the whole block instead of leaving an empty one behind.
+     *
+     * [recurringDays] (ISO weekday numbers, 1=Mon..7=Sun) makes this a normal fixed/recurring
+     * block on those days, same as one created in-app; empty makes it floating — "any day, planner
+     * decides" — which is also what every call before this parameter existed always did.
      */
-    fun upsertExternalBlock(blockId: String, name: String, exercises: List<ExternalBlockExercise>) {
+    fun upsertExternalBlock(
+        blockId: String,
+        name: String,
+        exercises: List<ExternalBlockExercise>,
+        recurringDays: List<Int> = emptyList()
+    ) {
         if (exercises.isEmpty()) {
             deleteBlock(blockId)
             return
         }
         val existing = loadBlock(blockId)
         saveBlock(
-            (existing ?: NamedBlock(id = blockId, name = name, isFloating = true, useTotalTaskDuration = true))
-                .copy(name = name)
+            (existing ?: NamedBlock(id = blockId, name = name, useTotalTaskDuration = true))
+                .copy(name = name, isFloating = recurringDays.isEmpty(), recurringDays = recurringDays)
         )
         val previousTaskIds = loadTasksForBlock(blockId).map { it.id }.toSet()
         val currentTaskIds = mutableSetOf<String>()
