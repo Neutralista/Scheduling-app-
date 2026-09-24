@@ -245,6 +245,8 @@ the highest `v*` release tag bumped minor when any commit since the last release
 `feat`, else patch; the code is 1000 + the run number. Both go to Gradle as `-PciVersionName` /
 `-PciVersionCode`; the values in `app/build.gradle.kts` are only for local builds. Runs on a branch
 never overlap, and when pushes pile up only the newest runs, and releases them all together.
+After each release CI keeps only the three newest releases (the current one and two to roll back
+to) and deletes the rest with their tags.
 
 
 On each new release, write the release notes directly on the GitHub Release (not in a file). Include:

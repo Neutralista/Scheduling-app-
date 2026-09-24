@@ -173,3 +173,18 @@ jobs:
           body: |
             Branch: `${{ github.ref_name }}`
             Commit: `${{ github.sha }}`
+
+      # Keeps the three newest releases (the current one and two to roll back to, should a new
+      # build break something) and deletes the rest along with their tags. The version step
+      # only needs the newest tag.
+      - name: Prune old releases
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
+          while read -r tag; do
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag \
+              || echo "Couldn't delete $tag; the next run will retry."
+          done
