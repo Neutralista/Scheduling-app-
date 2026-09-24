@@ -199,7 +199,9 @@ fun List<NamedBlockInstance>.reconciledWithActualSessions(
         when {
             activeSession != null && activeSession.blockId == inst.block.id ->
                 inst.copy(scheduledStartMs = activeSession.startedAtMs, estimatedEndMs = activeSession.scheduledEndMs)
-            else -> loggedToday.firstOrNull { it.blockId == inst.block.id }
+            // The latest session — an earlier one (stopped, then restarted) is in the past and
+            // can't affect what's still plannable; the first one used to win.
+            else -> loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
                 ?.let { inst.copy(scheduledStartMs = it.startedAtMs, estimatedEndMs = it.endedAtMs) }
                 ?: inst
         }

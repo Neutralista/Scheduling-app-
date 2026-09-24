@@ -6,14 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.TimeZone
 
 class EventPlannerRegistryTest {
 
     private val day = LocalDate.of(2026, 6, 10)
-    private val zone = ZoneId.systemDefault()
 
+    // Zone read per call — the DST test switches the default zone mid-test.
     private fun ms(date: LocalDate, hour: Int, minute: Int = 0): Long =
-        date.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+        date.atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     private fun sleep(id: String, bed: Long, wake: Long) = PlannerEvent(
         id = id, title = "Sleep", durationMinutes = ((wake - bed) / 60_000L).toInt(),
@@ -113,6 +114,70 @@ class EventPlannerRegistryTest {
         assertEquals(ms(day, 7), r.planForDate(day).startOf("due"))
         val nextDay = r.planForDate(day.plusDays(1))
         assertTrue(nextDay.blocked.any { it.event.id == "due" && it.reason == "Past deadline" })
+    }
+
+    @Test
+    fun urgentTask_isNotStarvedByItsLowPriorityPrerequisite() {
+        // 20:00 → 23:00 free. Without inheritance "filler" (10) goes before "prep" (9), and
+        // the urgent "main" — which must follow prep and end by 23:00 — no longer fits.
+        val r = registry(busyUntilHour = 20).apply {
+            register(PlannerEvent(id = "filler", title = "filler", durationMinutes = 60, priority = 10))
+            register(PlannerEvent(id = "prep", title = "prep", durationMinutes = 60, priority = 9, bufferMinutes = 1))
+            register(PlannerEvent(
+                id = "main", title = "main", durationMinutes = 60, priority = PlannerPriority.URGENT,
+                conditions = listOf(EventCondition.AfterTask(setOf("prep")), EventCondition.TimeWindow(0, 0, 23, 0))
+            ))
+        }
+        val plan = r.planForDate(day)
+        assertEquals(ms(day, 20), plan.startOf("prep"))
+        assertEquals(ms(day, 21, 1), plan.startOf("main"))
+    }
+
+    @Test
+    fun windowCrossingMidnight_isPlaceable() {
+        val r = registry(busyUntilHour = 22).apply {
+            register(task("late", 60, 9, EventCondition.TimeWindow(23, 30, 1, 0)))
+        }
+        assertEquals(ms(day, 23, 30), r.planForDate(day).startOf("late"))
+    }
+
+    @Test
+    fun tasksInsideBlock_runBackToBack() {
+        fun during(id: String) = BlockTask(id, "gym", id, 20, BlockTaskPlacement.DURING)
+        val gym = NamedBlockInstance(
+            NamedBlock(id = "gym", name = "Gym"), ms(day, 9), ms(day, 10),
+            activeTasks = listOf(during("a"), during("b"), during("c"))
+        )
+        val plan = registry().planForDate(day, namedBlockInstances = listOf(gym))
+        assertEquals(ms(day, 9), plan.startOf("a"))
+        assertEquals(ms(day, 9, 20), plan.startOf("b"))
+        assertEquals(ms(day, 9, 40), plan.startOf("c"))
+    }
+
+    @Test
+    fun tasksDuringSameCalendarEvent_dontOverlap() {
+        val r = registry().apply {
+            register(task("notes", 30, 9, EventCondition.DuringCalEvent(42L)))
+            register(task("reply", 30, 9, EventCondition.DuringCalEvent(42L)))
+        }
+        val plan = r.planForDate(day, calendarEventBlocks = mapOf(42L to (ms(day, 14) to ms(day, 15))))
+        assertEquals(ms(day, 14), plan.startOf("notes"))
+        assertEquals(ms(day, 14, 30), plan.startOf("reply"))
+    }
+
+    @Test
+    fun lastHourOfDstFallBackDay_isPlannable() {
+        val original = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("Europe/Berlin"))
+        try {
+            val fallBack = LocalDate.of(2026, 10, 25) // 25 hours long in Berlin
+            val r = EventPlannerRegistry().apply {
+                register(task("late", 30, 9, EventCondition.TimeWindow(23, 0, 23, 59)))
+            }
+            assertEquals(ms(fallBack, 23), r.planForDate(fallBack).startOf("late"))
+        } finally {
+            TimeZone.setDefault(original)
+        }
     }
 
     @Test
