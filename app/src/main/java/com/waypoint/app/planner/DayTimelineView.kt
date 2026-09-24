@@ -116,6 +116,18 @@ private fun Modifier.yOffset(y: Dp): Modifier = layout { measurable, constraints
     }
 }
 
+/** Places a tile at [y] in its [slot]'s lane, sized to the lane's width. */
+private fun Modifier.tilePosition(y: Dp, slot: LaneSlot): Modifier = layout { measurable, constraints ->
+    val laneWidth = constraints.maxWidth / slot.lanes
+    val placeable = measurable.measure(constraints.copy(minWidth = laneWidth, maxWidth = laneWidth))
+    layout(placeable.width, placeable.height) {
+        placeable.placeRelative(slot.lane * laneWidth, y.roundToPx())
+    }
+}
+
+private fun calTileKey(evt: CalendarEvent) = "cal:${evt.eventId}@${evt.startMillis}"
+private fun plannerTileKey(se: ScheduledEvent) = "plan:${se.event.id}@${se.startMillis}"
+
 /** Overrides durationMinutes on tasks with useMeasuredDuration using historical averages. */
 private fun List<BlockTask>.withMeasuredDurations(logStore: BlockSessionLogStore?): List<BlockTask> {
     if (logStore == null) return this
@@ -796,6 +808,26 @@ private fun TimelineBody(
             .groupBy { it.event.sourceWidgetId!!.removePrefix("__block__") }
     }
 
+    // Overlapping tiles go side by side. A tile is drawn at least 24dp tall (plus a 2dp gap), so
+    // that height counts as its length here; rounded to whole minutes so the zoom animation
+    // doesn't redo the layout every frame. A block's before/after tasks aren't laid out on their
+    // own: they sit inside the block's stretched tile and take its lane.
+    val calTiles = remember(calEvents) { calEvents.filter { !it.allDay && it.title != "Sleep" } }
+    val minTileMinutes = kotlin.math.ceil(26f / hourHeight.value * 60f).toLong()
+    val tileLanes = remember(calTiles, visibleScheduled, minTileMinutes) {
+        val blockTiles = visibleScheduled.filter { it.event.category == EventCategory.BLOCK }.associateBy { it.event.id }
+        fun parentTile(se: ScheduledEvent) = se.event.sourceWidgetId?.let { blockTiles[it] }
+            ?.takeIf { it.startMillis <= se.startMillis && se.endMillis <= it.endMillis }
+        val (nested, own) = visibleScheduled.partition { parentTile(it) != null }
+        val lanes = assignLanes(
+            calTiles.map { LaneItem(calTileKey(it), it.startMillis, it.endMillis) } +
+                own.map { LaneItem(plannerTileKey(it), it.startMillis, it.endMillis) },
+            minDurationMs = minTileMinutes * 60_000L
+        ).toMutableMap()
+        nested.forEach { se -> lanes[plannerTileKey(se)] = lanes[plannerTileKey(parentTile(se)!!)] ?: LaneSlot.FULL }
+        lanes
+    }
+
     Box(modifier.fillMaxHeight().clipToBounds()) {
         GridLines(hourHeight = hourHeight, totalHours = totalHours, showMinuteLines = showMinuteLines, outline = outline)
 
@@ -813,8 +845,9 @@ private fun TimelineBody(
         }
 
         // Calendar event blocks (skip Sleep — handled by planner)
-        calEvents.filter { !it.allDay && it.title != "Sleep" }.forEach { evt ->
-            CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick, onCalendarEventDrag)
+        calTiles.forEach { evt ->
+            CalendarEventBlock(evt, viewStartMs, viewTotalMin, hourHeight, onCalendarEventClick, onCalendarEventDrag,
+                slot = tileLanes[calTileKey(evt)] ?: LaneSlot.FULL)
         }
 
         // Planner event blocks
@@ -830,6 +863,7 @@ private fun TimelineBody(
             else emptyList()
             PlannerEventBlock(
                 se = se,
+                slot = tileLanes[plannerTileKey(se)] ?: LaneSlot.FULL,
                 viewStartMs = viewStartMs,
                 hourHeight = hourHeight,
                 blockInstances = blockInstances,
@@ -964,7 +998,8 @@ private fun CalendarEventBlock(
     viewTotalMin: Int,
     hourHeight: Dp,
     onCalendarEventClick: ((CalendarEvent) -> Unit)?,
-    onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null
+    onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
+    slot: LaneSlot = LaneSlot.FULL
 ) {
     val ceStartMin = msToMin(evt.startMillis, viewStartMs)
     val ceEndMin   = msToMin(evt.endMillis,   viewStartMs)
@@ -994,10 +1029,9 @@ private fun CalendarEventBlock(
 
     Box(
         Modifier
-            .yOffset(startY + 1.dp)
-            .fillMaxWidth()
+            .tilePosition(startY + 1.dp, slot)
             .height(eventH)
-            .padding(horizontal = 6.dp)
+            .padding(horizontal = if (slot.lanes > 1) 2.dp else 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .then(if (onCalendarEventClick != null) Modifier.clickable { onCalendarEventClick(evt) } else Modifier)
             .then(if (draggable) Modifier.pointerInput(evt.eventId) {
@@ -1068,6 +1102,7 @@ private fun CalendarEventBlock(
 @OptIn(ExperimentalFoundationApi::class)
 private fun PlannerEventBlock(
     se: ScheduledEvent,
+    slot: LaneSlot,
     viewStartMs: Long,
     hourHeight: Dp,
     blockInstances: List<NamedBlockInstance>,
@@ -1190,10 +1225,9 @@ private fun PlannerEventBlock(
 
     Box(
         Modifier
-            .yOffset(startY + 1.dp)
-            .fillMaxWidth()
+            .tilePosition(startY + 1.dp, slot)
             .height(eventH)
-            .padding(horizontal = 6.dp)
+            .padding(horizontal = if (slot.lanes > 1) 2.dp else 6.dp)
             .clip(RoundedCornerShape(6.dp))
             .then(if (onPlannerEventClick != null) Modifier.clickable { onPlannerEventClick(se) } else Modifier)
             .then(if (moveDraggable) Modifier.pointerInput(se.event.id) {
