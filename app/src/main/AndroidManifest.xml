@@ -111,12 +111,14 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            Only our own AlarmManager alarm targets this. USER_PRESENT is deliberately absent:
+            Android 8+ never delivers it to manifest receivers, and exporting for it let any app
+            fire WAKE_CHECK.
+        -->
         <receiver
             android:name=".cycle.WakeCheckReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.USER_PRESENT" />
-            </intent-filter>
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.waypoint.app.WAKE_CHECK" />
             </intent-filter>

@@ -40,8 +40,12 @@ class CycleTracker(private val context: Context) {
         // or its periodic inactivity check never ran). Deliberately much longer than
         // SLEEP_INACTIVITY_MS — a plain gap in opening the app during a normal day (a few hours
         // of not checking Waypoint while awake) should never look like sleep on its own. Combined
-        // with also requiring the gap to cross a calendar date, this stays conservative.
+        // with also requiring the gap to span NIGHT_MARKER_HOUR, this stays conservative.
         private const val FALLBACK_INACTIVITY_MS = 3 * 3600_000L  // 3 hours
+
+        // A gap containing this local hour covers a night. Unlike "crossed a calendar date", this
+        // still works when the last activity was after midnight.
+        private const val NIGHT_MARKER_HOUR = 4
 
         // Beyond this, a sleep tracker still reporting SLEEPING is stuck (e.g. its checks
         // stopped), not asleep — stop deferring to it.
@@ -49,18 +53,17 @@ class CycleTracker(private val context: Context) {
     }
 
     /**
-     * Call when the user is confirmed active (screen unlocked, app foregrounded).
+     * Call when the user is confirmed active: Waypoint foregrounded, an alarm dismissed, or the
+     * sleep tracker confirming a wake. Phone unlocks are NOT a signal — manifest receivers don't
+     * get ACTION_USER_PRESENT on Android 8+, so "last active" means last seen by one of these.
      * Opens a new cycle or closes the previous sleeping cycle and opens a fresh one.
      *
-     * This runs from several BroadcastReceivers that never wrap their onReceive() in a
-     * try/catch of their own — most notably ACTION_USER_PRESENT, which fires on literally
-     * every phone unlock. An uncaught exception here used to crash the whole app on every
-     * single unlock if any stored state ever triggered one, which looks exactly like "the
-     * app doesn't come back" since re-opening it just hits onResume() -> recordActive() and
-     * crashes again immediately. Swallow and log instead of ever propagating.
+     * Runs from receivers and onResume(); an uncaught exception here would crash the app on
+     * every open, which looks exactly like "the app doesn't come back". Swallow and log
+     * instead of ever propagating.
      *
-     * [explicitWake] marks a deliberate wake action (dismissing an alarm) that should not wait
-     * for the sleep tracker to confirm the wake.
+     * [explicitWake] marks dismissing the wake alarm — a deliberate wake-up that closes the
+     * cycle without waiting for the sleep tracker, even if no sleep was detected.
      */
     fun recordActive(explicitWake: Boolean = false) {
         try {
@@ -125,32 +128,35 @@ class CycleTracker(private val context: Context) {
                 //     more sensitive signal (sleep mode being on already implies the user expected
                 //     sleep detection to matter here).
                 //  2. No sleep mode at all, but a much longer inactivity gap (FALLBACK_INACTIVITY_MS)
-                //     that also crosses a calendar date — e.g. sleep detection never ran because
-                //     sleep mode was never armed, but the cycle has clearly outlived a whole day.
-                //     Requiring both the long gap AND a date change (not just duration) keeps a
-                //     single long daytime gap in opening the app from ever looking like sleep.
+                //     that also spans NIGHT_MARKER_HOUR — e.g. sleep detection never ran because
+                //     sleep mode was never armed, but the gap clearly covered a night. Requiring
+                //     the night hour (not just duration) keeps a single long daytime gap in opening
+                //     the app from ever looking like sleep.
+                //  3. The wake alarm was dismissed on a cycle that has run long enough — sleep just
+                //     went undetected.
                 val openMs = now - current.wakeMillis
                 val lastActive = prefs.getLong(KEY_LAST_ACTIVE, now)
                 val inactiveDuration = now - lastActive
                 val sleepModeActive = sleepLogStore.getSleepModeState() != SleepModeState.IDLE
-                val crossedCalendarDay = Cycle.dateLabel(lastActive) != Cycle.dateLabel(now)
+                val spannedNight = Cycle.nextAtTime(lastActive, NIGHT_MARKER_HOUR, 0) <= now
 
                 val closeViaSleepMode = openMs >= MIN_NEW_CYCLE_GAP_MS &&
                     inactiveDuration >= SLEEP_INACTIVITY_MS && sleepModeActive
                 val closeViaUndetectedGap = openMs >= MIN_NEW_CYCLE_GAP_MS &&
-                    inactiveDuration >= FALLBACK_INACTIVITY_MS && crossedCalendarDay
+                    inactiveDuration >= FALLBACK_INACTIVITY_MS && spannedNight
+                val closeViaWakeAlarm = explicitWake && openMs >= MIN_NEW_CYCLE_GAP_MS
 
-                if (closeViaSleepMode || closeViaUndetectedGap) {
+                if (closeViaSleepMode || closeViaUndetectedGap || closeViaWakeAlarm) {
                     AppLogger.i(
                         TAG,
                         "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, " +
                             "inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, " +
-                            "crossedDay=$crossedCalendarDay — closing as fallback"
+                            "spannedNight=$spannedNight, wakeAlarm=$explicitWake — closing as fallback"
                     )
                     store.save(current.copy(nextWakeMillis = now))
                     openCycle(now)
                 } else {
-                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, crossedDay=$crossedCalendarDay)")
+                    AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, spannedNight=$spannedNight)")
                 }
             }
         }
@@ -200,7 +206,7 @@ class CycleTracker(private val context: Context) {
         }
     }
 
-    fun updateLastActive(millis: Long = System.currentTimeMillis()) {
+    private fun updateLastActive(millis: Long) {
         prefs.edit().putLong(KEY_LAST_ACTIVE, millis).apply()
     }
 

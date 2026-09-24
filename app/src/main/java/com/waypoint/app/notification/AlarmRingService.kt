@@ -31,7 +31,7 @@ class AlarmRingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_RING    -> startRinging(intent)
-            ACTION_DISMISS -> dismiss()
+            ACTION_DISMISS -> dismiss(intent)
             ACTION_SNOOZE  -> snooze(intent)
             else           -> { startForegroundPlaceholder(); stopSelf() }
         }
@@ -54,15 +54,16 @@ class AlarmRingService : Service() {
         if (vibrate) startVibration(volume)
     }
 
-    private fun dismiss() {
+    private fun dismiss(intent: Intent) {
         AppLogger.i(TAG, "dismiss")
         stopSoundAndVibration()
         stopForeground(STOP_FOREGROUND_REMOVE)
         WaypointNotificationGroup.refresh(this)
         stopSelf()
-        // User explicitly dismissed the wake alarm — most authoritative wake signal available.
-        // recordActive() will close the sleeping cycle and open a new one.
-        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive(explicitWake = true)
+        // Dismissing the wake alarm is the most authoritative wake signal available; any other
+        // alarm (a user alarm at 3am, a nap timer) is ordinary activity, not the end of the night.
+        val isWakeAlarm = (intent.getStringExtra(EXTRA_SOURCE) ?: SOURCE_SLEEP) == SOURCE_SLEEP
+        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive(explicitWake = isWakeAlarm)
     }
 
     private fun snooze(intent: Intent?) {

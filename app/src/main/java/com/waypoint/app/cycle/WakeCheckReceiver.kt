@@ -15,16 +15,10 @@ class WakeCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext as? WaypointApplication ?: return
         AppLogger.i(TAG, "onReceive: action=${intent.action}")
-        // ACTION_USER_PRESENT fires on every single unlock — CycleTracker's own methods are
-        // now defensive too, but this wrapper is cheap insurance against anything else here
-        // (SleepLogStore reads, the AlarmManager cancel call) ever taking the whole app down
-        // on what should be a routine, frequent event.
+        // Cheap insurance against anything here (SleepLogStore reads, the AlarmManager cancel
+        // call) taking the whole app down on a routine, frequent alarm.
         try {
             when (intent.action) {
-                Intent.ACTION_USER_PRESENT -> {
-                    app.cycleTracker.updateLastActive()
-                    app.cycleTracker.recordActive()
-                }
                 ACTION_WAKE_CHECK -> {
                     // Only run the inactivity check while sleep mode is active; cancel the
                     // alarm otherwise so it doesn't keep firing through the waking day. Passive
