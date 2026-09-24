@@ -62,7 +62,7 @@ class AlarmRingService : Service() {
         stopSelf()
         // User explicitly dismissed the wake alarm — most authoritative wake signal available.
         // recordActive() will close the sleeping cycle and open a new one.
-        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
+        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive(explicitWake = true)
     }
 
     private fun snooze(intent: Intent?) {

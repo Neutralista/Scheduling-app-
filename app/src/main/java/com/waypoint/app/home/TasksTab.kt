@@ -67,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.WaypointApplication
 import com.waypoint.app.integration.openTrainingAppWorkout
 import com.waypoint.app.integration.trainingAppWorkoutId
 import com.waypoint.app.planner.ActiveBlockSession
@@ -1319,6 +1320,7 @@ private fun SleepTaskRow(
         val logged = logStore.recordPhoneActive()
         sleepState = logStore.getSleepModeState()
         if (logged) {
+            (context.applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
             todayEntry = logStore.loadToday()
             val entry = todayEntry
             if (entry != null) {

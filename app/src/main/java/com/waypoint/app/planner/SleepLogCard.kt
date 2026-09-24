@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.waypoint.app.WaypointApplication
 import com.waypoint.app.signal.ShiftTime
 import com.waypoint.app.ui.components.TimePickerChip
 import java.time.LocalDate
@@ -58,6 +59,7 @@ fun SleepLogCard(
         val logged = logStore.recordPhoneActive()
         sleepState = logStore.getSleepModeState()
         if (logged) {
+            (context.applicationContext as? WaypointApplication)?.cycleTracker?.recordActive()
             todayEntry = logStore.loadToday()
             val entry = todayEntry
             if (entry != null) {

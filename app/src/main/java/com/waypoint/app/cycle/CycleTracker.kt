@@ -6,6 +6,7 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
+import com.waypoint.app.planner.WakeConfirmation
 import java.util.UUID
 
 class CycleTracker(private val context: Context) {
@@ -39,6 +40,10 @@ class CycleTracker(private val context: Context) {
         // of not checking Waypoint while awake) should never look like sleep on its own. Combined
         // with also requiring the gap to cross a calendar date, this stays conservative.
         private const val FALLBACK_INACTIVITY_MS = 3 * 3600_000L  // 3 hours
+
+        // Beyond this, a sleep tracker still reporting SLEEPING is stuck (e.g. its checks
+        // stopped), not asleep — stop deferring to it.
+        private const val MAX_TRACKED_SLEEP_MS = 16 * 3600_000L
     }
 
     /**
@@ -51,16 +56,19 @@ class CycleTracker(private val context: Context) {
      * single unlock if any stored state ever triggered one, which looks exactly like "the
      * app doesn't come back" since re-opening it just hits onResume() -> recordActive() and
      * crashes again immediately. Swallow and log instead of ever propagating.
+     *
+     * [explicitWake] marks a deliberate wake action (dismissing an alarm) that should not wait
+     * for the sleep tracker to confirm the wake.
      */
-    fun recordActive() {
+    fun recordActive(explicitWake: Boolean = false) {
         try {
-            recordActiveInternal()
+            recordActiveInternal(explicitWake)
         } catch (e: Throwable) {
             AppLogger.e(TAG, "recordActive threw — leaving cycle state as-is", e)
         }
     }
 
-    private fun recordActiveInternal() {
+    private fun recordActiveInternal(explicitWake: Boolean) {
         val now = System.currentTimeMillis()
         val current = store.loadCurrent()
 
@@ -70,15 +78,42 @@ class CycleTracker(private val context: Context) {
                 openCycle(now)
             }
             current.sleepStartMillis != null -> {
-                // Was sleeping: if enough time passed, this is a genuine new wake
-                val gap = now - (current.sleepStartMillis)
-                if (gap >= MIN_NEW_CYCLE_GAP_MS) {
-                    AppLogger.i(TAG, "recordActive: closing cycle ${current.id} after ${gap / 3600_000}h sleep gap")
-                    store.save(current.copy(nextWakeMillis = now))
-                    openCycle(now)
-                } else {
-                    AppLogger.i(TAG, "recordActive: gap ${gap / 60_000}min < threshold — treating as same cycle, clearing sleep")
-                    store.save(current.copy(sleepStartMillis = null))
+                val sleepStart = current.sleepStartMillis
+                val gap = now - sleepStart
+                val trackerSleeping = sleepLogStore.getSleepModeState() == SleepModeState.SLEEPING &&
+                    gap < MAX_TRACKED_SLEEP_MS
+                // Let the sleep tracker see this activity as a tentative wake; it confirms and
+                // logs the night itself (see WakeConfirmation).
+                if (trackerSleeping) sleepLogStore.noteActivity()
+                val isMorningWake = explicitWake || WakeConfirmation.isConfirmed(
+                    sleepLogStore.getSleepStartMillis() ?: sleepStart, now, now, sleepLogStore.getScheduledWakeMs()
+                )
+                val loggedWake = sleepLogStore.loggedWakeAfter(sleepStart, now)
+                when {
+                    trackerSleeping && !isMorningWake -> {
+                        // Night-time phone check: keep the sleep onset. Clearing it here is what
+                        // used to leave the cycle unable to close the next morning.
+                        AppLogger.i(TAG, "recordActive: tentative night wake — keeping cycle ${current.id} sleeping")
+                    }
+                    loggedWake != null -> {
+                        AppLogger.i(TAG, "recordActive: sleep tracker logged wake at $loggedWake — closing cycle ${current.id}")
+                        store.save(current.copy(nextWakeMillis = loggedWake))
+                        openCycle(loggedWake)
+                    }
+                    trackerSleeping -> {
+                        AppLogger.i(TAG, "recordActive: morning wake while tracker sleeping — closing cycle ${current.id}")
+                        store.save(current.copy(nextWakeMillis = now))
+                        openCycle(now)
+                    }
+                    gap >= MIN_NEW_CYCLE_GAP_MS -> {
+                        AppLogger.i(TAG, "recordActive: closing cycle ${current.id} after ${gap / 3600_000}h sleep gap")
+                        store.save(current.copy(nextWakeMillis = now))
+                        openCycle(now)
+                    }
+                    else -> {
+                        AppLogger.i(TAG, "recordActive: gap ${gap / 60_000}min < threshold — treating as same cycle, clearing sleep")
+                        store.save(current.copy(sleepStartMillis = null))
+                    }
                 }
             }
             else -> {

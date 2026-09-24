@@ -7,6 +7,9 @@ import com.waypoint.app.AppLogger
 import com.waypoint.app.WaypointApplication
 import com.waypoint.app.alarm.AlarmBlockSync
 import com.waypoint.app.alarm.UserAlarmScheduler
+import com.waypoint.app.planner.SleepCheckReceiver
+import com.waypoint.app.planner.SleepLogStore
+import com.waypoint.app.planner.SleepModeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,6 +41,13 @@ class BootReceiver : BroadcastReceiver() {
                     .onFailure { AppLogger.e(TAG, "onReceive: UserAlarmScheduler.scheduleAll failed", it) }
                 runCatching { app.scheduleBlockAlarms(context) }
                     .onFailure { AppLogger.e(TAG, "onReceive: scheduleBlockAlarms failed", it) }
+                // Alarms don't survive a reboot — without this, sleep mode armed before the
+                // restart would sit in MONITORING/SLEEPING with nothing checking it.
+                runCatching {
+                    if (SleepLogStore(context).getSleepModeState() != SleepModeState.IDLE) {
+                        SleepCheckReceiver.scheduleNextCheck(context)
+                    }
+                }.onFailure { AppLogger.e(TAG, "onReceive: sleep check re-arm failed", it) }
             } finally {
                 pendingResult.finish()
             }

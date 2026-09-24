@@ -29,7 +29,9 @@ class SleepCheckReceiver : BroadcastReceiver() {
         AppLogger.i(TAG, "onReceive: wasLogged=$wasLogged stateAfter=$state")
 
         if (state != SleepModeState.IDLE) {
-            if (isInteractive) {
+            // Nudge only before sleep onset — a tentative night-time wake (still SLEEPING) is
+            // someone already in bed checking the clock, not someone staying up.
+            if (isInteractive && state == SleepModeState.MONITORING) {
                 SleepNotificationHelper.maybeNudge(context, logStore)
             }
             scheduleNextCheck(context)
@@ -47,8 +49,7 @@ class SleepCheckReceiver : BroadcastReceiver() {
 
         // Auto-logged a completed sleep session → write to calendar and refresh registry.
         if (wasLogged && isInteractive) {
-            // Bridge: user is awake and sleep is fully logged — open a new cycle now rather
-            // than waiting for ACTION_USER_PRESENT (which may not fire if phone stays unlocked).
+            // Bridge: wake confirmed and sleep logged — roll the cycle over at the logged wake.
             val app = context.applicationContext as? WaypointApplication
             app?.cycleTracker?.recordActive()
 

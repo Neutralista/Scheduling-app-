@@ -32,6 +32,8 @@ class SleepLogStore(context: Context) {
         const val KEY_LAST_NUDGE      = "last_nudge"
         const val KEY_SCHED_BED       = "scheduled_bed_ms"
         const val KEY_SCHED_WAKE      = "scheduled_wake_ms"
+        const val KEY_WAKE_CANDIDATE  = "wake_candidate"
+        const val KEY_LAST_INTERACTIVE = "last_interactive_while_sleeping"
     }
 
     // ─── Sleep Mode State ──────────────────────────────────────────────────────
@@ -69,12 +71,16 @@ class SleepLogStore(context: Context) {
             .putLong(KEY_MODE_START, now)
             .putLong(KEY_LAST_ACTIVE, now)
             .remove(KEY_SLEEP_START)
+            .remove(KEY_WAKE_CANDIDATE)
+            .remove(KEY_LAST_INTERACTIVE)
             .apply()
     }
 
     /**
      * Called when the phone is known to be active (app opened, or 10-min check shows interactive).
-     * If SLEEPING, auto-logs and resets to IDLE.
+     * While SLEEPING, the first activity is only a tentative wake (see [WakeConfirmation]) — a
+     * brief night-time check must not end the night. Once confirmed, logs bed → first activity
+     * and resets to IDLE.
      * Returns true if a sleep entry was written.
      */
     fun recordPhoneActive(): Boolean {
@@ -82,19 +88,34 @@ class SleepLogStore(context: Context) {
         if (state == SleepModeState.IDLE) return false
 
         val now = System.currentTimeMillis()
-        prefs.edit().putLong(KEY_LAST_ACTIVE, now).apply()
-
-        if (state == SleepModeState.SLEEPING) {
-            val sleepStart = getSleepStartMillis() ?: now
-            if (now > sleepStart) logManual(sleepStart, now)
-            prefs.edit()
-                .putString(KEY_STATE, SleepModeState.IDLE.name)
-                .remove(KEY_MODE_START)
-                .remove(KEY_SLEEP_START)
-                .apply()
-            return true
+        if (state == SleepModeState.MONITORING) {
+            prefs.edit().putLong(KEY_LAST_ACTIVE, now).apply()
+            return false
         }
-        return false
+
+        val sleepStart = getSleepStartMillis() ?: now
+        val candidate = prefs.getLong(KEY_WAKE_CANDIDATE, -1L).takeIf { it >= 0 } ?: now
+        prefs.edit()
+            .putLong(KEY_LAST_ACTIVE, now)
+            .putLong(KEY_WAKE_CANDIDATE, candidate)
+            .putLong(KEY_LAST_INTERACTIVE, now)
+            .apply()
+
+        if (!WakeConfirmation.isConfirmed(sleepStart, candidate, now, getScheduledWakeMs())) {
+            AppLogger.i(TAG, "recordPhoneActive: tentative wake since $candidate — not confirmed yet")
+            return false
+        }
+
+        AppLogger.i(TAG, "recordPhoneActive: wake confirmed at $candidate → IDLE")
+        if (candidate > sleepStart) logManual(sleepStart, candidate)
+        prefs.edit()
+            .putString(KEY_STATE, SleepModeState.IDLE.name)
+            .remove(KEY_MODE_START)
+            .remove(KEY_SLEEP_START)
+            .remove(KEY_WAKE_CANDIDATE)
+            .remove(KEY_LAST_INTERACTIVE)
+            .apply()
+        return true
     }
 
     /**
@@ -130,7 +151,13 @@ class SleepLogStore(context: Context) {
                 return true
             }
         } else {
-            AppLogger.i(TAG, "onCheckAlarm: SLEEPING, phone inactive (waiting for wake)")
+            val lastInteractive = prefs.getLong(KEY_LAST_INTERACTIVE, -1L).takeIf { it >= 0 }
+            if (lastInteractive != null && WakeConfirmation.wentBackToSleep(lastInteractive, now)) {
+                AppLogger.i(TAG, "onCheckAlarm: SLEEPING, idle since $lastInteractive — back to sleep, dropping tentative wake")
+                prefs.edit().remove(KEY_WAKE_CANDIDATE).remove(KEY_LAST_INTERACTIVE).apply()
+            } else {
+                AppLogger.i(TAG, "onCheckAlarm: SLEEPING, phone inactive (waiting for wake)")
+            }
         }
         return false
     }
@@ -141,8 +168,27 @@ class SleepLogStore(context: Context) {
             .remove(KEY_MODE_START)
             .remove(KEY_LAST_ACTIVE)
             .remove(KEY_SLEEP_START)
+            .remove(KEY_WAKE_CANDIDATE)
+            .remove(KEY_LAST_INTERACTIVE)
             .apply()
     }
+
+    /**
+     * Marks activity during SLEEPING as a tentative wake without confirming it. For callers that
+     * don't handle the sleep-logged follow-up (calendar write); the next [recordPhoneActive]
+     * confirms using this earlier wake time.
+     */
+    fun noteActivity() {
+        if (getSleepModeState() != SleepModeState.SLEEPING) return
+        val now = System.currentTimeMillis()
+        val edit = prefs.edit().putLong(KEY_LAST_ACTIVE, now).putLong(KEY_LAST_INTERACTIVE, now)
+        if (!prefs.contains(KEY_WAKE_CANDIDATE)) edit.putLong(KEY_WAKE_CANDIDATE, now)
+        edit.apply()
+    }
+
+    /** Most recent logged wake that ends a sleep starting at [sleepStartMs], if any. */
+    fun loggedWakeAfter(sleepStartMs: Long, nowMs: Long): Long? =
+        loadRecent(2).map { it.wakeMillis }.filter { it in (sleepStartMs + 1)..nowMs }.maxOrNull()
 
     fun updateLastNudge(millis: Long) {
         prefs.edit().putLong(KEY_LAST_NUDGE, millis).apply()

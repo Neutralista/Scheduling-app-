@@ -90,4 +90,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
 
     implementation("org.mozilla:rhino:1.7.14")
+
+    testImplementation("junit:junit:4.13.2")
 }
