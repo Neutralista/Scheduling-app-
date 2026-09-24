@@ -39,6 +39,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!--
+        A second way to open the ringing alarm over the lock screen: Android can turn the
+        full-screen permission above off when an app from outside the Play Store updates, but
+        keeps this one. See FullScreenAlarmPermission.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>

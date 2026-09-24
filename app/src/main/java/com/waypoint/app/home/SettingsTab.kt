@@ -1,8 +1,8 @@
 package com.waypoint.app.home
 
+import com.waypoint.app.notification.FullScreenAlarmPermission
 import android.Manifest
 import android.app.AlarmManager
-import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -814,35 +814,23 @@ private fun BatteryOptimizationIntegration() {
 private fun FullScreenIntentIntegration() {
     val context = LocalContext.current
 
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        IntegrationRow(
-            title = "Lock-screen alarms",
-            description = "Alarms can show a full-screen activity on the lock screen",
-            granted = true,
-            onConnect = {}
-        )
-        return
-    }
-
-    val nm = remember { context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
-    var granted by remember { mutableStateOf(nm.canUseFullScreenIntent()) }
+    // Either full-screen notifications or "Display over other apps" lets an alarm open over the
+    // lock screen. This row sends you to the second: Android can reset the first on every app
+    // update, but keeps the second. See FullScreenAlarmPermission.
+    var granted by remember { mutableStateOf(FullScreenAlarmPermission.canOpenOverLockScreen(context)) }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { granted = nm.canUseFullScreenIntent() }
+    ) { granted = FullScreenAlarmPermission.canOpenOverLockScreen(context) }
 
     IntegrationRow(
         title = "Lock-screen alarms",
-        description = "Required for wake and user alarms to show on the lock screen. Tap to open system settings.",
+        description = "Lets alarms open over the lock screen. Tap and allow Display over other apps; it stays on through updates.",
         granted = granted,
         connectLabel = "Open Settings",
         onConnect = {
             try {
-                launcher.launch(
-                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                )
+                launcher.launch(FullScreenAlarmPermission.settingsIntent(context))
             } catch (e: ActivityNotFoundException) {
                 // Some OEM builds don't ship this exact screen — fall back to the app's own
                 // settings page rather than leaving the tap looking like it did nothing.

@@ -116,6 +116,20 @@ class AlarmRingService : Service() {
         if (fullScreen) builder.setFullScreenIntent(ringActivityPi, true)
         startForeground(NOTIF_ID, builder.build())
         WaypointNotificationGroup.refresh(this)
+        // Android can turn the full-screen permission off on an app update, and then the line
+        // above only posts a heads-up. With "Display over other apps" granted (kept across
+        // updates) Waypoint may open the ring screen itself, so it still covers the lock screen.
+        if (fullScreen && !FullScreenAlarmPermission.isGranted(this) && FullScreenAlarmPermission.canDrawOverlays(this)) {
+            try {
+                startActivity(
+                    Intent(this, AlarmRingActivity::class.java)
+                        .putExtras(extras)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                )
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "showNotification: opening the ring screen directly failed", e)
+            }
+        }
     }
 
     private fun startForegroundPlaceholder() {

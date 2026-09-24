@@ -15,12 +15,16 @@ import com.waypoint.app.alarm.AlarmStore
 import com.waypoint.app.planner.SleepScheduleStore
 
 /**
- * The full-screen-intent permission is what lets a ringing alarm take over the lock screen. On
- * Android 14+ the system can turn it off when an app from outside the Play Store updates, and
- * nothing said so until an alarm failed to cover the lock screen — the only warning was a
- * banner on the Alarms tab. [check] runs after every update and reboot (BootReceiver) and on
- * every app resume: while alarms are set up and the permission is off it posts a notification
- * that opens the setting; once it's back on, that notification is cleared.
+ * What lets a ringing alarm open over the lock screen. Either of two permissions does it:
+ *
+ * - Full-screen notifications (Android 14+). Android can turn this off when an app from outside
+ *   the Play Store updates, which is why lock-screen alarms kept resetting after every update.
+ * - Display over other apps. Android keeps this across updates, so with it granted the ring
+ *   service opens the alarm screen itself when full-screen is off (AlarmRingService).
+ *
+ * [check] runs after every update and reboot (BootReceiver) and on every app resume: while
+ * alarms are set up and neither permission is on, it posts a notification that opens the
+ * "Display over other apps" setting, the one that lasts; once either is on, it clears it.
  */
 object FullScreenAlarmPermission {
 
@@ -32,21 +36,22 @@ object FullScreenAlarmPermission {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
             context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
 
-    /** The system page for this permission, or the app's details page where it's missing. */
+    fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    /** Whether a ringing alarm can open over the lock screen by either route. */
+    fun canOpenOverLockScreen(context: Context): Boolean = isGranted(context) || canDrawOverlays(context)
+
+    /** The "Display over other apps" page for Waypoint: the permission Android keeps across updates. */
     fun settingsIntent(context: Context): Intent =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}"))
-        } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-        }
+        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
 
     fun check(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
-        if (isGranted(context) || !hasAlarmsSetUp(context)) {
+        if (canOpenOverLockScreen(context) || !hasAlarmsSetUp(context)) {
             nm.cancel(NOTIF_ID)
             return
         }
-        AppLogger.w(TAG, "check: full-screen alarms are off while alarms are set — prompting")
+        AppLogger.w(TAG, "check: alarms can't open over the lock screen while alarms are set — prompting")
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Alarm setup", NotificationManager.IMPORTANCE_HIGH)
                 .apply { description = "Warnings when something stops alarms from working properly" }
@@ -59,11 +64,12 @@ object FullScreenAlarmPermission {
             NOTIF_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Alarms can't show on the lock screen")
-                .setContentText("Android turned this off, often after an update. Tap to turn it back on.")
+                .setContentTitle("Alarms can't open on the lock screen")
+                .setContentText("Tap and allow Display over other apps. It stays on through updates.")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
-                    "Android turned off Waypoint's full-screen alarms, often after an update. Alarms " +
-                        "will still sound, but won't open over the lock screen. Tap to turn it back on."
+                    "Alarms still sound, but won't open over the lock screen. Tap and allow " +
+                        "\"Display over other apps\" for Waypoint. Unlike the full-screen setting, " +
+                        "Android keeps it on through updates."
                 ))
                 .setContentIntent(pi)
                 .setAutoCancel(true)
