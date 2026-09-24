@@ -79,6 +79,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the version step reads the last release tag and the commits since.
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -101,33 +104,50 @@ jobs:
             echo "SIGNING_STORE_PATH=/tmp/waypoint.jks" >> $GITHUB_ENV
           fi
 
-      # Only a push to a real branch should bump the version and cut a release — a pull_request
-      # build (which may come from a fork with no secrets) just needs to prove it compiles.
-      - name: Bump version
+      # Only a push to a real branch gets a release version — a pull_request build (which may
+      # come from a fork with no secrets) just needs to prove it compiles, with the file's version.
+      #
+      # The version is worked out here, not committed: committing a bump and pushing it back to
+      # the branch failed whenever another push landed first (the branch had moved), which
+      # skipped the build and release. Name: the highest release tag (or the Gradle file's, if
+      # higher), bumped minor when any commit since the last release starts with "feat", else
+      # patch. Code: 1000 + the run number, so it always goes up and stays above the old
+      # committed codes. Runs of this workflow don't overlap (concurrency above), so each one
+      # sees the tag the previous one created.
+      - name: Work out version
         if: github.event_name == 'push'
         env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          CODE=$(grep 'versionCode' app/build.gradle.kts | sed 's/[^0-9]//g')
-          IFS='.' read -r major minor patch <<< "$VERSION"
-          if echo "$COMMIT_MSG" | grep -qiE '^feat(\(.+\))?[!:]'; then
-            NEW_VERSION="$major.$((minor + 1)).0"
+          git fetch --tags --force --quiet
+          FILE_VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          LAST_TAG=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$' | sort -V | tail -1)
+          TAG_VERSION=${LAST_TAG#v}
+          TAG_VERSION=${TAG_VERSION%-*}
+          BASE=$(printf '%s\n%s\n' "$FILE_VERSION" "${TAG_VERSION:-0.0.0}" | sort -V | tail -1)
+          # Commits since the last release, when its tag is on this branch's history; otherwise
+          # just this push's commits.
+          LAST_SHA=$(git rev-list -n1 "$LAST_TAG" 2>/dev/null || true)
+          if [ -n "$LAST_SHA" ] && git merge-base --is-ancestor "$LAST_SHA" HEAD; then
+            RANGE="$LAST_SHA..HEAD"
+          elif git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            RANGE="$BEFORE_SHA..HEAD"
           else
-            NEW_VERSION="$major.$minor.$((patch + 1))"
+            RANGE="HEAD~1..HEAD"
           fi
-          NEW_CODE=$((CODE + 1))
-          sed -i "s/versionCode = $CODE/versionCode = $NEW_CODE/" app/build.gradle.kts
-          sed -i "s/versionName = \"$VERSION\"/versionName = \"$NEW_VERSION\"/" app/build.gradle.kts
-          echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts
-          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-          git push origin HEAD:${{ github.ref_name }}
+          IFS='.' read -r major minor patch <<< "$BASE"
+          if git log --format=%B "$RANGE" | grep -qiE '^(\* )?feat(\(.+\))?!?:'; then
+            VERSION="$major.$((minor + 1)).0"
+          else
+            VERSION="$major.$minor.$((patch + 1))"
+          fi
+          CODE=$((1000 + ${{ github.run_number }}))
+          echo "Version $VERSION ($CODE), from $BASE over $RANGE"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION_ARGS=-PciVersionName=$VERSION -PciVersionCode=$CODE" >> $GITHUB_ENV
 
       - name: Build debug APK
-        run: bash gradlew assembleDebug --stacktrace
+        run: bash gradlew assembleDebug --stacktrace $VERSION_ARGS
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -145,6 +165,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}-${{ github.run_number }}
+          # The commit that was built — without it the tag lands on the default branch's tip.
+          target_commitish: ${{ github.sha }}
           name: "v${{ env.VERSION }} (build ${{ github.run_number }})"
           prerelease: true
           files: app/build/outputs/apk/debug/app-debug.apk

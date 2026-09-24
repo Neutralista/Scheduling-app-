@@ -240,6 +240,13 @@ Active development branch: `claude/app-build-issues-mknbj6`
 
 ## Releases
 
+CI works out each release's version at build time; it never commits a version bump. The name is
+the highest `v*` release tag bumped minor when any commit since the last release starts with
+`feat`, else patch; the code is 1000 + the run number. Both go to Gradle as `-PciVersionName` /
+`-PciVersionCode`; the values in `app/build.gradle.kts` are only for local builds. Runs on a branch
+never overlap, and when pushes pile up only the newest runs, and releases them all together.
+
+
 On each new release, write the release notes directly on the GitHub Release (not in a file). Include:
 - **New features** — what was added and how it works from the user's perspective
 - **Bug fixes** — what broke and what was changed to fix it

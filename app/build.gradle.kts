@@ -13,8 +13,9 @@ android {
         applicationId = "com.waypoint.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 277
-        versionName = "0.15.4"
+        // CI passes the release version (see .github/workflows/build.yml); local builds use these.
+        versionCode = (project.findProperty("ciVersionCode") as String?)?.toInt() ?: 277
+        versionName = (project.findProperty("ciVersionName") as String?) ?: "0.15.4"
     }
 
     buildFeatures {
