@@ -11,6 +11,9 @@ import java.util.Calendar
  */
 private const val AUTO_BUFFER_CAP_MS = 30 * 60_000L
 
+/** Tonight's sleep never compresses below this, however late tasks push bed time. */
+private const val MIN_SLEEP_MS = 4 * 3600_000L
+
 /** TaskConditionSpec types that can only be resolved once floating tasks are scheduled too —
  *  they reference a specific task's (or sleep's) actual placement, which a floating block can't
  *  know about during its own early placement pass. See [EventPlannerRegistry.isTaskDependentBlock]. */
@@ -115,11 +118,14 @@ class EventPlannerRegistry {
         }
 
         // ── Free blocks start at wake time (end of sleep), not midnight ───────
-        // Only consider sleep events that have already ended (past sleep gives today's wake time).
-        // Exclude future sleep events — they anchor the END of today's cycle, not the start.
+        // Only a sleep that actually ends within this day gives its wake time — tonight's sleep
+        // is clipped to midnight in `scheduled`, so without the unclipped-end check it would win
+        // whenever bedtime is before midnight and the day would "start" at 00:00 tomorrow. For
+        // today, also only one that has already ended.
         val cycleStartMs = scheduled
             .filter { it.event.category == EventCategory.SLEEP
                    && it.endMillis > dayStartMs
+                   && (it.event.fixedEndMillis ?: it.endMillis) <= dayEndMs
                    && (nowMs == null || it.endMillis <= nowMs) }
             .maxOfOrNull { it.endMillis } ?: dayStartMs
 
@@ -144,9 +150,20 @@ class EventPlannerRegistry {
                 .minOfOrNull { it.startMillis }
         val sleepEndBound = cycleStartMs
 
-        // Extend the schedulable window to wake time so tasks can run into the sleep block.
-        // After the main pass the sleep block is slid forward to match the latest task end.
-        val freeBlockEnd = sleepWakeMs ?: dayEndMs
+        // Extend the schedulable window into tonight's sleep so tasks can push bed time later
+        // (the sleep block is slid to the latest task end afterwards) — but never into its last
+        // MIN_SLEEP_MS, since the slid block never compresses below that and a task there would
+        // overlap it. Only URGENT work may cross bed time at all; see bedCapFor.
+        val freeBlockEnd = if (preferredBedMs != null && sleepWakeMs != null)
+            maxOf(preferredBedMs, sleepWakeMs - MIN_SLEEP_MS) else dayEndMs
+
+        // Latest end for anything below URGENT: preferred bed time. Waived when the item's own
+        // constraints already start it at or after bed time — a block the user put late, or a
+        // window/anchor set past bed time, is a deliberate choice rather than filler.
+        fun bedCapFor(priority: Int, earliestStartMs: Long?): Long? =
+            preferredBedMs?.takeIf { bed ->
+                priority < PlannerPriority.URGENT && (earliestStartMs == null || earliestStartMs < bed)
+            }
 
         // When nowMs is provided (today's live view), past time is not schedulable.
         // Tasks that would have started before now are placed starting from now instead,
@@ -229,10 +246,17 @@ class EventPlannerRegistry {
                 afterCalCond?.let { calendarEventBlocks[it.eventId]?.second },
                 afterTaskCond?.taskIds?.takeIf { TASK_REF_SLEEP in it }?.let { sleepEndBound }
             ).maxOrNull()
+            val floatEarliestStart = listOfNotNull(
+                floatLowerBound,
+                parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> toMs(h, m) },
+                aroundCond?.let { toMs(it.anchorHour, it.anchorMinute) },
+                duringCalCond?.let { calendarEventBlocks[it.eventId]?.first }
+            ).maxOrNull()
             val floatUpperBound = listOfNotNull(
                 beforeBlockCond?.blockId?.let { refId -> (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.scheduledStartMs },
                 beforeCalCond?.let { calendarEventBlocks[it.eventId]?.first },
-                beforeTaskCond?.taskIds?.takeIf { TASK_REF_SLEEP in it }?.let { sleepStartBound }
+                beforeTaskCond?.taskIds?.takeIf { TASK_REF_SLEEP in it }?.let { sleepStartBound },
+                bedCapFor(inst.block.priority, floatEarliestStart)
             ).minOrNull()
 
             var placed = false
@@ -604,6 +628,15 @@ class EventPlannerRegistry {
                         || event.scheduleLate
                         || event.zone == PlannerZone.EVENING
 
+                // Only the free-time paths below use this — During* placements are already
+                // confined to a window the user chose.
+                val bedCap = bedCapFor(event.priority, listOfNotNull(
+                    effectiveMustStartAfter,
+                    tw?.let { toMs(it.startHour, it.startMin) },
+                    event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
+                        ?.let { toMs(it.anchorHour, it.anchorMinute) }
+                ).maxOrNull())
+
                 var placed = false
 
                 // DuringShift: greedy first-fit within shift free slots to prevent overlap
@@ -761,7 +794,7 @@ class EventPlannerRegistry {
                 if (aroundTime != null) {
                     val anchorMs = toMs(aroundTime.anchorHour, aroundTime.anchorMinute)
                     val flexMs = aroundTime.flexMinutes * 60_000L
-                    val hiBound = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis).minOrNull()
+                    val hiBound = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis, bedCap).minOrNull()
                     val primary = closestFitToAnchor(remaining, anchorMs, flexMs, durationMs, effectiveMustStartAfter, hiBound)
                     if (primary != null) {
                         val (idx, start) = primary
@@ -804,7 +837,8 @@ class EventPlannerRegistry {
                             effectiveMustEndBefore ?: blockEnd,
                             tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
                             if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
-                            deadline?.byMillis ?: blockEnd
+                            deadline?.byMillis ?: blockEnd,
+                            bedCap ?: blockEnd
                         )
                         if (fitEnd - earliestStart < durationMs) continue
                         val slackMs = (fitEnd - earliestStart) - durationMs
@@ -820,19 +854,21 @@ class EventPlannerRegistry {
                 } else {
                     // Reverse last-fit: place as late as possible before any upper bound.
                     // Two-phase: phase 1 tries to stay before preferredBedMs (pre-sleep); phase 2
-                    // allows overflow into the sleep window only when there is genuinely no room.
-                    val bedCaps = if (preferredBedMs != null && effectiveMustEndBefore == null)
+                    // allows overflow into the sleep window only when there is genuinely no room —
+                    // and only for work exempt from bedCap; everything else is capped at bed time.
+                    val bedCaps = if (bedCap == null && preferredBedMs != null && effectiveMustEndBefore == null)
                         listOf(preferredBedMs, null) else listOf(null)
-                    outer@ for (bedCap in bedCaps) {
+                    outer@ for (phaseCap in bedCaps) {
                         for (i in remaining.indices.reversed()) {
                             val (blockStart, blockEnd) = remaining[i]
                             if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
                             if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
                             val upperBound = minOf(
                                 blockEnd,
-                                effectiveMustEndBefore ?: (bedCap ?: blockEnd),
+                                effectiveMustEndBefore ?: (phaseCap ?: blockEnd),
                                 tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
-                                if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd
+                                if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
+                                bedCap ?: blockEnd
                             )
                             val lowerBound = maxOf(
                                 blockStart,
@@ -990,8 +1026,7 @@ class EventPlannerRegistry {
         // Slide tonight's sleep block forward if tasks ran past preferred bed time.
         // The 4-hour minimum-sleep guard keeps the block from compressing below a viable rest.
         if (tonightSleepEvent != null && preferredBedMs != null && sleepWakeMs != null) {
-            val minSleepMs = 4 * 3600_000L
-            val latestAllowedBedMs = sleepWakeMs - minSleepMs
+            val latestAllowedBedMs = sleepWakeMs - MIN_SLEEP_MS
             if (latestAllowedBedMs >= preferredBedMs) {
                 val latestTaskEnd = scheduled
                     .filter { it.event.id != tonightSleepEvent.id && it.endMillis <= sleepWakeMs }
