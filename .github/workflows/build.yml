@@ -164,9 +164,10 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          # No target_commitish: the tag goes on the default branch's tip, which is this branch.
+          # Pinning it to the built commit made GitHub refuse the release (403) whenever that
+          # commit's workflow files differed from the tip's — this token can't tag those.
           tag_name: v${{ env.VERSION }}-${{ github.run_number }}
-          # The commit that was built — without it the tag lands on the default branch's tip.
-          target_commitish: ${{ github.sha }}
           name: "v${{ env.VERSION }} (build ${{ github.run_number }})"
           prerelease: true
           files: app/build/outputs/apk/debug/app-debug.apk
