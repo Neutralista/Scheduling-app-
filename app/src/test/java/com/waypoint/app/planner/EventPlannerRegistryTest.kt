@@ -78,6 +78,44 @@ class EventPlannerRegistryTest {
     }
 
     @Test
+    fun lateTask_landsRightBeforeItsDeadline() {
+        // Used to skip the only slot because its latest end passed the deadline, and get blocked.
+        val r = registry().apply {
+            register(PlannerEvent(
+                id = "late", title = "late", durationMinutes = 60, priority = 9, scheduleLate = true,
+                conditions = listOf(EventCondition.Deadline(ms(day, 14)))
+            ))
+        }
+        assertEquals(ms(day, 13), r.planForDate(day).startOf("late"))
+    }
+
+    @Test
+    fun taskDuringBlock_respectsDeadline() {
+        val gym = NamedBlockInstance(NamedBlock(id = "gym", name = "Gym"), ms(day, 9), ms(day, 12))
+        val r = registry().apply {
+            register(PlannerEvent(
+                id = "stretch", title = "stretch", durationMinutes = 60, priority = 9,
+                zone = PlannerZone.EVENING,
+                conditions = listOf(EventCondition.DuringBlock("gym"), EventCondition.Deadline(ms(day, 10, 30)))
+            ))
+        }
+        assertEquals(ms(day, 9, 30), r.planForDate(day, namedBlockInstances = listOf(gym)).startOf("stretch"))
+    }
+
+    @Test
+    fun deadline_isJudgedAgainstThePlannedDay() {
+        val r = registry().apply {
+            register(PlannerEvent(
+                id = "due", title = "due", durationMinutes = 30, priority = 9,
+                conditions = listOf(EventCondition.Deadline(ms(day, 12)))
+            ))
+        }
+        assertEquals(ms(day, 7), r.planForDate(day).startOf("due"))
+        val nextDay = r.planForDate(day.plusDays(1))
+        assertTrue(nextDay.blocked.any { it.event.id == "due" && it.reason == "Past deadline" })
+    }
+
+    @Test
     fun taskDeliberatelyAfterBedtime_isNotCapped() {
         val r = registry(busyUntilHour = 22).apply {
             register(task("late", 20, 9, EventCondition.TimeWindow(23, 30, 23, 59)))

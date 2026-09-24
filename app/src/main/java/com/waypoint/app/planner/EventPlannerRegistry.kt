@@ -99,6 +99,9 @@ class EventPlannerRegistry {
 
         val dayStartMs = cal.timeInMillis
         val dayEndMs   = dayStartMs + 24 * 3600_000L
+        // A deadline at or before this can't be met in the plan being built: the planned day's
+        // start, or now for today. Not the wall clock alone — that judged other days by today.
+        val deadlineCutoffMs = maxOf(dayStartMs, nowMs ?: dayStartMs)
 
         val blocked        = mutableListOf<BlockedEvent>()
         val scheduled      = mutableListOf<ScheduledEvent>()
@@ -112,7 +115,7 @@ class EventPlannerRegistry {
                 if (end > start) scheduled += ScheduledEvent(event, start, end)
                 continue
             }
-            val reason = checkDayConditions(event.conditions, date, isWorkDay, shiftStartMs, shiftEndMs)
+            val reason = checkDayConditions(event.conditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
             if (reason != null) { blocked += BlockedEvent(event, reason); continue }
             allSchedulable += event
         }
@@ -222,7 +225,7 @@ class EventPlannerRegistry {
             // everyNDays/everyNWeeks/everyNMonths/nTimesPerPeriod — not just workDayOnly/
             // dayOffOnly/daysOfWeek, which used to be the only three types this hand-checked.
             val floatingEventConditions = inst.block.floatingConditions.mapNotNull { it.toEventCondition() }
-            val eligible = checkDayConditions(floatingEventConditions, date, isWorkDay, shiftStartMs, shiftEndMs) == null
+            val eligible = checkDayConditions(floatingEventConditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs) == null
             if (!eligible) continue
             val effectiveDurMins = effectiveDurationMinutes(inst.block, inst.activeTasks)
             val durationMs = effectiveDurMins * 60_000L
@@ -414,7 +417,7 @@ class EventPlannerRegistry {
             // (AfterBlock tasks will be scheduled after estimatedEndMs via condition)
 
             for (syntheticEvent in buildSubTaskEvents(inst, blockEventId)) {
-                val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs)
+                val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
                 if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
                 else allSchedulable += syntheticEvent
             }
@@ -637,6 +640,13 @@ class EventPlannerRegistry {
                         ?.let { toMs(it.anchorHour, it.anchorMinute) }
                 ).maxOrNull())
 
+                // Hard end for the window-confined paths (during a shift, block, or calendar
+                // event, and the historical fallback): upper-bound constraints plus the deadline,
+                // which those paths used to ignore. Kept separate from effectiveMustEndBefore so a
+                // deadline alone doesn't flip placement to last-fit.
+                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
+                val endBy = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis).minOrNull()
+
                 var placed = false
 
                 // DuringShift: greedy first-fit within shift free slots to prevent overlap
@@ -646,7 +656,7 @@ class EventPlannerRegistry {
                         val anchorMs = toMs(shiftAroundTime.anchorHour, shiftAroundTime.anchorMinute)
                         val flexMs = shiftAroundTime.flexMinutes * 60_000L
                         val loBound = listOfNotNull(tw?.let { toMs(it.startHour, it.startMin) }, effectiveMustStartAfter).maxOrNull()
-                        val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, effectiveMustEndBefore).minOrNull()
+                        val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, endBy).minOrNull()
                         val fit = closestFitToAnchor(shiftFreeSlots, anchorMs, flexMs, durationMs, loBound, hiBound)
                         if (fit != null) {
                             val (idx, start) = fit
@@ -663,7 +673,7 @@ class EventPlannerRegistry {
                             )
                             val fitEnd = minOf(
                                 if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd,
-                                effectiveMustEndBefore ?: slotEnd
+                                endBy ?: slotEnd
                             )
                             if (fitEnd - fitStart < durationMs) continue
                             scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
@@ -696,7 +706,7 @@ class EventPlannerRegistry {
                         val anchorMs = toMs(blockAroundTime.anchorHour, blockAroundTime.anchorMinute)
                         val flexMs = blockAroundTime.flexMinutes * 60_000L
                         val loBound = listOfNotNull(tw?.let { toMs(it.startHour, it.startMin) }, effectiveMustStartAfter).maxOrNull()
-                        val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, effectiveMustEndBefore).minOrNull()
+                        val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, endBy).minOrNull()
                         val fit = closestFitToAnchor(slots, anchorMs, flexMs, durationMs, loBound, hiBound)
                         if (fit != null) {
                             val (idx, start) = fit
@@ -714,7 +724,7 @@ class EventPlannerRegistry {
                             )
                             val fitEnd = minOf(
                                 if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd,
-                                effectiveMustEndBefore ?: slotEnd
+                                endBy ?: slotEnd
                             )
                             if (fitEnd - fitStart < durationMs) continue
                             scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
@@ -731,7 +741,7 @@ class EventPlannerRegistry {
                             )
                             val hi = minOf(
                                 if (tw != null) minOf(slotEnd, toMs(tw.endHour, tw.endMin)) else slotEnd,
-                                effectiveMustEndBefore ?: slotEnd
+                                endBy ?: slotEnd
                             )
                             val lateStart = hi - durationMs
                             if (lateStart < lo) continue
@@ -757,7 +767,7 @@ class EventPlannerRegistry {
                             val anchorMs = toMs(calAroundTime.anchorHour, calAroundTime.anchorMinute)
                             val flexMs = calAroundTime.flexMinutes * 60_000L
                             val loBound = listOfNotNull(tw?.let { toMs(it.startHour, it.startMin) }, effectiveMustStartAfter).maxOrNull()
-                            val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, effectiveMustEndBefore).minOrNull()
+                            val hiBound = listOfNotNull(tw?.let { toMs(it.endHour, it.endMin) }, endBy).minOrNull()
                             val fit = closestFitToAnchor(listOf(slot), anchorMs, flexMs, durationMs, loBound, hiBound)
                             if (fit != null) {
                                 val (_, start) = fit
@@ -771,7 +781,7 @@ class EventPlannerRegistry {
                             )
                             val fitEnd = minOf(
                                 if (tw != null) minOf(slot.second, toMs(tw.endHour, tw.endMin)) else slot.second,
-                                effectiveMustEndBefore ?: slot.second
+                                endBy ?: slot.second
                             )
                             if (fitEnd - fitStart >= durationMs) {
                                 scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
@@ -782,8 +792,6 @@ class EventPlannerRegistry {
                     }
                     continue
                 }
-
-                val deadline = event.conditions.filterIsInstance<EventCondition.Deadline>().firstOrNull()
 
                 // AroundTime: soft anchor. Scans every free slot for the closest valid start to
                 // the anchor within [anchor - flex, anchor + flex] and takes the single best one
@@ -868,7 +876,11 @@ class EventPlannerRegistry {
                                 effectiveMustEndBefore ?: (phaseCap ?: blockEnd),
                                 tw?.let { toMs(it.endHour, it.endMin) } ?: blockEnd,
                                 if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
-                                bedCap ?: blockEnd
+                                bedCap ?: blockEnd,
+                                // An upper bound, not a slot filter — the old "skip the slot if
+                                // the late end passes the deadline" check threw away room before
+                                // the deadline in that same slot.
+                                deadline?.byMillis ?: blockEnd
                             )
                             val lowerBound = maxOf(
                                 blockStart,
@@ -877,7 +889,6 @@ class EventPlannerRegistry {
                                 if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
                             )
                             val fitStart = upperBound - durationMs
-                            if (deadline != null && fitStart + durationMs > deadline.byMillis) continue
                             if (fitStart < lowerBound) continue
                             scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
                             // Preserve free time before and after the placed slot.
@@ -900,7 +911,7 @@ class EventPlannerRegistry {
                         )
                         val hi = minOf(
                             slotEnd,
-                            effectiveMustEndBefore ?: slotEnd,
+                            endBy ?: slotEnd,
                             tw?.let { toMs(it.endHour, it.endMin) } ?: slotEnd
                         )
                         val fitStart = hi - durationMs
@@ -931,7 +942,7 @@ class EventPlannerRegistry {
             val round2BlockEvents = mutableListOf<PlannerEvent>()
             for (inst in taskDependentFloating) {
                 val conds = inst.block.floatingConditions.mapNotNull { it.toEventCondition() }
-                val dayReason = checkDayConditions(conds, date, isWorkDay, shiftStartMs, shiftEndMs)
+                val dayReason = checkDayConditions(conds, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
                 val effectiveDurMins = effectiveDurationMinutes(inst.block, inst.activeTasks)
                 val ev = PlannerEvent(
                     id = "$blockEventPrefix${inst.block.id}",
@@ -961,7 +972,7 @@ class EventPlannerRegistry {
                 for (inst in round2Resolved) {
                     val blockEventId = "$blockEventPrefix${inst.block.id}"
                     for (syntheticEvent in buildSubTaskEvents(inst, blockEventId)) {
-                        val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs)
+                        val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
                         if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
                         else round2SubTasks += syntheticEvent
                     }
@@ -1140,7 +1151,8 @@ class EventPlannerRegistry {
         date: LocalDate,
         isWorkDay: Boolean,
         shiftStartMs: Long?,
-        shiftEndMs: Long?
+        shiftEndMs: Long?,
+        deadlineCutoffMs: Long
     ): String? {
         for (cond in conditions) when (cond) {
             is EventCondition.DaysOfWeek -> if (date.dayOfWeek.value !in cond.days) return "Not scheduled for today"
@@ -1149,7 +1161,7 @@ class EventPlannerRegistry {
             is EventCondition.BeforeShift,
             is EventCondition.DuringShift,
             is EventCondition.AfterShift -> if (!isWorkDay || shiftStartMs == null || shiftEndMs == null) return "No shift today"
-            is EventCondition.Deadline -> if (System.currentTimeMillis() > cond.byMillis) return "Past deadline"
+            is EventCondition.Deadline -> if (cond.byMillis <= deadlineCutoffMs) return "Past deadline"
             is EventCondition.OneOff -> if (date.toString() != cond.date) return "Not scheduled for today"
             // Delegate the recurring-pattern day-matching to RecurrenceRule.occursOn so named
             // blocks and plain tasks always agree on identical rules — see RecurrenceRule.kt.
