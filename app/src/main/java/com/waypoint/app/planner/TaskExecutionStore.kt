@@ -9,8 +9,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * Persists TaskExecution records keyed by date + taskId (exec_{date}_{taskId}).
- * History is kept for 30 days. Only today's entries are touched by start/stop/get/getRunning.
+ * Persists TaskExecution records keyed by the date they started + taskId (exec_{date}_{taskId}).
+ * History is kept for 30 days. start() writes today's entry; stop/get/getRunning and the subtask
+ * calls look at today's and yesterday's, so a task started before midnight is still found (and
+ * can be stopped) after it — a wake cycle doesn't end at midnight.
  */
 class TaskExecutionStore(context: Context) {
 
@@ -24,68 +26,68 @@ class TaskExecutionStore(context: Context) {
 
     private fun todayStr(): String = LocalDate.now().toString()
 
+    private fun recentDates(): List<String> = LocalDate.now().let { listOf(it.toString(), it.minusDays(1).toString()) }
+
     private fun dateOf(millis: Long): String =
         Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 
     private fun key(date: String, taskId: String) = "exec_${date}_${taskId}"
-    private fun key(taskId: String) = key(todayStr(), taskId)
+
+    private fun decode(raw: String?): TaskExecution? =
+        raw?.let { try { json.decodeFromString<TaskExecution>(it) } catch (_: Exception) { null } }
+
+    /** The most recently started of today's and yesterday's executions of [taskId], with its key. */
+    private fun latestEntry(taskId: String): Pair<String, TaskExecution>? =
+        recentDates()
+            .mapNotNull { date -> key(date, taskId).let { k -> decode(prefs.getString(k, null))?.let { k to it } } }
+            .maxByOrNull { it.second.startMillis }
+
+    private fun put(key: String, exec: TaskExecution) {
+        prefs.edit().putString(key, json.encodeToString(exec)).apply()
+    }
 
     fun start(taskId: String): TaskExecution {
         val exec = TaskExecution(taskId = taskId, startMillis = System.currentTimeMillis())
-        prefs.edit().putString(key(taskId), json.encodeToString(exec)).apply()
+        put(key(todayStr(), taskId), exec)
         AppLogger.i(TAG, "start: taskId=$taskId")
         return exec
     }
 
     fun stop(taskId: String): TaskExecution? {
-        val raw = prefs.getString(key(taskId), null) ?: return null
-        return try {
-            val exec = json.decodeFromString<TaskExecution>(raw)
-            val finished = exec.copy(endMillis = System.currentTimeMillis())
-            prefs.edit().putString(key(taskId), json.encodeToString(finished)).apply()
-            AppLogger.i(TAG, "stop: taskId=$taskId measuredMinutes=${finished.measuredMinutes}")
-            finished
-        } catch (_: Exception) { null }
+        val (k, exec) = latestEntry(taskId)?.takeIf { it.second.isRunning } ?: return null
+        val finished = exec.copy(endMillis = System.currentTimeMillis())
+        put(k, finished)
+        AppLogger.i(TAG, "stop: taskId=$taskId measuredMinutes=${finished.measuredMinutes}")
+        return finished
     }
 
     fun startSubtask(taskId: String, subtaskId: String) {
-        val raw = prefs.getString(key(taskId), null) ?: return
-        try {
-            val exec = json.decodeFromString<TaskExecution>(raw)
-            val newSub = SubtaskExecution(subtaskId = subtaskId, startMillis = System.currentTimeMillis())
-            val updated = exec.copy(subtaskExecutions = exec.subtaskExecutions + newSub)
-            prefs.edit().putString(key(taskId), json.encodeToString(updated)).apply()
-        } catch (_: Exception) {}
+        val (k, exec) = latestEntry(taskId)?.takeIf { it.second.isRunning } ?: return
+        val newSub = SubtaskExecution(subtaskId = subtaskId, startMillis = System.currentTimeMillis())
+        put(k, exec.copy(subtaskExecutions = exec.subtaskExecutions + newSub))
     }
 
     fun stopSubtask(taskId: String, subtaskId: String) {
-        val raw = prefs.getString(key(taskId), null) ?: return
-        try {
-            val exec = json.decodeFromString<TaskExecution>(raw)
-            val updatedSubs = exec.subtaskExecutions.map { sub ->
-                if (sub.subtaskId == subtaskId && sub.endMillis == null)
-                    sub.copy(endMillis = System.currentTimeMillis())
-                else sub
-            }
-            prefs.edit().putString(key(taskId), json.encodeToString(exec.copy(subtaskExecutions = updatedSubs))).apply()
-        } catch (_: Exception) {}
+        val (k, exec) = latestEntry(taskId)?.takeIf { it.second.isRunning } ?: return
+        val updatedSubs = exec.subtaskExecutions.map { sub ->
+            if (sub.subtaskId == subtaskId && sub.endMillis == null)
+                sub.copy(endMillis = System.currentTimeMillis())
+            else sub
+        }
+        put(k, exec.copy(subtaskExecutions = updatedSubs))
     }
 
-    fun get(taskId: String): TaskExecution? {
-        val raw = prefs.getString(key(taskId), null) ?: return null
-        return try { json.decodeFromString<TaskExecution>(raw) } catch (_: Exception) { null }
-    }
+    /** The latest execution of [taskId] started today or yesterday, running or finished. */
+    fun get(taskId: String): TaskExecution? = latestEntry(taskId)?.second
 
     fun getRunning(): TaskExecution? {
-        val prefix = "exec_${todayStr()}_"
+        val prefixes = recentDates().map { "exec_${it}_" }
         return prefs.all
-            .filter { it.key.startsWith(prefix) }
+            .filter { (k, _) -> prefixes.any { k.startsWith(it) } }
             .values
-            .mapNotNull { raw ->
-                try { json.decodeFromString<TaskExecution>(raw as? String ?: return@mapNotNull null) }
-                catch (_: Exception) { null }
-            }
-            .firstOrNull { it.isRunning }
+            .mapNotNull { decode(it as? String) }
+            .filter { it.isRunning }
+            .maxByOrNull { it.startMillis }
     }
 
     /** All executions across the last [HISTORY_DAYS] days, newest first. */

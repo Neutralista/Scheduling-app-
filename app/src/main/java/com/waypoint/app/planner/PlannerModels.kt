@@ -35,6 +35,14 @@ data class PlannerEvent(
      */
     val fixedStartMillis: Long? = null,
     val fixedEndMillis: Long? = null,
+    /**
+     * With a fixed range: the range pins the event only on the day(s) it overlaps. On a later
+     * day planned ahead (no "now") the event is planned from its [conditions] as usual — a daily
+     * task done (or started) today still floats tomorrow. The live plan for today never floats
+     * it: past midnight in the same wake, what was done yesterday evening is still done. False
+     * keeps the range authoritative everywhere.
+     */
+    val pinnedDayOnly: Boolean = false,
     /** True for sleep events built from an actual log entry (past); false for computed planned windows. */
     val isLogged: Boolean = false,
     /** Extra minutes added after the event ends when computing free block consumption. */

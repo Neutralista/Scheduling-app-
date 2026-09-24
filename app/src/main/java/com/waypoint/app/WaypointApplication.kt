@@ -13,6 +13,8 @@ import com.waypoint.app.notification.NotificationHelper
 import com.waypoint.app.notification.ReminderScheduler
 import com.waypoint.app.notification.SleepNotificationHelper
 import com.waypoint.app.planner.BlockAlarmScheduler
+import com.waypoint.app.planner.BlockSessionStore
+import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.script.ScriptRegistry
@@ -126,6 +128,13 @@ class WaypointApplication : Application() {
             _cycleTracker = CycleTracker(applicationContext)
             _env.taskManager.completions.getCycleId = { _cycleTracker.store.loadCurrent()?.id ?: "" }
             _cycleTracker.onNewCycle = { wakeMillis -> _env.taskManager.completions.retainDoneSince(wakeMillis) }
+            BlockSessionStore.taskCounter = { session ->
+                val tasks = NamedBlockStore(applicationContext)
+                    .resolveActiveTasks(session.blockId, LocalDate.parse(session.date))
+                tasks.count { _env.taskManager.isDone(it.id) } to tasks.size
+            }
+            // Now that it can count tasks: log a session that timed out while the app was closed.
+            _env.blockSessionStore.loadCurrent()
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Built-in scripts"

@@ -20,17 +20,23 @@ data class ActiveBlockSession(
     val date: String  // "yyyy-MM-dd"
 )
 
-class BlockSessionStore(context: Context, private val logStore: BlockSessionLogStore? = null) {
+class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null) {
 
     private val appContext: Context = context.applicationContext
+    // Always logs: an instance made in a receiver used to have no log store, so a session that
+    // timed out there was ended without ever reaching History.
+    private val logStore: BlockSessionLogStore = logStore ?: BlockSessionLogStore(appContext)
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences("wp_block_session", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
-    val sessionFlow = MutableStateFlow<ActiveBlockSession?>(loadCurrent())
+    // Not loadCurrent(): at app start this is built before [taskCounter] is wired, and a session
+    // that timed out would be logged with no task counts. The app calls loadCurrent() once it is.
+    val sessionFlow = MutableStateFlow<ActiveBlockSession?>(loadFromPrefs()?.takeIf { !isExpired(it) })
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        sessionFlow.value = loadFromPrefs()?.takeIf { !isExpired(it) }
+        val session = loadFromPrefs()
+        if (session != null && isExpired(session)) expire(session) else sessionFlow.value = session
     }
 
     init {
@@ -60,20 +66,21 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
     fun endSession(
         tasksCompleted: Int = 0,
         tasksTotal: Int = 0,
-        taskMeasurements: List<BlockTaskMeasurement> = emptyList()
+        taskMeasurements: List<BlockTaskMeasurement> = emptyList(),
+        endedAtMs: Long = System.currentTimeMillis()
     ) {
         val current = loadFromPrefs()
         prefs.edit().remove("active").apply()
         sessionFlow.value = null
         BlockNotificationHelper.cancelSessionLiveNotification(appContext)
-        if (current != null && logStore != null) {
+        if (current != null) {
             logStore.addEntry(BlockSessionLog(
                 blockId = current.blockId,
                 blockName = current.blockName,
                 colorArgb = current.colorArgb,
                 date = current.date,
                 startedAtMs = current.startedAtMs,
-                endedAtMs = System.currentTimeMillis(),
+                endedAtMs = endedAtMs,
                 tasksCompleted = tasksCompleted,
                 tasksTotal = tasksTotal,
                 taskMeasurements = taskMeasurements
@@ -112,10 +119,21 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
     fun loadCurrent(): ActiveBlockSession? {
         val session = loadFromPrefs() ?: return null
         if (isExpired(session)) {
-            endSession()
+            expire(session)
             return null
         }
         return session
+    }
+
+    /**
+     * Ends a session whose scheduled end passed without anyone ending it (the app was closed, or
+     * nobody tapped Exit). Logged as ending at its scheduled end, not whenever this noticed —
+     * the next launch could be hours later — with the block's tasks ticked off by then.
+     */
+    private fun expire(session: ActiveBlockSession) {
+        val (done, total) = taskCounter?.let { count -> runCatching { count(session) }.getOrNull() } ?: (0 to 0)
+        endSession(tasksCompleted = done, tasksTotal = total, endedAtMs = session.scheduledEndMs)
+        AppLogger.i(TAG, "expire: blockId=${session.blockId} tasks=$done/$total")
     }
 
     // A block session is stale once its scheduled end has passed — not merely once the
@@ -129,7 +147,15 @@ class BlockSessionStore(context: Context, private val logStore: BlockSessionLogS
             try { json.decodeFromString<ActiveBlockSession>(it) } catch (_: Exception) { null }
         }
 
-    private companion object {
-        const val TAG = "BlockSessionStore"
+    companion object {
+        private const val TAG = "BlockSessionStore"
+
+        /**
+         * (ticked off, total) of a session's block tasks, for logging one that timed out. Set
+         * once by the app when its task store is ready; process-wide, so instances made in
+         * receivers use it too.
+         */
+        @Volatile
+        var taskCounter: ((ActiveBlockSession) -> Pair<Int, Int>)? = null
     }
 }

@@ -131,12 +131,17 @@ class EventPlannerRegistry {
         val allSchedulable = mutableListOf<PlannerEvent>()
 
         // ── Fixed events + day-condition filtering ────────────────────────────
-        for (event in allEvents) {
-            if (event.fixedStartMillis != null && event.fixedEndMillis != null) {
-                val start = maxOf(event.fixedStartMillis, dayStartMs)
-                val end   = minOf(event.fixedEndMillis,   dayEndMs)
-                if (end > start) scheduled += ScheduledEvent(event, start, end)
-                continue
+        for (listed in allEvents) {
+            var event = listed
+            if (listed.fixedStartMillis != null && listed.fixedEndMillis != null) {
+                val start = maxOf(listed.fixedStartMillis, dayStartMs)
+                val end   = minOf(listed.fixedEndMillis,   dayEndMs)
+                if (end > start) { scheduled += ScheduledEvent(listed, start, end); continue }
+                // Only a later day than the pin, and not the live plan for today: a task done
+                // at 23:00 is still done at 00:30 in the same wake, so it mustn't float again.
+                if (!listed.pinnedDayOnly || nowMs != null || listed.fixedEndMillis > dayStartMs) continue
+                // Pinned on an earlier day: plan it here like any other event.
+                event = listed.copy(fixedStartMillis = null, fixedEndMillis = null)
             }
             val reason = checkDayConditions(event.conditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
             if (reason != null) { blocked += BlockedEvent(event, reason); continue }

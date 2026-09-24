@@ -8,6 +8,7 @@ import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.planner.TaskExecutionStore
 import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.planner.TaskRequest
+import kotlin.math.abs
 
 class TaskManagerScript(
     private val store: TaskQueueStore,
@@ -22,6 +23,8 @@ class TaskManagerScript(
     companion object {
         private const val TAG = "TaskManagerScript"
         const val WIDGET_ID = "task_manager"
+        /** How close a run's end and the done mark must be for the run to be what was marked done. */
+        private const val RUN_MATCH_MS = 5 * 60_000L
     }
 
     override fun onAttached(env: ScriptEnvironment) {
@@ -47,9 +50,10 @@ class TaskManagerScript(
 
     fun getAllTasks(): List<TaskRequest> = store.loadAll()
 
-    fun markDone(taskId: String) = completions.markDone(taskId)
-    fun markDoneAt(taskId: String, whenMs: Long) = completions.markDoneAt(taskId, whenMs)
-    fun unmarkDone(taskId: String) = completions.unmarkDone(taskId)
+    // Re-synced so a done task is pinned where it happened instead of still floating after now.
+    fun markDone(taskId: String) { completions.markDone(taskId); syncToRegistry() }
+    fun markDoneAt(taskId: String, whenMs: Long) { completions.markDoneAt(taskId, whenMs); syncToRegistry() }
+    fun unmarkDone(taskId: String) { completions.unmarkDone(taskId); syncToRegistry() }
     fun isDone(taskId: String) = completions.isDone(taskId)
 
     fun skipTask(taskId: String) { completions.skipTask(taskId); syncToRegistry() }
@@ -85,15 +89,22 @@ class TaskManagerScript(
                     ?.toInt() ?: req.durationMinutes
             } else req.durationMinutes
 
-            // Pin running tasks at their start so the now-line progresses through them.
-            // Pin completed tasks at their actual logged start/end so they don't float.
-            val runningExec   = executions.get(req.id)?.takeIf { it.isRunning }
-            val completedExec = executions.get(req.id)?.takeIf { !it.isRunning && it.endMillis != null }
-            val fixedStart = runningExec?.startMillis ?: completedExec?.startMillis
-            val fixedEnd   = when {
-                runningExec   != null -> fixedStart!! + effectiveDuration * 60_000L
-                completedExec != null -> completedExec.endMillis
-                else                  -> null
+            // Pin a running task at its start so the now-line progresses through it, and a done
+            // one where it happened so it stops floating after now and holding time. That's its
+            // timed run when the done mark came from stopping it, else the duration up to when
+            // it was marked done. A finished run that's no longer marked done (unticked, or from
+            // before this wake) doesn't pin: the task is to do again.
+            val exec = executions.get(req.id)
+            val doneAt = if (completions.isDone(req.id)) completions.getDoneAt(req.id) else null
+            val finishedRun = exec?.takeIf { e ->
+                val end = e.endMillis
+                !e.isRunning && end != null && doneAt != null && abs(doneAt - end) <= RUN_MATCH_MS
+            }
+            val (fixedStart, fixedEnd) = when {
+                exec != null && exec.isRunning -> exec.startMillis to exec.startMillis + effectiveDuration * 60_000L
+                finishedRun != null     -> finishedRun.startMillis to finishedRun.endMillis
+                doneAt != null          -> doneAt - effectiveDuration * 60_000L to doneAt
+                else                    -> null to null
             }
 
             registry.register(
@@ -102,14 +113,15 @@ class TaskManagerScript(
                     title = req.title,
                     durationMinutes = effectiveDuration,
                     priority = req.priority,
-                    conditions = if (fixedStart != null) emptyList()
-                                 else req.conditions.mapNotNull { it.toEventCondition() },
+                    conditions = req.conditions.mapNotNull { it.toEventCondition() },
                     sourceWidgetId = WIDGET_ID,
                     bufferMinutes = req.bufferMinutes,
                     scheduleLate = req.scheduleLate,
                     zone = req.zone,
                     fixedStartMillis = fixedStart,
                     fixedEndMillis = fixedEnd,
+                    // Pinned only on the day it ran; a recurring task still floats on other days.
+                    pinnedDayOnly = true,
                     colorArgb = req.colorArgb
                 )
             )

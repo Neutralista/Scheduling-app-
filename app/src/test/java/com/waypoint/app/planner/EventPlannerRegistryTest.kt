@@ -45,6 +45,27 @@ class EventPlannerRegistryTest {
     }
 
     @Test
+    fun doneTask_pinnedWhereItHappened_stillFloatsOnOtherDays() {
+        val r = registry().apply {
+            register(task("t", 60).copy(fixedStartMillis = ms(day, 9), fixedEndMillis = ms(day, 10), pinnedDayOnly = true))
+        }
+        // Pinned today even though "now" is past it, rather than floating after now.
+        assertEquals(ms(day, 9), r.planForDate(day, nowMs = ms(day, 15)).startOf("t"))
+        // Tomorrow it's planned like any other task, from that morning's wake.
+        assertEquals(ms(day.plusDays(1), 7), r.planForDate(day.plusDays(1)).startOf("t"))
+        // But at 00:30 in the same wake it's still done, not to do again.
+        assertNull(r.planForDate(day.plusDays(1), nowMs = ms(day.plusDays(1), 0, 30)).startOf("t"))
+    }
+
+    @Test
+    fun fixedEvent_withoutPinnedDayOnly_absentOnOtherDays() {
+        val r = registry().apply {
+            register(task("t", 60).copy(fixedStartMillis = ms(day, 9), fixedEndMillis = ms(day, 10)))
+        }
+        assertNull(r.planForDate(day.plusDays(1)).startOf("t"))
+    }
+
+    @Test
     fun today_startsFromNow() {
         val r = registry().apply { register(task("t", 60)) }
         assertEquals(ms(day, 10), r.planForDate(day, nowMs = ms(day, 10)).startOf("t"))
