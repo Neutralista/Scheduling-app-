@@ -136,5 +136,7 @@ class MainActivity : ComponentActivity() {
         val app = application as WaypointApplication
         if (app.startupCrash != null) return
         app.cycleTracker.recordActive()
+        // Clears the "alarms can't show on the lock screen" notification once it's turned back on.
+        runCatching { com.waypoint.app.notification.FullScreenAlarmPermission.check(this) }
     }
 }

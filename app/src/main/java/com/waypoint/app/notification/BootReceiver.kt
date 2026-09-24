@@ -48,6 +48,10 @@ class BootReceiver : BroadcastReceiver() {
                         SleepCheckReceiver.scheduleNextCheck(context)
                     }
                 }.onFailure { AppLogger.e(TAG, "onReceive: sleep check re-arm failed", it) }
+                // Android can turn full-screen alarms off during an app update; say so now,
+                // not when an alarm fails to cover the lock screen.
+                runCatching { FullScreenAlarmPermission.check(context) }
+                    .onFailure { AppLogger.e(TAG, "onReceive: full-screen permission check failed", it) }
             } finally {
                 pendingResult.finish()
             }
