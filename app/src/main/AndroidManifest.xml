@@ -48,6 +48,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
+        <!--
+            Might (Training-app): Android 11+ hides other apps unless they're declared here, which
+            can stop the "Open in Might" link and the theme broadcast (MightThemeSync) reaching it.
+        -->
+        <package android:name="com.neutralista.trainingapp" />
+
         <!-- Standalone Health Connect app (Android 9–13) -->
         <package android:name="com.google.android.apps.healthdata" />
         <!--

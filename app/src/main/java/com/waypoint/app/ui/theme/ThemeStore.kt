@@ -1,5 +1,6 @@
 package com.waypoint.app.ui.theme
 
+import com.waypoint.app.integration.MightThemeSync
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,10 @@ class ThemeStore(context: Context) {
         when (key) {
             "selected_id" -> selectedThemeIdFlow.value = prefs.getString("selected_id", "belamour") ?: "belamour"
             "dark_mode" -> darkModeOverrideFlow.value = prefs.getString("dark_mode", null)?.let { it == "dark" }
+        }
+        // Might follows Waypoint's theme: tell it about any change to the look.
+        if (key == "selected_id" || key == "dark_mode" || key == "custom_themes") {
+            MightThemeSync.send(appContext, this)
         }
     }
 

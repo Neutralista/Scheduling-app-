@@ -166,6 +166,13 @@ scripts.set(scriptId, state)   // overwrites another script's state
 // Built-in IDs: BUILTIN.WORK_SCHEDULE, BUILTIN.SLEEP_SCHEDULE, BUILTIN.TASK_MANAGER
 ```
 
+## Might (Training-app) integration
+
+Package `com.neutralista.trainingapp`, declared in `<queries>`. Receivers in `integration/`: workout
+block upserts (`ExternalBlockDefinitionReceiver`) and logged sessions (`ExternalBlockSessionReceiver`),
+both limited to `training-app-workout-*` block ids. `MightThemeSync` sends Waypoint's theme to Might
+whenever it changes (`ThemeStore`) and on launch, so both apps look the same.
+
 ## Named block / planner architecture
 
 `NamedBlock` → stored in `NamedBlockStore` (`wp_named_blocks` SharedPreferences).

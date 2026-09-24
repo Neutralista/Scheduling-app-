@@ -11,7 +11,7 @@ import android.widget.Toast
  * [ExternalBlockDefinitionReceiver] and WAYPOINT_INTEGRATION.md) — jumps straight to the workout
  * that block mirrors via the deep link Training-app registers for `trainingapp://workout/{id}`.
  */
-private const val TRAINING_APP_PACKAGE = "com.neutralista.trainingapp"
+internal const val TRAINING_APP_PACKAGE = "com.neutralista.trainingapp"
 private const val WORKOUT_BLOCK_ID_PREFIX = "training-app-workout-"
 
 /** The workout id if [blockId] is one Training-app owns, else null — also gates showing the icon. */

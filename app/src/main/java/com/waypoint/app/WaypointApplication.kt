@@ -105,6 +105,8 @@ class WaypointApplication : Application() {
         }
 
         _themeStore = ThemeStore(applicationContext)
+        // Keeps Might's look in step even if it was installed or reset since the last change.
+        com.waypoint.app.integration.MightThemeSync.send(this, _themeStore)
 
         var currentStep = "init"
         try {
