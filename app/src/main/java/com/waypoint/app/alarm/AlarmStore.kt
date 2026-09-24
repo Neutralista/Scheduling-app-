@@ -13,6 +13,7 @@ import java.util.UUID
 
 class AlarmStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json  = Json { ignoreUnknownKeys = true }
 
@@ -86,6 +87,7 @@ class AlarmStore(context: Context) {
         val updated = current.map { if (it.id == id) it.copy(enabled = enabled) else it }
         AppLogger.i(TAG, "setEnabledSync: committing to prefs (${updated.size} alarm(s))")
         prefs.edit().putString(KEY_LIST, json.encodeToString(updated)).commit()
+        mirror(updated)
         _flow.value = updated
         AppLogger.i(TAG, "setEnabledSync: done")
     }
@@ -93,8 +95,15 @@ class AlarmStore(context: Context) {
     private fun persist(list: List<AlarmEntry>) {
         AppLogger.i(TAG, "persist: writing ${list.size} alarm(s) to prefs")
         prefs.edit().putString(KEY_LIST, json.encodeToString(list)).apply()
+        mirror(list)
         _flow.value = list
         AppLogger.i(TAG, "persist: done")
+    }
+
+    /** Keeps the before-unlock copy current, so a restart can re-arm these before unlock. */
+    private fun mirror(list: List<AlarmEntry>) {
+        runCatching { BootAlarmMirror.saveUserAlarms(appContext, list) }
+            .onFailure { AppLogger.e(TAG, "mirror: saving the boot copy failed", it) }
     }
 
     companion object {

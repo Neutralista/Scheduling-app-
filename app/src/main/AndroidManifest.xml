@@ -63,6 +63,20 @@
         android:allowBackup="false"
         android:theme="@style/Theme.Waypoint">
 
+        <!--
+            Runs at the PIN screen after a restart, before the first unlock, and re-arms alarms
+            from the before-unlock copy (BootAlarmMirror). The receivers, service and activity
+            marked directBootAware are the ring path, which has to work then too.
+        -->
+        <receiver
+            android:name=".alarm.LockedBootReceiver"
+            android:directBootAware="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".notification.BootReceiver"
             android:exported="true">
@@ -145,6 +159,7 @@
 
         <receiver
             android:name=".notification.WakeAlarmReceiver"
+            android:directBootAware="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.waypoint.app.WAKE_GENTLE" />
@@ -155,6 +170,7 @@
 
         <receiver
             android:name=".alarm.UserAlarmReceiver"
+            android:directBootAware="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.waypoint.app.USER_ALARM_FIRE" />
@@ -173,6 +189,7 @@
 
         <activity
             android:name=".notification.AlarmRingActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
@@ -180,6 +197,7 @@
 
         <service
             android:name=".notification.AlarmRingService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

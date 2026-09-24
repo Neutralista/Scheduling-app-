@@ -34,7 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.waypoint.app.alarm.BootAlarmMirror
+import com.waypoint.app.ui.theme.BELAMOUR_THEME
 import com.waypoint.app.ui.theme.ThemeStore
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.waypoint.app.ui.theme.WaypointTheme
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -60,13 +63,19 @@ class AlarmRingActivity : ComponentActivity() {
         // A fresh, standalone ThemeStore rather than pulling from WaypointApplication — this
         // screen must render even if app init failed elsewhere (startupCrash), so it can't
         // depend on anything the rest of the app wires up.
-        val themeStore = ThemeStore(this)
+        // Before the first unlock after a restart the theme settings can't be read (they live
+        // in normal storage), so the alarm rings in the default theme then.
+        val themeStore = if (BootAlarmMirror.isUserUnlocked(this)) ThemeStore(this) else null
         val snoozeMinutes = intent.getIntExtra(AlarmRingService.EXTRA_SNOOZE_MINUTES, 10)
 
         setContent {
-            val selectedThemeId by themeStore.selectedThemeIdFlow.collectAsState()
-            val appTheme = remember(selectedThemeId) { themeStore.resolveTheme(selectedThemeId) }
-            val darkModeOverride by themeStore.darkModeOverrideFlow.collectAsState()
+            val fallbackId = remember { MutableStateFlow(BELAMOUR_THEME.id) }
+            val fallbackDark = remember { MutableStateFlow<Boolean?>(null) }
+            val selectedThemeId by (themeStore?.selectedThemeIdFlow ?: fallbackId).collectAsState()
+            val appTheme = remember(selectedThemeId) {
+                themeStore?.resolveTheme(selectedThemeId) ?: BELAMOUR_THEME
+            }
+            val darkModeOverride by (themeStore?.darkModeOverrideFlow ?: fallbackDark).collectAsState()
             val isDark = darkModeOverride ?: isSystemInDarkTheme()
 
             WaypointTheme(darkTheme = isDark, appTheme = appTheme) {

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.ToneGenerator
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
@@ -24,6 +25,7 @@ import com.waypoint.app.alarm.UserAlarmScheduler
 class AlarmRingService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
+    private var toneGenerator: ToneGenerator? = null
     private var vibrator: Vibrator? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -63,7 +65,9 @@ class AlarmRingService : Service() {
         // Dismissing the wake alarm is the most authoritative wake signal available; any other
         // alarm (a user alarm at 3am, a nap timer) is ordinary activity, not the end of the night.
         val isWakeAlarm = (intent.getStringExtra(EXTRA_SOURCE) ?: SOURCE_SLEEP) == SOURCE_SLEEP
-        (applicationContext as? WaypointApplication)?.cycleTracker?.recordActive(explicitWake = isWakeAlarm)
+        // Not before the first unlock after a restart: the cycle tracker's storage is unreadable then.
+        (applicationContext as? WaypointApplication)?.takeIf { it.isInitialized }
+            ?.cycleTracker?.recordActive(explicitWake = isWakeAlarm)
     }
 
     private fun snooze(intent: Intent?) {
@@ -134,26 +138,43 @@ class AlarmRingService : Service() {
     }
 
     private fun startSound(volume: Float, soundUri: String?) {
-        try {
-            val uri = soundUri?.let { Uri.parse(it) }
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(this@AlarmRingService, uri)
-                isLooping = true
-                setVolume(volume, volume)
-                prepare()
-                start()
+        // Falls back through each source instead of going silent when one can't be played: a
+        // chosen sound can be missing, or (before the first unlock after a restart) unreadable.
+        val candidates = listOfNotNull(
+            soundUri?.let { Uri.parse(it) },
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        ).distinct()
+        for (uri in candidates) {
+            try {
+                mediaPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    setDataSource(this@AlarmRingService, uri)
+                    isLooping = true
+                    setVolume(volume, volume)
+                    prepare()
+                    start()
+                }
+                AppLogger.i(TAG, "startSound: playing $uri volume=$volume")
+                return
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "startSound: couldn't play $uri, trying the next sound", e)
+                mediaPlayer?.release()
+                mediaPlayer = null
             }
-            AppLogger.i(TAG, "startSound: playing $uri volume=$volume")
+        }
+        // No sound file could be played at all: a generated tone needs none.
+        try {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, (volume * ToneGenerator.MAX_VOLUME).toInt())
+                .also { it.startTone(ToneGenerator.TONE_SUP_RINGTONE, -1) }
+            AppLogger.w(TAG, "startSound: playing the built-in tone")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "startSound threw", e)
+            AppLogger.e(TAG, "startSound: built-in tone failed too", e)
         }
     }
 
@@ -161,6 +182,9 @@ class AlarmRingService : Service() {
         mediaPlayer?.stop()
         mediaPlayer?.release()
         mediaPlayer = null
+        toneGenerator?.stopTone()
+        toneGenerator?.release()
+        toneGenerator = null
     }
 
     private fun startVibration(volume: Float) {

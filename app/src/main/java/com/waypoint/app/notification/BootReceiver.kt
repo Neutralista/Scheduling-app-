@@ -6,6 +6,7 @@ import android.content.Intent
 import com.waypoint.app.AppLogger
 import com.waypoint.app.WaypointApplication
 import com.waypoint.app.alarm.AlarmBlockSync
+import com.waypoint.app.alarm.BootAlarmMirror
 import com.waypoint.app.alarm.UserAlarmScheduler
 import com.waypoint.app.planner.SleepCheckReceiver
 import com.waypoint.app.planner.SleepLogStore
@@ -19,6 +20,9 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
             intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val app = context.applicationContext as? WaypointApplication ?: return
+        // This process may have started before the unlock (for LockedBootReceiver); finish setup
+        // here on the main thread rather than on first use from the IO coroutine below.
+        app.ensureInitialized()
         if (app.startupCrash != null) {
             AppLogger.e(TAG, "onReceive: skipping re-arm — app failed to initialize", app.startupCrash)
             return
@@ -37,6 +41,11 @@ class BootReceiver : BroadcastReceiver() {
                     .onFailure { AppLogger.e(TAG, "onReceive: sleepStore.syncToRegistry failed", it) }
                 runCatching { AlarmBlockSync.sync(context) }
                     .onFailure { AppLogger.e(TAG, "onReceive: AlarmBlockSync.sync failed", it) }
+                // One-shot alarms that already rang before the unlock: switch them off now, or
+                // the re-arm below rings them again tomorrow.
+                runCatching {
+                    BootAlarmMirror.takeFiredOneShots(context).forEach { app.env.alarms.setEnabled(it, false) }
+                }.onFailure { AppLogger.e(TAG, "onReceive: switching off fired one-shots failed", it) }
                 runCatching { UserAlarmScheduler.scheduleAll(context, app.env.alarms.getAll()) }
                     .onFailure { AppLogger.e(TAG, "onReceive: UserAlarmScheduler.scheduleAll failed", it) }
                 runCatching { app.scheduleBlockAlarms(context) }

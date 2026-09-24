@@ -1,5 +1,6 @@
 package com.waypoint.app.notification
 
+import com.waypoint.app.alarm.BootAlarmMirror
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
@@ -19,6 +20,7 @@ object WakeAlarmScheduler {
     ) {
         cancelAlarms(context)
         scheduleWakeAlarms(context, wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled)
+        mirror(context, BootAlarmMirror.Wake(wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled))
     }
 
     fun scheduleAlarmsIfEarlier(
@@ -26,6 +28,7 @@ object WakeAlarmScheduler {
         gentleEnabled: Boolean = true, mediumEnabled: Boolean = true, wakeEnabled: Boolean = true
     ) {
         scheduleWakeAlarms(context, wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled)
+        mirror(context, BootAlarmMirror.Wake(wakeMs, count, intervalMinutes, gentleEnabled, mediumEnabled, wakeEnabled))
     }
 
     private fun scheduleWakeAlarms(
@@ -42,10 +45,16 @@ object WakeAlarmScheduler {
             val mediumMs = wakeMs - intervalMs
             if (mediumMs > now) scheduleExact(context, mediumMs, buildPi(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM))
         }
-        if (wakeEnabled && wakeMs > now) scheduleRingAlarm(context, wakeMs)
+        if (wakeEnabled && wakeMs > now) armRingAlarm(context, wakeMs)
     }
 
+    /** A standalone ring (a snooze): the only wake alarm left to re-arm after a restart. */
     fun scheduleRingAlarm(context: Context, wakeMs: Long) {
+        armRingAlarm(context, wakeMs)
+        mirror(context, BootAlarmMirror.Wake(wakeMs, 1, 0, gentleEnabled = false, mediumEnabled = false, wakeEnabled = true))
+    }
+
+    private fun armRingAlarm(context: Context, wakeMs: Long) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val showPi = PendingIntent.getActivity(
             context, RC_RING_SHOW,
@@ -62,6 +71,12 @@ object WakeAlarmScheduler {
         cancel(context, RC_GENTLE, WakeAlarmReceiver.ACTION_GENTLE)
         cancel(context, RC_MEDIUM, WakeAlarmReceiver.ACTION_MEDIUM)
         cancel(context, RC_RING,   WakeAlarmReceiver.ACTION_RING)
+        mirror(context, null)
+    }
+
+    /** Keeps the before-unlock copy current, so a restart can re-arm the wake alarm before unlock. */
+    private fun mirror(context: Context, wake: BootAlarmMirror.Wake?) {
+        runCatching { BootAlarmMirror.saveWake(context, wake) }
     }
 
     private fun scheduleExact(context: Context, triggerMs: Long, pi: PendingIntent) {

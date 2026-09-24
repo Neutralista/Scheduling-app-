@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ContentValues
 import android.os.Build
 import android.provider.MediaStore
+import com.waypoint.app.alarm.BootAlarmMirror
 import com.waypoint.app.background.CalendarSyncWorker
 import com.waypoint.app.background.ScriptTickWorker
 import com.waypoint.app.cycle.CycleTracker
@@ -40,29 +41,29 @@ class WaypointApplication : Application() {
     /** Ordered record of each init step — populated synchronously in onCreate(). */
     val initSteps: MutableList<InitStep> = mutableListOf()
 
-    lateinit var env: RealScriptEnvironment
+    // Set up in initialize(). Each getter finishes setup first if this process started before the
+    // phone was unlocked (see onCreate) and has been unlocked since.
+    private lateinit var _env: RealScriptEnvironment
+    private lateinit var _scriptStateStore: ScriptStateStore
+    private lateinit var _scriptStore: ScriptStore
+    private lateinit var _cycleTracker: CycleTracker
+    private lateinit var _themeStore: ThemeStore
+    val env: RealScriptEnvironment get() { ensureInitialized(); return _env }
+    val scriptStateStore: ScriptStateStore get() { ensureInitialized(); return _scriptStateStore }
+    val scriptStore: ScriptStore get() { ensureInitialized(); return _scriptStore }
+    val cycleTracker: CycleTracker get() { ensureInitialized(); return _cycleTracker }
+    val themeStore: ThemeStore get() { ensureInitialized(); return _themeStore }
+
+    /** True once initialize() has run. False while the phone hasn't been unlocked since a restart. */
+    @Volatile
+    var isInitialized = false
         private set
-    lateinit var scriptStateStore: ScriptStateStore
-        private set
-    lateinit var scriptStore: ScriptStore
-        private set
-    lateinit var cycleTracker: CycleTracker
-        private set
-    lateinit var themeStore: ThemeStore
-        private set
+    private var initStarted = false
 
     private val appScope = MainScope()
 
     override fun onCreate() {
         super.onCreate()
-
-        try {
-            AppLogger.init(filesDir)
-            initSteps += InitStep("Logger", true)
-        } catch (e: Throwable) {
-            android.util.Log.e("WaypointApp", "AppLogger.init failed", e)
-            initSteps += InitStep("Logger", false, e)
-        }
 
         val defaultExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -75,45 +76,73 @@ class WaypointApplication : Application() {
             defaultExceptionHandler?.uncaughtException(thread, throwable)
         }
 
-        themeStore = ThemeStore(applicationContext)
+        // Started before the first unlock after a restart, for the alarm parts that run then
+        // (LockedBootReceiver and the ring path). Normal storage can't be read until unlock, and
+        // every step below reads it — reading it now would throw. Setup waits for the first use
+        // after unlock (ensureInitialized, via the getters above).
+        if (!BootAlarmMirror.isUserUnlocked(this)) return
+        ensureInitialized()
+    }
+
+    /** Runs the full setup once, as soon as the phone has been unlocked. */
+    fun ensureInitialized() {
+        if (isInitialized || !BootAlarmMirror.isUserUnlocked(this)) return
+        synchronized(this) {
+            if (initStarted) return
+            initStarted = true
+            initialize()
+            isInitialized = true
+        }
+    }
+
+    private fun initialize() {
+        try {
+            AppLogger.init(filesDir)
+            initSteps += InitStep("Logger", true)
+        } catch (e: Throwable) {
+            android.util.Log.e("WaypointApp", "AppLogger.init failed", e)
+            initSteps += InitStep("Logger", false, e)
+        }
+
+        _themeStore = ThemeStore(applicationContext)
 
         var currentStep = "init"
         try {
             currentStep = "Script state store"
-            scriptStateStore = ScriptStateStore(applicationContext)
+            _scriptStateStore = ScriptStateStore(applicationContext)
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Script store"
-            scriptStore = ScriptStore(applicationContext)
+            _scriptStore = ScriptStore(applicationContext)
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Script environment"
-            env = RealScriptEnvironment(applicationContext, scriptStateStore, appScope)
+            _env = RealScriptEnvironment(applicationContext, _scriptStateStore, appScope)
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Cycle tracker"
-            cycleTracker = CycleTracker(applicationContext)
-            env.taskManager.completions.getCycleId = { cycleTracker.store.loadCurrent()?.id ?: "" }
-            cycleTracker.onNewCycle = { wakeMillis -> env.taskManager.completions.retainDoneSince(wakeMillis) }
+            _cycleTracker = CycleTracker(applicationContext)
+            _env.taskManager.completions.getCycleId = { _cycleTracker.store.loadCurrent()?.id ?: "" }
+            _cycleTracker.onNewCycle = { wakeMillis -> _env.taskManager.completions.retainDoneSince(wakeMillis) }
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Built-in scripts"
             val sleepRefresh = MutableStateFlow(0)
             val sleepLogStore = SleepLogStore(applicationContext)
-            ScriptRegistry.register(env.taskManager, env)
+            ScriptRegistry.register(_env.taskManager, _env)
             ScriptRegistry.register(
-                SleepScheduleScript(env.sleepStore, env.eventPlanner, sleepRefresh, sleepLogStore),
-                env
+                SleepScheduleScript(_env.sleepStore, _env.eventPlanner, sleepRefresh, sleepLogStore),
+                _env
             )
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Bundled scripts"
-            scriptStore.seedBundled()
-            scriptStore.delete("user.week_planner")
+            _scriptStore.seedBundled()
+            _scriptStore.delete("user.week_planner")
             initSteps += InitStep(currentStep, true)
 
             currentStep = "User scripts"
-            scriptStore.loadAll().forEach { module -> ScriptRegistry.register(module, env) }
+            _scriptStore.loadAll().forEach { module -> ScriptRegistry.register(module, _env) }
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Notifications & workers"
@@ -125,6 +154,8 @@ class WaypointApplication : Application() {
             CalendarSyncWorker.schedule(this)
             scheduleBlockAlarms(this)
             com.waypoint.app.alarm.AlarmBlockSync.sync(this)
+            // Seeds the before-unlock copy for installs that predate it; kept current after this.
+            runCatching { BootAlarmMirror.saveUserAlarms(this, _env.alarms.getAll()) }
             initSteps += InitStep(currentStep, true)
 
         } catch (e: Throwable) {

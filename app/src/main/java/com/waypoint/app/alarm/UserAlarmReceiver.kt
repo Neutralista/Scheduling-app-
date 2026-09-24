@@ -17,9 +17,12 @@ class UserAlarmReceiver : BroadcastReceiver() {
         val isSnoozeFire = intent.getBooleanExtra(EXTRA_SNOOZE_FIRE, false)
         AppLogger.i(TAG, "onReceive: id=$id label='$label' stage=$stage snoozeFire=$isSnoozeFire")
 
-        val store = AlarmStore(context)
+        // Before the first unlock after a restart the alarm store can't be read, so the ring
+        // details and the re-arm come from the before-unlock copy (BootAlarmMirror) instead.
+        val unlocked = BootAlarmMirror.isUserUnlocked(context)
+        val store = if (unlocked) AlarmStore(context) else null
         val alarm = try {
-            store.loadAll().firstOrNull { it.id == id }
+            (store?.loadAll() ?: BootAlarmMirror.userAlarms(context)).firstOrNull { it.id == id }
         } catch (e: Throwable) {
             AppLogger.e(TAG, "onReceive: store read threw ${e.javaClass.name}: ${e.message}", e)
             null
@@ -29,7 +32,14 @@ class UserAlarmReceiver : BroadcastReceiver() {
         // alarm's own schedule (reschedule for the next repeat day, or disable a one-shot).
         if (stage == null && !isSnoozeFire) {
             try {
-                if (alarm != null) {
+                if (alarm != null && store == null) {
+                    if (alarm.repeatDays.isNotEmpty()) {
+                        UserAlarmScheduler.scheduleAll(context, BootAlarmMirror.userAlarms(context))
+                    } else {
+                        BootAlarmMirror.markOneShotFired(context, id)
+                        UserAlarmScheduler.refreshStatusNotification(context, BootAlarmMirror.userAlarms(context))
+                    }
+                } else if (alarm != null && store != null) {
                     if (alarm.repeatDays.isNotEmpty()) {
                         UserAlarmScheduler.schedule(context, alarm)
                     } else {

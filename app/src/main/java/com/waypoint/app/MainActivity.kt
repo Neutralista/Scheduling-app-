@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val app = application as WaypointApplication
+        // The process may have started before the phone was unlocked (for an alarm); finish setup.
+        app.ensureInitialized()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
