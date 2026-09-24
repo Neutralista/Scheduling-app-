@@ -78,14 +78,13 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 // The visible window runs from VIEW_START_HOUR on the selected date to
 // VIEW_START_HOUR on the following date (e.g. 4 AM → 4 AM).
 // All internal "minute" values are relative to that 4 AM anchor.
 private const val VIEW_START_HOUR = 4
-private const val START_HOUR = 0          // relative minute 0 = VIEW_START_HOUR
-private const val END_HOUR   = 24         // relative minute 1440 = next-day VIEW_START_HOUR
-private const val TOTAL_HOURS = END_HOUR - START_HOUR
 private val HOUR_HEIGHT = 67.dp
 private val LABEL_WIDTH = 44.dp
 
@@ -126,6 +125,19 @@ private fun List<BlockTask>.withMeasuredDurations(logStore: BlockSessionLogStore
             if (avg != null) task.copy(durationMinutes = avg) else task
         } else task
     }
+}
+
+/**
+ * What the planner needs from calendar events: every timed non-sleep event by id (for tasks tied
+ * to an event), and the windows of those that reserve time.
+ */
+internal fun plannerCalendarInputs(
+    events: List<CalendarEvent>,
+    prefs: CalendarPrefsStore?
+): Pair<Map<Long, Pair<Long, Long>>, List<Pair<Long, Long>>> {
+    val timed = events.filter { !it.allDay && it.title != "Sleep" }
+    return timed.associate { it.eventId to (it.startMillis to it.endMillis) } to
+        timed.filter { prefs == null || prefs.reservesTime(it.eventId) }.map { it.startMillis to it.endMillis }
 }
 
 @Composable
@@ -191,7 +203,12 @@ fun DayTimelineView(
     val viewStartMs = remember(date) {
         date.atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
-    val viewEndMs = remember(viewStartMs) { viewStartMs + TOTAL_HOURS * 3600_000L }
+    // The next morning's 4 AM, not +24h: a daylight-saving day is 23 or 25 hours long, and the
+    // fixed length cut off or ran past the last hour.
+    val viewEndMs = remember(date) {
+        date.plusDays(1).atTime(VIEW_START_HOUR, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }
+    val viewHours = ((viewEndMs - viewStartMs) / 3600_000L).toInt()
 
     var isNowVisible by remember(viewStartMs, viewEndMs) {
         mutableStateOf(System.currentTimeMillis() in viewStartMs until viewEndMs)
@@ -220,19 +237,23 @@ fun DayTimelineView(
         } ?: emptyList()
     }
 
+    // Keyed on date only: a refresh keeps the last calendar data until the reload lands, instead
+    // of planning without it for a moment and flashing tasks onto reserved calendar time.
+    var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
+    var calEventBlocks by remember(date) { mutableStateOf<Map<Long, Pair<Long, Long>>>(emptyMap()) }
+    var reservingBlocks by remember(date) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
     var plan by remember(date, refreshKey, localRefreshKey) {
-        mutableStateOf(registry.planForDate(date, namedBlockInstances = blockInstances,
+        mutableStateOf(registry.planForDate(date, calendarEventBlocks = calEventBlocks,
+            reservingBlocks = reservingBlocks, namedBlockInstances = blockInstances,
             floatingBlocks = floatingBlockInstances,
             nowMs = if (isToday) System.currentTimeMillis() else null))
     }
     var nextDayScheduled by remember(date, refreshKey, localRefreshKey) {
-        mutableStateOf(registry.planForDate(date.plusDays(1), namedBlockInstances = nextDayBlockInstances,
+        mutableStateOf(registry.planForDate(date.plusDays(1), calendarEventBlocks = calEventBlocks,
+            reservingBlocks = reservingBlocks, namedBlockInstances = nextDayBlockInstances,
             floatingBlocks = nextDayFloatingInstances).scheduled)
     }
     var nowMin by remember(viewStartMs) { mutableIntStateOf(minutesFromViewStart(viewStartMs)) }
-    var calEvents by remember(date) { mutableStateOf<List<CalendarEvent>>(emptyList()) }
-    var calEventBlocks by remember(date, refreshKey) { mutableStateOf<Map<Long, Pair<Long, Long>>>(emptyMap()) }
-    var reservingBlocks by remember(date, refreshKey) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("waypoint_timeline", android.content.Context.MODE_PRIVATE) }
@@ -304,16 +325,8 @@ fun DayTimelineView(
             val nextDay = calendarSignals.eventsForDate(date.plusDays(1))
             val combined = today + nextDay
             calEvents = combined
-            val allCalBlocks = combined
-                .filter { !it.allDay && it.title != "Sleep" }
-                .associate { it.eventId to (it.startMillis to it.endMillis) }
+            val (allCalBlocks, blocks) = plannerCalendarInputs(combined, calendarPrefsStore)
             calEventBlocks = allCalBlocks
-            val blocks = combined
-                .filter { evt ->
-                    !evt.allDay && evt.title != "Sleep" &&
-                        (calendarPrefsStore == null || calendarPrefsStore.reservesTime(evt.eventId))
-                }
-                .map { it.startMillis to it.endMillis }
             reservingBlocks = blocks
             plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
                 reservingBlocks = blocks, namedBlockInstances = blockInstances,
@@ -450,14 +463,19 @@ fun DayTimelineView(
             val now = System.currentTimeMillis()
             val allCalBlocks = calEventBlocks
             val blocks = reservingBlocks
-            plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
-                reservingBlocks = blocks, namedBlockInstances = blockInstances,
-                floatingBlocks = floatingBlockInstances,
-                nowMs = if (isToday) now else null)
-            nextDayScheduled = registry.planForDate(date.plusDays(1),
-                calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                namedBlockInstances = nextDayBlockInstances,
-                floatingBlocks = nextDayFloatingInstances).scheduled
+            // Off the main thread: two full plans every five seconds.
+            val (todayPlan, nextScheduled) = withContext(Dispatchers.Default) {
+                registry.planForDate(date, calendarEventBlocks = allCalBlocks,
+                    reservingBlocks = blocks, namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingBlockInstances,
+                    nowMs = if (isToday) now else null) to
+                registry.planForDate(date.plusDays(1),
+                    calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
+                    namedBlockInstances = nextDayBlockInstances,
+                    floatingBlocks = nextDayFloatingInstances).scheduled
+            }
+            plan = todayPlan
+            nextDayScheduled = nextScheduled
         }
     }
 
@@ -470,7 +488,7 @@ fun DayTimelineView(
     val onTerCont      = MaterialTheme.colorScheme.onTertiaryContainer
     val indicatorColor = MaterialTheme.colorScheme.error
 
-    val totalH = hourHeight * TOTAL_HOURS
+    val totalH = hourHeight * viewHours
 
     // pointerInput(Unit) below never restarts, so hourHeight (recomputed from zoomIndex on
     // every recomposition) has to be read through rememberUpdatedState — otherwise the pinch
@@ -520,7 +538,7 @@ fun DayTimelineView(
             Row(Modifier.fillMaxWidth().height(totalH)) {
                 HourLabelsColumn(
                     viewStartMs = viewStartMs,
-                    totalHours = TOTAL_HOURS,
+                    totalHours = viewHours,
                     hourHeight = hourHeight,
                     showQuarterLabels = showQuarterLabels,
                     showMinuteLines = showMinuteLines,
@@ -531,8 +549,8 @@ fun DayTimelineView(
                     date = date,
                     viewStartMs = viewStartMs,
                     viewEndMs = viewEndMs,
-                    totalHours = TOTAL_HOURS,
-                    totalMinutes = TOTAL_HOURS * 60,
+                    totalHours = viewHours,
+                    totalMinutes = viewHours * 60,
                     hourHeight = hourHeight,
                     showMinuteLines = showMinuteLines,
                     plan = plan,
@@ -698,8 +716,15 @@ private fun TimelineBody(
 
     // Merge today's events with next-day events inside the 4AM-4AM window
     val mergedScheduled = remember(plan, nextDayScheduled, viewEndMs) {
-        val combined = (plan.scheduled + nextDayScheduled.filter { it.startMillis < viewEndMs })
-            .sortedBy { it.startMillis }
+        // Tonight's sleep is in both plans, but only today's knows it slid past midnight to make
+        // room for a late task — tomorrow's copy sits at the planned time and drew a second,
+        // overlapping sleep tile.
+        val todaySleeps = plan.scheduled.filter { it.event.category == EventCategory.SLEEP }
+        val nextDay = nextDayScheduled.filter { se ->
+            se.startMillis < viewEndMs && !(se.event.category == EventCategory.SLEEP &&
+                todaySleeps.any { it.startMillis < se.endMillis && se.startMillis < it.endMillis })
+        }
+        val combined = (plan.scheduled + nextDay).sortedBy { it.startMillis }
         val out = mutableListOf<ScheduledEvent>()
         for (se in combined) {
             val last = out.lastOrNull()
@@ -794,11 +819,12 @@ private fun TimelineBody(
 
         // Planner event blocks
         val eventColors = listOf(secCont to onSecCont, terCont to onTerCont)
-        var habitIdx = 0
         visibleScheduled.forEach { se ->
             val colorPair = if (se.event.category == EventCategory.SLEEP ||
                                 se.event.category == EventCategory.BLOCK) null
-                            else eventColors[habitIdx++ % eventColors.size]
+                            // From the task's id, not its position — a task's colour used to
+                            // flip whenever an earlier one dropped off the list.
+                            else eventColors[Math.floorMod(se.event.id.hashCode(), eventColors.size)]
             val subTasks = if (se.event.category == EventCategory.BLOCK)
                 blockSubTasksMap[se.event.id.removePrefix("__block__")] ?: emptyList()
             else emptyList()
@@ -1409,7 +1435,9 @@ private fun AlarmMarkersSection(
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>
 ) {
-    val sleepBlock = mergedScheduled.firstOrNull {
+    // Tonight's sleep is the latest one in view; the first one is last night's whenever that
+    // wasn't logged, which hid tonight's bedtime and pre-sleep markers.
+    val sleepBlock = mergedScheduled.lastOrNull {
         it.event.category == EventCategory.SLEEP && !it.event.isLogged
     } ?: return
     val s = sleepSchedule ?: return

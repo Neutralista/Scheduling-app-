@@ -58,7 +58,10 @@ import com.waypoint.app.ui.components.toOpaqueColor
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
+import com.waypoint.app.signal.CalendarSignals
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 private fun List<BlockTask>.withMeasuredDurations(logStore: BlockSessionLogStore?): List<BlockTask> {
     if (logStore == null) return this
@@ -94,6 +97,8 @@ fun BlockScopeView(
     registry: EventPlannerRegistry,
     namedBlockStore: NamedBlockStore,
     blockLogStore: BlockSessionLogStore? = null,
+    calendarSignals: CalendarSignals? = null,
+    calendarPrefsStore: CalendarPrefsStore? = null,
     date: LocalDate,
     refreshKey: Int = 0,
     isPlanningMode: Boolean = false,
@@ -148,10 +153,16 @@ fun BlockScopeView(
         resolved.reconciledWithActualSessions(date, session, blockLogStore) + floatingSplit.first
     }
 
+    // Planned with the same calendar events as the main timeline, so tasks land in the same
+    // places and stay off time an event reserves.
+    var calEventBlocks by remember(date) { mutableStateOf<Map<Long, Pair<Long, Long>>>(emptyMap()) }
+    var reservingBlocks by remember(date) { mutableStateOf<List<Pair<Long, Long>>>(emptyList()) }
     var plan by remember(date, refreshKey) {
         mutableStateOf(
             registry.planForDate(
                 date,
+                calendarEventBlocks = calEventBlocks,
+                reservingBlocks = reservingBlocks,
                 namedBlockInstances = blockInstances,
                 floatingBlocks = floatingInstances,
                 nowMs = System.currentTimeMillis()
@@ -204,17 +215,38 @@ fun BlockScopeView(
         }
     }
 
+    LaunchedEffect(date, refreshKey) {
+        val cal = calendarSignals?.takeIf { it.hasPermission() } ?: return@LaunchedEffect
+        val (allCalBlocks, blocks) = plannerCalendarInputs(cal.eventsForDate(date), calendarPrefsStore)
+        calEventBlocks = allCalBlocks
+        reservingBlocks = blocks
+        plan = registry.planForDate(
+            date,
+            calendarEventBlocks = allCalBlocks,
+            reservingBlocks = blocks,
+            namedBlockInstances = blockInstances,
+            floatingBlocks = floatingInstances,
+            nowMs = System.currentTimeMillis()
+        )
+    }
+
     // 5-second ticker: re-plans the day. Keyed on session too so extending the session mid-run
     // reflects promptly instead of waiting up to 5s on a stale closure.
     LaunchedEffect(viewStartMs, date, refreshKey, session) {
         while (true) {
             delay(5_000L)
-            plan = registry.planForDate(
-                date,
-                namedBlockInstances = blockInstances,
-                floatingBlocks = floatingInstances,
-                nowMs = System.currentTimeMillis()
-            )
+            val allCalBlocks = calEventBlocks
+            val blocks = reservingBlocks
+            plan = withContext(Dispatchers.Default) {
+                registry.planForDate(
+                    date,
+                    calendarEventBlocks = allCalBlocks,
+                    reservingBlocks = blocks,
+                    namedBlockInstances = blockInstances,
+                    floatingBlocks = floatingInstances,
+                    nowMs = System.currentTimeMillis()
+                )
+            }
         }
     }
 

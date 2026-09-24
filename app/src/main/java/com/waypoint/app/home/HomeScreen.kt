@@ -656,6 +656,8 @@ private fun PlanTab(
                 registry = eventPlanner,
                 namedBlockStore = namedBlockStore,
                 blockLogStore = blockSessionLogStore,
+                calendarSignals = calendarSignals,
+                calendarPrefsStore = calPrefsStore,
                 date = selectedDate,
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
@@ -901,7 +903,9 @@ private fun PlanTab(
                     onHeaderRefresh()
                 }
             } else null,
-            onBlockStart = if (blockTileId != null && activeSession == null) {
+            // Today only: a session started from another day's plan is dated to that day and
+            // was thrown away at once as stale.
+            onBlockStart = if (blockTileId != null && activeSession == null && selectedDate == LocalDate.now()) {
                 {
                     val block = namedBlockStore.loadBlock(blockTileId)
                     if (block != null) {

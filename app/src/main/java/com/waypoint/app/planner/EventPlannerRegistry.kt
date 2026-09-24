@@ -21,24 +21,34 @@ private val TASK_DEPENDENT_CONDITION_TYPES = setOf("sameDayAs", "notSameDayAs")
 
 class EventPlannerRegistry {
 
+    // Locked: the timeline replans on a background thread while events are registered from the
+    // main thread. Each plan works from a snapshot.
     private val _events = mutableListOf<PlannerEvent>()
-    val events: List<PlannerEvent> get() = _events.toList()
+    val events: List<PlannerEvent> get() = synchronized(_events) { _events.toList() }
 
     fun register(event: PlannerEvent) {
-        _events.removeAll { it.id == event.id }
-        _events.add(event)
+        synchronized(_events) {
+            _events.removeAll { it.id == event.id }
+            _events.add(event)
+        }
     }
 
     fun unregister(eventId: String) {
-        _events.removeAll { it.id == eventId }
+        synchronized(_events) {
+            _events.removeAll { it.id == eventId }
+        }
     }
 
     fun unregisterByWidget(widgetId: String) {
-        _events.removeAll { it.sourceWidgetId == widgetId }
+        synchronized(_events) {
+            _events.removeAll { it.sourceWidgetId == widgetId }
+        }
     }
 
     fun clearSleepEvents() {
-        _events.removeAll { it.category == EventCategory.SLEEP }
+        synchronized(_events) {
+            _events.removeAll { it.category == EventCategory.SLEEP }
+        }
     }
 
     fun planToday(
@@ -115,12 +125,13 @@ class EventPlannerRegistry {
         // start, or now for today. Not the wall clock alone — that judged other days by today.
         val deadlineCutoffMs = maxOf(dayStartMs, nowMs ?: dayStartMs)
 
+        val allEvents      = events
         val blocked        = mutableListOf<BlockedEvent>()
         val scheduled      = mutableListOf<ScheduledEvent>()
         val allSchedulable = mutableListOf<PlannerEvent>()
 
         // ── Fixed events + day-condition filtering ────────────────────────────
-        for (event in _events) {
+        for (event in allEvents) {
             if (event.fixedStartMillis != null && event.fixedEndMillis != null) {
                 val start = maxOf(event.fixedStartMillis, dayStartMs)
                 val end   = minOf(event.fixedEndMillis,   dayEndMs)
@@ -147,7 +158,7 @@ class EventPlannerRegistry {
         // Tonight's sleep event — the first sleep window that begins after this morning's wake.
         // bed time is treated as a soft preference: tasks can push it later, shortening sleep
         // down to a 4-hour minimum.  Alarms and the sleep registry are not touched.
-        val tonightSleepEvent = _events
+        val tonightSleepEvent = allEvents
             .filter { it.category == EventCategory.SLEEP
                     && it.fixedStartMillis != null
                     && it.fixedStartMillis!! > cycleStartMs }
