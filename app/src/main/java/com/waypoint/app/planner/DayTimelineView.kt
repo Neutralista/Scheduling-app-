@@ -1317,7 +1317,7 @@ private fun PlannerEventBlock(
                         ) {
                             Icon(
                                 Icons.Filled.OpenInNew,
-                                contentDescription = "Open in Forge",
+                                contentDescription = "Open in Might",
                                 tint = fg.copy(alpha = 0.75f),
                                 modifier = Modifier.size(14.dp)
                             )

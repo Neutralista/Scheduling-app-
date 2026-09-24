@@ -628,7 +628,7 @@ private fun BlockSessionCard(
                     IconButton(onClick = { openTrainingAppWorkout(context, workoutId) }) {
                         Icon(
                             Icons.Filled.OpenInNew,
-                            contentDescription = "Open in Forge",
+                            contentDescription = "Open in Might",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
