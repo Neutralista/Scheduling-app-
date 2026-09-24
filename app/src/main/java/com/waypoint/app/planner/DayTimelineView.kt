@@ -571,6 +571,7 @@ fun DayTimelineView(
                     blockInstances = blockInstances,
                     nextDayBlockInstances = nextDayBlockInstances,
                     floatingBlockInstances = floatingBlockInstances,
+                    nextDayFloatingInstances = nextDayFloatingInstances,
                     nowMin = nowMin,
                     isNowVisible = isNowVisible,
                     isToday = isToday,
@@ -697,6 +698,7 @@ private fun TimelineBody(
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
     floatingBlockInstances: List<NamedBlockInstance>,
+    nextDayFloatingInstances: List<NamedBlockInstance>,
     nowMin: Int,
     isNowVisible: Boolean,
     isToday: Boolean,
@@ -754,8 +756,12 @@ private fun TimelineBody(
 
     // DURING sub-tasks render inside the parent block tile.
     // BEFORE/AFTER sub-tasks render as standalone events at their actual timeline positions.
-    val duringSubTaskIds: Set<String> = remember(blockInstances, nextDayBlockInstances) {
-        (blockInstances + nextDayBlockInstances)
+    // Auto-placed blocks count too: leaving them out drew their tasks as separate tiles on top
+    // of (and hiding) the block they belong to.
+    val duringSubTaskIds: Set<String> = remember(
+        blockInstances, nextDayBlockInstances, floatingBlockInstances, nextDayFloatingInstances
+    ) {
+        (blockInstances + nextDayBlockInstances + floatingBlockInstances + nextDayFloatingInstances)
             .flatMap { inst -> inst.activeTasks.filter { it.placement == BlockTaskPlacement.DURING }.map { it.id } }
             .toSet()
     }
@@ -868,7 +874,7 @@ private fun TimelineBody(
                 hourHeight = hourHeight,
                 blockInstances = blockInstances,
                 nextDayBlockInstances = nextDayBlockInstances,
-                floatingBlockInstances = floatingBlockInstances,
+                floatingBlockInstances = floatingBlockInstances + nextDayFloatingInstances,
                 blockBounds = plan.blockBounds,
                 defaultColorPair = colorPair,
                 blockSubTasks = subTasks,
