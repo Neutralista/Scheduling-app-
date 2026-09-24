@@ -56,6 +56,7 @@ fun CycleLogSheet(
     var sleepMs  by remember(cycle) { mutableStateOf(cycle.sleepStartMillis) }
     var nextWakeMs by remember(cycle) { mutableStateOf(cycle.nextWakeMillis) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val timesError = Cycle.timesError(wakeMs, sleepMs, nextWakeMs, System.currentTimeMillis())
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -77,13 +78,16 @@ fun CycleLogSheet(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                     )
-                    TextButton(onClick = {
-                        onSave(cycle.copy(
-                            wakeMillis       = wakeMs,
-                            sleepStartMillis = sleepMs,
-                            nextWakeMillis   = nextWakeMs
-                        ))
-                    }) { Text("Save") }
+                    TextButton(
+                        onClick = {
+                            onSave(cycle.copy(
+                                wakeMillis       = wakeMs,
+                                sleepStartMillis = sleepMs,
+                                nextWakeMillis   = nextWakeMs
+                            ))
+                        },
+                        enabled = timesError == null
+                    ) { Text("Save") }
                 }
 
                 HorizontalDivider()
@@ -105,7 +109,7 @@ fun CycleLogSheet(
                     // ── Awake period ──────────────────────────────────────────
                     SheetSectionLabel("Awake")
 
-                    TimeField(label = "Woke up", millis = wakeMs, anchorMillis = null) {
+                    TimeField(label = "Woke up", millis = wakeMs) {
                         wakeMs = it
                     }
 
@@ -116,12 +120,7 @@ fun CycleLogSheet(
                         label        = "Fell asleep",
                         millis       = sleepMs,
                         addLabel     = "+ Log sleep onset",
-                        defaultMs    = {
-                            Instant.ofEpochMilli(wakeMs)
-                                .atZone(ZoneId.systemDefault())
-                                .withHour(22).withMinute(0).withSecond(0).withNano(0)
-                                .toInstant().toEpochMilli()
-                        },
+                        defaultMs    = { Cycle.nextAtTime(wakeMs, 22, 0) },
                         anchorMillis = wakeMs,
                         onChanged    = { sleepMs = it }
                     )
@@ -131,7 +130,10 @@ fun CycleLogSheet(
                         millis       = nextWakeMs,
                         addLabel     = if (cycle.isOpen) "+ Close cycle" else "+ Set next wake",
                         defaultMs    = {
-                            (sleepMs ?: wakeMs) + 8 * 3600_000L
+                            // Closing an open cycle almost always means "I'm up now" — the old
+                            // wake+8h default put a stale cycle's close back at yesterday afternoon.
+                            val now = System.currentTimeMillis().let { it - it % 60_000L }
+                            if (cycle.isOpen) now else minOf((sleepMs ?: wakeMs) + 8 * 3600_000L, now)
                         },
                         anchorMillis = sleepMs ?: wakeMs,
                         onChanged    = { nextWakeMs = it }
@@ -156,7 +158,15 @@ fun CycleLogSheet(
                         sleepStartMillis = sleepMs,
                         nextWakeMillis   = nextWakeMs
                     )
-                    CycleSummary(preview)
+                    if (timesError != null) {
+                        Text(
+                            text = timesError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        CycleSummary(preview)
+                    }
 
                     Spacer(Modifier.height(16.dp))
 
@@ -203,6 +213,12 @@ fun CycleLogSheet(
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+private fun parseTime(hhmm: String): Pair<Int, Int>? {
+    val parts = hhmm.split(":")
+    if (parts.size != 2) return null
+    return (parts[0].toIntOrNull() ?: 0) to (parts[1].toIntOrNull() ?: 0)
+}
+
 @Composable
 private fun SheetSectionLabel(text: String) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -223,7 +239,7 @@ private fun SheetSectionLabel(text: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeField(label: String, millis: Long, anchorMillis: Long?, onChanged: (Long) -> Unit) {
+private fun TimeField(label: String, millis: Long, onChanged: (Long) -> Unit) {
     var showDatePicker by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -231,12 +247,7 @@ private fun TimeField(label: String, millis: Long, anchorMillis: Long?, onChange
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TimePickerChip(
                 value = Cycle.formatTime(millis),
-                onValueChange = { hhmm ->
-                    val parts = hhmm.split(":")
-                    if (parts.size == 2) {
-                        onChanged(Cycle.withTime(millis, parts[0].toIntOrNull() ?: 0, parts[1].toIntOrNull() ?: 0))
-                    }
-                }
+                onValueChange = { hhmm -> parseTime(hhmm)?.let { (h, m) -> onChanged(Cycle.withTime(millis, h, m)) } }
             )
             TextButton(
                 onClick = { showDatePicker = true },
@@ -278,12 +289,9 @@ private fun NullableTimeField(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimePickerChip(
                     value = Cycle.formatTime(millis),
-                    onValueChange = { hhmm ->
-                        val parts = hhmm.split(":")
-                        if (parts.size == 2) {
-                            onChanged(Cycle.withTime(millis, parts[0].toIntOrNull() ?: 0, parts[1].toIntOrNull() ?: 0))
-                        }
-                    }
+                    // Relative to the anchor, not this value's own date, so a time past midnight
+                    // rolls onto the next day. The date picker still allows an explicit date.
+                    onValueChange = { hhmm -> parseTime(hhmm)?.let { (h, m) -> onChanged(Cycle.nextAtTime(anchorMillis, h, m)) } }
                 )
                 TextButton(
                     onClick = { showDatePicker = true },

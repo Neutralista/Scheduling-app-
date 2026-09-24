@@ -66,6 +66,28 @@ data class Cycle(
                 .toInstant().toEpochMilli()
 
         /**
+         * The first HH:mm strictly after [anchorMillis] — so "fell asleep 01:30" after a 07:00
+         * wake lands on the next day instead of before the wake.
+         */
+        fun nextAtTime(anchorMillis: Long, hour: Int, minute: Int): Long {
+            val anchor = Instant.ofEpochMilli(anchorMillis).atZone(zone)
+            val sameDay = anchor.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
+            val next = if (sameDay.isAfter(anchor)) sameDay else sameDay.plusDays(1)
+            return next.toInstant().toEpochMilli()
+        }
+
+        /** Why these cycle times are invalid, or null if they're in order and not in the future. */
+        fun timesError(wakeMs: Long, sleepMs: Long?, nextWakeMs: Long?, nowMs: Long): String? = when {
+            wakeMs > nowMs -> "Woke up can't be in the future"
+            sleepMs != null && sleepMs <= wakeMs -> "Fell asleep must be after woke up"
+            sleepMs != null && sleepMs > nowMs -> "Fell asleep can't be in the future"
+            nextWakeMs != null && sleepMs != null && nextWakeMs <= sleepMs -> "Next wake must be after fell asleep"
+            nextWakeMs != null && nextWakeMs <= wakeMs -> "Next wake must be after woke up"
+            nextWakeMs != null && nextWakeMs > nowMs -> "Next wake can't be in the future"
+            else -> null
+        }
+
+        /**
          * Rebuild millis from an existing value, replacing only the calendar date.
          * [utcDateMs] is the UTC-midnight millis returned by Material3's DatePicker.
          */
