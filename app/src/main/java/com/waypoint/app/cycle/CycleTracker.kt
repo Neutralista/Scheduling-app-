@@ -3,10 +3,12 @@ package com.waypoint.app.cycle
 import android.content.Context
 import android.os.PowerManager
 import com.waypoint.app.AppLogger
+import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
 import com.waypoint.app.planner.SleepModeState
 import com.waypoint.app.planner.WakeConfirmation
+import com.waypoint.app.signal.RealCalendarSignals
 import java.util.UUID
 
 class CycleTracker(private val context: Context) {
@@ -84,7 +86,7 @@ class CycleTracker(private val context: Context) {
                     gap < MAX_TRACKED_SLEEP_MS
                 // Let the sleep tracker see this activity as a tentative wake; it confirms and
                 // logs the night itself (see WakeConfirmation).
-                if (trackerSleeping) sleepLogStore.noteActivity()
+                if (trackerSleeping) sleepLogStore.noteActivity(now)
                 val isMorningWake = explicitWake || WakeConfirmation.isConfirmed(
                     sleepLogStore.getSleepStartMillis() ?: sleepStart, now, now, sleepLogStore.getScheduledWakeMs()
                 )
@@ -218,26 +220,21 @@ class CycleTracker(private val context: Context) {
         }
     }
 
+    /** A sleep log entry changed by [saveCycle] whose calendar event still needs rewriting. */
+    data class SleepCalendarChange(val entry: SleepLogEntry?, val staleEventIds: List<Long>)
+
     /**
      * Save a manually-edited cycle. Handles:
-     * - Sleep sync: writes a SleepLogEntry when both sleep endpoints are present.
+     * - Sleep sync: mirrors an edited night into SleepLogStore (see [syncSleepEntry]); returns the
+     *   calendar follow-up for [applySleepCalendarChange], or null if there is none.
      * - Edit propagation: when nextWakeMillis changes, updates the successor cycle's wakeMillis;
      *   when wakeMillis changes, updates the predecessor cycle's nextWakeMillis.
      * - Auto-start: if an open cycle is being closed, opens a new cycle at nextWakeMillis.
      */
-    fun saveCycle(original: Cycle, updated: Cycle) {
+    fun saveCycle(original: Cycle, updated: Cycle): SleepCalendarChange? {
         store.save(updated)
 
-        // Sync sleep → SleepLogStore
-        if (updated.sleepStartMillis != null && updated.nextWakeMillis != null) {
-            sleepLogStore.saveEntry(
-                SleepLogEntry(
-                    dateIso  = Cycle.dateLabel(updated.sleepStartMillis),
-                    bedMillis  = updated.sleepStartMillis,
-                    wakeMillis = updated.nextWakeMillis
-                )
-            )
-        }
+        val calendarChange = syncSleepEntry(original, updated)
 
         val all = store.loadAll()
 
@@ -258,6 +255,74 @@ class CycleTracker(private val context: Context) {
         // Auto-open successor when closing an open cycle (if none already exists)
         if (original.isOpen && !updated.isOpen && newEnd != null && store.loadCurrent() == null) {
             openCycle(newEnd)
+        }
+        return calendarChange
+    }
+
+    /**
+     * Mirrors a cycle's edited night into SleepLogStore. Entries are keyed by wake date, the same
+     * way the sleep tracker logs them, and only an entry for this same night is ever replaced or
+     * removed — another night's entry is never overwritten. Does nothing if the sleep times
+     * didn't change.
+     */
+    private fun syncSleepEntry(original: Cycle, updated: Cycle): SleepCalendarChange? {
+        val oldBed = original.sleepStartMillis
+        val oldWake = original.nextWakeMillis
+        val newBed = updated.sleepStartMillis
+        val newWake = updated.nextWakeMillis
+        if (oldBed == newBed && oldWake == newWake) return null
+
+        val oldEntry = if (oldBed != null && oldWake != null) {
+            sleepLogStore.loadForDate(Cycle.dateLabel(oldWake))
+                ?.takeIf { overlaps(it.bedMillis, it.wakeMillis, oldBed, oldWake) }
+        } else null
+
+        if (newBed == null || newWake == null || newWake <= newBed) {
+            if (oldEntry == null) return null
+            sleepLogStore.deleteEntry(oldEntry.dateIso)
+            return SleepCalendarChange(entry = null, staleEventIds = listOfNotNull(oldEntry.calendarEventId))
+        }
+
+        val newDate = Cycle.dateLabel(newWake)
+        val occupant = sleepLogStore.loadForDate(newDate)?.takeIf { it.dateIso != oldEntry?.dateIso }
+        if (occupant != null && !overlaps(occupant.bedMillis, occupant.wakeMillis, newBed, newWake)) {
+            AppLogger.w(TAG, "saveCycle: $newDate already holds a different night — leaving the sleep log as-is")
+            return null
+        }
+        if (oldEntry != null && oldEntry.dateIso != newDate) sleepLogStore.deleteEntry(oldEntry.dateIso)
+
+        val staleEventIds = listOfNotNull(oldEntry?.calendarEventId, occupant?.calendarEventId)
+        // Keep the old event linked until a replacement exists, so a failed calendar write
+        // doesn't make the background calendar sync create a duplicate.
+        val entry = SleepLogEntry(newDate, newBed, newWake, staleEventIds.firstOrNull())
+        sleepLogStore.saveEntry(entry)
+        return SleepCalendarChange(entry, staleEventIds)
+    }
+
+    private fun overlaps(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
+        aStart < bEnd && aEnd > bStart
+
+    /** Replaces the calendar event(s) for a night changed by [saveCycle]. */
+    suspend fun applySleepCalendarChange(change: SleepCalendarChange) {
+        try {
+            val calendar = RealCalendarSignals(context)
+            if (!calendar.hasWritePermission()) return
+            val entry = change.entry
+            if (entry != null) {
+                val newId = SleepCalendarSync.writeForEntry(context, entry.bedMillis, entry.wakeMillis, null)
+                if (newId <= 0) return
+                val stillCurrent = sleepLogStore.loadForDate(entry.dateIso)
+                    ?.takeIf { it.bedMillis == entry.bedMillis && it.wakeMillis == entry.wakeMillis }
+                if (stillCurrent == null) {
+                    // Edited again while this was in flight — the newer edit owns the event.
+                    calendar.deleteEvent(newId)
+                    return
+                }
+                sleepLogStore.saveEntry(stillCurrent.copy(calendarEventId = newId))
+            }
+            change.staleEventIds.forEach { calendar.deleteEvent(it) }
+        } catch (e: Throwable) {
+            AppLogger.e(TAG, "applySleepCalendarChange threw", e)
         }
     }
 

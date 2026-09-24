@@ -178,9 +178,8 @@ class SleepLogStore(context: Context) {
      * don't handle the sleep-logged follow-up (calendar write); the next [recordPhoneActive]
      * confirms using this earlier wake time.
      */
-    fun noteActivity() {
+    fun noteActivity(now: Long = System.currentTimeMillis()) {
         if (getSleepModeState() != SleepModeState.SLEEPING) return
-        val now = System.currentTimeMillis()
         val edit = prefs.edit().putLong(KEY_LAST_ACTIVE, now).putLong(KEY_LAST_INTERACTIVE, now)
         if (!prefs.contains(KEY_WAKE_CANDIDATE)) edit.putLong(KEY_WAKE_CANDIDATE, now)
         edit.apply()

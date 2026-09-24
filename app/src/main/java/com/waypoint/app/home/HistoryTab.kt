@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,7 @@ import com.waypoint.app.script.TaskManagerScript
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Calendar
 
 // ── Data models ───────────────────────────────────────────────────────────────
@@ -168,6 +170,7 @@ fun HistoryTab(
     var measurementDrillTarget by remember { mutableStateOf<Pair<String, List<MeasurementRecord>>?>(null) }
     var editSession by remember { mutableStateOf<BlockSessionLog?>(null) }
     var editCycle by remember { mutableStateOf<Cycle?>(null) }
+    val scope = rememberCoroutineScope()
 
     val primary = MaterialTheme.colorScheme.primary
     val tertiary = MaterialTheme.colorScheme.tertiary
@@ -460,7 +463,9 @@ fun HistoryTab(
             cycle = cycle,
             onDismiss = { editCycle = null },
             onSave = { updated ->
-                cycleTracker.saveCycle(cycle, updated)
+                cycleTracker.saveCycle(cycle, updated)?.let { change ->
+                    scope.launch { cycleTracker.applySleepCalendarChange(change) }
+                }
                 editCycle = null
                 localKey++
             },
