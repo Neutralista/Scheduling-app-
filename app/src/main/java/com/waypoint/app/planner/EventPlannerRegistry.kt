@@ -5,9 +5,9 @@ import java.util.Calendar
 
 /**
  * Default soft gap after a task that didn't configure its own [PlannerEvent.bufferMinutes].
- * Purely a preference, never a placement requirement: [EventPlannerRegistry.consumeSlot] just
- * clamps it to whatever room is actually left, so two tasks still land back-to-back whenever
- * the day is tight enough to need it.
+ * Purely a preference, never a placement requirement: it's held back from free time, but a
+ * later task that wouldn't fit otherwise may use it (see softGaps in planForDate), so tasks
+ * still land back-to-back whenever the day is tight enough to need it.
  */
 private const val AUTO_BUFFER_CAP_MS = 30 * 60_000L
 
@@ -442,6 +442,9 @@ class EventPlannerRegistry {
         val remainingWithBlocks = subtractIntervals(planStartMs, freeBlockEnd, fixedIntervalsWithBlocks).toMutableList()
         // Use remainingWithBlocks as the working set from here on
         remaining.clear(); remaining.addAll(remainingWithBlocks)
+        // Automatic post-task gaps — reserved while there's room, reclaimable when a later task
+        // wouldn't fit otherwise. Disjoint from `remaining`; together they are all free time.
+        val softGaps = mutableListOf<Pair<Long, Long>>()
 
         // Historical slots: free time between cycleStartMs and planStartMs that has already
         // passed relative to nowMs. Regular tasks cannot be scheduled here, but BEFORE block
@@ -847,131 +850,164 @@ class EventPlannerRegistry {
                 // if nothing fits inside the flex window, the task is blocked — same visibility as
                 // any other unsatisfiable constraint — instead of silently landing far from anchor.
                 val aroundTime = event.conditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
-                if (aroundTime != null) {
-                    val anchorMs = toMs(aroundTime.anchorHour, aroundTime.anchorMinute)
-                    val flexMs = aroundTime.flexMinutes * 60_000L
-                    val hiBound = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis, bedCap).minOrNull()
-                    val primary = closestFitToAnchor(remaining, anchorMs, flexMs, durationMs, effectiveMustStartAfter, hiBound)
-                    if (primary != null) {
-                        val (idx, start) = primary
+                val aroundAnchorMs = aroundTime?.let { toMs(it.anchorHour, it.anchorMinute) }
+                val aroundFlexMs = (aroundTime?.flexMinutes ?: 0) * 60_000L
+                val aroundHiBound = listOfNotNull(effectiveMustEndBefore, deadline?.byMillis, bedCap).minOrNull()
+
+                // Places the event into a free-time pool (AroundTime, else first-fit/last-fit) and
+                // consumes what it used. The automatic gap it leaves is recorded in softGaps so a
+                // later task can still reclaim it.
+                fun placeInFree(pool: MutableList<Pair<Long, Long>>): Boolean {
+                    fun take(idx: Int, start: Long) {
+                        val slotEnd = pool[idx].second
                         scheduled += ScheduledEvent(event, start, start + durationMs)
-                        consumeSlot(remaining, idx, start, durationMs, bufferMs)
+                        consumeSlot(pool, idx, start, durationMs, bufferMs)
+                        if (event.bufferMinutes <= 0) {
+                            val gapEnd = minOf(start + durationMs + bufferMs, slotEnd)
+                            if (gapEnd > start + durationMs) softGaps += (start + durationMs) to gapEnd
+                        }
+                    }
+
+                    if (aroundAnchorMs != null) {
+                        val (idx, start) = closestFitToAnchor(
+                            pool, aroundAnchorMs, aroundFlexMs, durationMs, effectiveMustStartAfter, aroundHiBound
+                        ) ?: return false
+                        take(idx, start)
+                        return true
+                    }
+
+                    if (!useLast) {
+                        // Forward first-fit: take the earliest block where the task fits, then nudge
+                        // the start later within whatever slack remains — capped by priority, via
+                        // jitterCapMs — so low-priority tasks scatter through free time the way real
+                        // errands do, while Critical/Urgent tasks keep landing at the first opening.
+                        for (i in pool.indices) {
+                            val (blockStart, blockEnd) = pool[i]
+                            if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                            if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
+                            val earliestStart = maxOf(
+                                blockStart,
+                                effectiveMustStartAfter ?: blockStart,
+                                tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
+                                if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
+                            )
+                            val fitEnd = minOf(
+                                blockEnd,
+                                effectiveMustEndBefore ?: blockEnd,
+                                tw?.let { windowEndMs(it) } ?: blockEnd,
+                                if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
+                                deadline?.byMillis ?: blockEnd,
+                                bedCap ?: blockEnd
+                            )
+                            if (fitEnd - earliestStart < durationMs) continue
+                            val slackMs = (fitEnd - earliestStart) - durationMs
+                            val jitterMs = seededJitterMs("${event.id}|$date", jitterCapMs(event.priority, slackMs))
+                            // Split (not just truncate-from-the-left) so a jittered/bound-constrained
+                            // gap before the start stays available to later tasks in this same pass.
+                            take(i, earliestStart + jitterMs)
+                            return true
+                        }
+                    } else {
+                        // Reverse last-fit: place as late as possible before any upper bound.
+                        // Two-phase: phase 1 tries to stay before preferredBedMs (pre-sleep); phase 2
+                        // allows overflow into the sleep window only when there is genuinely no room —
+                        // and only for work exempt from bedCap; everything else is capped at bed time.
+                        val bedCaps = if (bedCap == null && preferredBedMs != null && effectiveMustEndBefore == null)
+                            listOf(preferredBedMs, null) else listOf(null)
+                        for (phaseCap in bedCaps) {
+                            for (i in pool.indices.reversed()) {
+                                val (blockStart, blockEnd) = pool[i]
+                                if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
+                                if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
+                                val upperBound = minOf(
+                                    blockEnd,
+                                    effectiveMustEndBefore ?: (phaseCap ?: blockEnd),
+                                    tw?.let { windowEndMs(it) } ?: blockEnd,
+                                    if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
+                                    bedCap ?: blockEnd,
+                                    // An upper bound, not a slot filter — the old "skip the slot if
+                                    // the late end passes the deadline" check threw away room before
+                                    // the deadline in that same slot.
+                                    deadline?.byMillis ?: blockEnd
+                                )
+                                val lowerBound = maxOf(
+                                    blockStart,
+                                    effectiveMustStartAfter ?: blockStart,
+                                    tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
+                                    if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
+                                )
+                                val fitStart = upperBound - durationMs
+                                if (fitStart < lowerBound) continue
+                                // Preserve free time before and after the placed slot.
+                                take(i, fitStart)
+                                return true
+                            }
+                        }
+                    }
+                    return false
+                }
+
+                placed = placeInFree(remaining)
+
+                // The automatic gap is a preference, not a reservation: when nothing fits in truly
+                // free time, retry with the gaps earlier tasks left behind available again.
+                if (!placed && softGaps.isNotEmpty()) {
+                    val oldGaps = softGaps.toList()
+                    softGaps.clear()
+                    val pool = mergeIntervals(remaining + oldGaps).toMutableList()
+                    if (placeInFree(pool)) {
                         placed = true
-                    } else if (beforeBlock != null && historicalSlots.isNotEmpty()) {
+                        val placedEvent = scheduled.last()
+                        val keptGaps = subtractFromAll(oldGaps, listOf(placedEvent.startMillis to placedEvent.endMillis))
+                        softGaps += keptGaps
+                        remaining.clear(); remaining.addAll(subtractFromAll(pool, keptGaps))
+                    } else {
+                        softGaps += oldGaps
+                    }
+                }
+
+                // BEFORE block tasks: if the free pool failed because planStartMs > blockStartMs
+                // (i.e. the block has already started), fall back to historical slots.
+                if (!placed && beforeBlock != null && historicalSlots.isNotEmpty()) {
+                    if (aroundAnchorMs != null) {
                         // Same anchor/flex bounds as the primary pool — a BeforeBlock task that
                         // couldn't fit in the remaining free time (block already started) still
                         // must not silently land outside [anchor - flex, anchor + flex].
-                        val fallback = closestFitToAnchor(historicalSlots, anchorMs, flexMs, durationMs, effectiveMustStartAfter, hiBound)
+                        val fallback = closestFitToAnchor(historicalSlots, aroundAnchorMs, aroundFlexMs, durationMs, effectiveMustStartAfter, aroundHiBound)
                         if (fallback != null) {
                             val (idx, start) = fallback
                             scheduled += ScheduledEvent(event, start, start + durationMs)
                             consumeSlot(historicalSlots, idx, start, durationMs, bufferMs)
                             placed = true
                         }
-                    }
-                    if (!placed) blocked += BlockedEvent(event, "No available time near ${"%02d:%02d".format(aroundTime.anchorHour, aroundTime.anchorMinute)}")
-                    continue
-                }
-
-                if (!useLast) {
-                    // Forward first-fit: take the earliest block where the task fits, then nudge
-                    // the start later within whatever slack remains — capped by priority, via
-                    // jitterCapMs — so low-priority tasks scatter through free time the way real
-                    // errands do, while Critical/Urgent tasks keep landing at the first opening.
-                    for (i in remaining.indices) {
-                        val (blockStart, blockEnd) = remaining[i]
-                        if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
-                        if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
-                        val earliestStart = maxOf(
-                            blockStart,
-                            effectiveMustStartAfter ?: blockStart,
-                            tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
-                            if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
-                        )
-                        val fitEnd = minOf(
-                            blockEnd,
-                            effectiveMustEndBefore ?: blockEnd,
-                            tw?.let { windowEndMs(it) } ?: blockEnd,
-                            if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
-                            deadline?.byMillis ?: blockEnd,
-                            bedCap ?: blockEnd
-                        )
-                        if (fitEnd - earliestStart < durationMs) continue
-                        val slackMs = (fitEnd - earliestStart) - durationMs
-                        val jitterMs = seededJitterMs("${event.id}|$date", jitterCapMs(event.priority, slackMs))
-                        val fitStart = earliestStart + jitterMs
-                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                        // Split (not just truncate-from-the-left) so a jittered/bound-constrained
-                        // gap before fitStart stays available to later tasks in this same pass.
-                        consumeSlot(remaining, i, fitStart, durationMs, bufferMs)
-                        placed = true
-                        break
-                    }
-                } else {
-                    // Reverse last-fit: place as late as possible before any upper bound.
-                    // Two-phase: phase 1 tries to stay before preferredBedMs (pre-sleep); phase 2
-                    // allows overflow into the sleep window only when there is genuinely no room —
-                    // and only for work exempt from bedCap; everything else is capped at bed time.
-                    val bedCaps = if (bedCap == null && preferredBedMs != null && effectiveMustEndBefore == null)
-                        listOf(preferredBedMs, null) else listOf(null)
-                    outer@ for (phaseCap in bedCaps) {
-                        for (i in remaining.indices.reversed()) {
-                            val (blockStart, blockEnd) = remaining[i]
-                            if (beforeShift && shiftStartMs != null && blockStart >= shiftStartMs) continue
-                            if (afterShift  && shiftEndMs   != null && blockEnd   <= shiftEndMs)   continue
-                            val upperBound = minOf(
-                                blockEnd,
-                                effectiveMustEndBefore ?: (phaseCap ?: blockEnd),
-                                tw?.let { windowEndMs(it) } ?: blockEnd,
-                                if (beforeShift && shiftStartMs != null) shiftStartMs else blockEnd,
-                                bedCap ?: blockEnd,
-                                // An upper bound, not a slot filter — the old "skip the slot if
-                                // the late end passes the deadline" check threw away room before
-                                // the deadline in that same slot.
-                                deadline?.byMillis ?: blockEnd
+                    } else {
+                        for (i in historicalSlots.indices.reversed()) {
+                            val (slotStart, slotEnd) = historicalSlots[i]
+                            val lo = maxOf(
+                                slotStart,
+                                effectiveMustStartAfter ?: slotStart,
+                                tw?.let { toMs(it.startHour, it.startMin) } ?: slotStart
                             )
-                            val lowerBound = maxOf(
-                                blockStart,
-                                effectiveMustStartAfter ?: blockStart,
-                                tw?.let { toMs(it.startHour, it.startMin) } ?: blockStart,
-                                if (afterShift && shiftEndMs != null) shiftEndMs else blockStart
+                            val hi = minOf(
+                                slotEnd,
+                                endBy ?: slotEnd,
+                                tw?.let { windowEndMs(it) } ?: slotEnd
                             )
-                            val fitStart = upperBound - durationMs
-                            if (fitStart < lowerBound) continue
+                            val fitStart = hi - durationMs
+                            if (fitStart < lo) continue
                             scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                            // Preserve free time before and after the placed slot.
-                            consumeSlot(remaining, i, fitStart, durationMs, bufferMs)
+                            consumeSlot(historicalSlots, i, fitStart, durationMs, bufferMs)
                             placed = true
-                            break@outer
+                            break
                         }
                     }
                 }
 
-                // BEFORE block tasks: if the main pass failed because planStartMs > blockStartMs
-                // (i.e. the block has already started), fall back to historical slots.
-                if (!placed && beforeBlock != null && historicalSlots.isNotEmpty()) {
-                    for (i in historicalSlots.indices.reversed()) {
-                        val (slotStart, slotEnd) = historicalSlots[i]
-                        val lo = maxOf(
-                            slotStart,
-                            effectiveMustStartAfter ?: slotStart,
-                            tw?.let { toMs(it.startHour, it.startMin) } ?: slotStart
-                        )
-                        val hi = minOf(
-                            slotEnd,
-                            endBy ?: slotEnd,
-                            tw?.let { windowEndMs(it) } ?: slotEnd
-                        )
-                        val fitStart = hi - durationMs
-                        if (fitStart < lo) continue
-                        scheduled += ScheduledEvent(event, fitStart, fitStart + durationMs)
-                        consumeSlot(historicalSlots, i, fitStart, durationMs, bufferMs)
-                        placed = true
-                        break
-                    }
-                }
-
-                if (!placed) blocked += BlockedEvent(event, "No available time slot")
+                if (!placed) blocked += BlockedEvent(
+                    event,
+                    aroundTime?.let { "No available time near ${"%02d:%02d".format(it.anchorHour, it.anchorMinute)}" }
+                        ?: "No available time slot"
+                )
             }
         }
 
@@ -1174,6 +1210,19 @@ class EventPlannerRegistry {
         }
         slots.addAll(idx, segs)
     }
+
+    private fun mergeIntervals(intervals: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
+        val merged = mutableListOf<Pair<Long, Long>>()
+        for ((s, e) in intervals.sortedBy { it.first }) {
+            val last = merged.lastOrNull()
+            if (last != null && s <= last.second) merged[merged.lastIndex] = last.first to maxOf(last.second, e)
+            else merged += s to e
+        }
+        return merged
+    }
+
+    private fun subtractFromAll(intervals: List<Pair<Long, Long>>, subtract: List<Pair<Long, Long>>): List<Pair<Long, Long>> =
+        intervals.flatMap { (s, e) -> subtractIntervals(s, e, subtract) }
 
     private fun subtractIntervals(
         start: Long, end: Long,

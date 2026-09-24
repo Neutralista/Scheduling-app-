@@ -181,6 +181,20 @@ class EventPlannerRegistryTest {
     }
 
     @Test
+    fun automaticGap_isReclaimedWhenTheDayIsTight() {
+        // 21:00 → 23:00 free; four 30-minute tasks only fit if the default 30-minute gaps give way.
+        val r = registry(busyUntilHour = 21).apply {
+            listOf("t1", "t2", "t3", "t4").forEach { register(task(it, 30)) }
+        }
+        val plan = r.planForDate(day)
+        assertTrue(plan.blocked.none { it.event.id.startsWith("t") })
+        assertEquals(ms(day, 21), plan.startOf("t1"))
+        assertEquals(ms(day, 22), plan.startOf("t2"))
+        assertEquals(ms(day, 21, 30), plan.startOf("t3"))
+        assertEquals(ms(day, 22, 30), plan.startOf("t4"))
+    }
+
+    @Test
     fun taskDeliberatelyAfterBedtime_isNotCapped() {
         val r = registry(busyUntilHour = 22).apply {
             register(task("late", 20, 9, EventCondition.TimeWindow(23, 30, 23, 59)))
