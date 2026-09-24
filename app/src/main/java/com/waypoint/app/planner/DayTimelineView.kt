@@ -397,27 +397,26 @@ fun DayTimelineView(
         val others = plan.scheduled.filter {
             it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID && it.event.id != taskId
         }
-        val afterIds = (req.conditions.firstOrNull { it.type == "afterTask" }?.referenceTaskIds ?: emptyList()).toMutableSet()
-        val beforeIds = (req.conditions.firstOrNull { it.type == "beforeTask" }?.referenceTaskIds ?: emptyList()).toMutableSet()
-        var changed = false
+        val nowAfter = mutableSetOf<String>()
+        val nowBefore = mutableSetOf<String>()
         for (other in others) {
             val wasBefore = originalEndMs <= other.startMillis
             val wasAfter  = originalStartMs >= other.endMillis
-            val nowBefore = newEndMs <= other.startMillis
-            val nowAfter  = newStartMs >= other.endMillis
-            if (wasBefore && nowAfter) {
-                afterIds += other.event.id; beforeIds -= other.event.id; changed = true
-            } else if (wasAfter && nowBefore) {
-                beforeIds += other.event.id; afterIds -= other.event.id; changed = true
-            }
+            val nowBeforeOther = newEndMs <= other.startMillis
+            val nowAfterOther  = newStartMs >= other.endMillis
+            if (wasBefore && nowAfterOther) nowAfter += other.event.id
+            else if (wasAfter && nowBeforeOther) nowBefore += other.event.id
         }
-        if (!changed) return
-        val newConditions = req.conditions.filter { it.type != "afterTask" && it.type != "beforeTask" } +
-            listOfNotNull(
-                if (afterIds.isNotEmpty()) TaskConditionSpec("afterTask", referenceTaskIds = afterIds.sorted()) else null,
-                if (beforeIds.isNotEmpty()) TaskConditionSpec("beforeTask", referenceTaskIds = beforeIds.sorted()) else null
-            )
-        tm.submitTask(req.copy(conditions = newConditions))
+        val updates = applyDragOrdering(tm.getAllTasks(), req.id, nowAfter, nowBefore)
+        if (updates.isEmpty()) return
+        updates.forEach { tm.submitTask(it) }
+        // The rule applies every day, not just to this drag — say so instead of saving it silently.
+        val titles = others.associate { it.event.id to it.event.title }
+        val message = buildList {
+            if (nowAfter.isNotEmpty()) add("after ${nowAfter.mapNotNull { titles[it] }.joinToString()}")
+            if (nowBefore.isNotEmpty()) add("before ${nowBefore.mapNotNull { titles[it] }.joinToString()}")
+        }.joinToString(" and ")
+        android.widget.Toast.makeText(context, "${req.title} now always goes $message", android.widget.Toast.LENGTH_LONG).show()
         localRefreshKey++
     }
 
