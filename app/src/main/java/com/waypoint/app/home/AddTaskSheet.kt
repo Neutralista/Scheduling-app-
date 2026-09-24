@@ -72,6 +72,7 @@ import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.oneOffDate
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.signal.CalendarEvent
@@ -425,7 +426,13 @@ fun AddTaskSheet(
                 triggers            = triggers.toList(),
                 scheduleLate        = aroundMode == "zone" && zone == PlannerZone.EVENING,
                 zone                = if (aroundMode == "zone") zone else null,
-                colorArgb           = taskColor
+                colorArgb           = taskColor,
+                // Still done if it's the same one-off; moved to another date, it's to do again.
+                completedOn         = initial?.let { prev ->
+                    prev.completedOn?.takeIf {
+                        conditions.oneOffDate() != null && conditions.oneOffDate() == prev.conditions.oneOffDate()
+                    }
+                }
             )
         )
     }

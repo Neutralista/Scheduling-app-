@@ -250,7 +250,9 @@ fun TasksTab(
 
         ScheduledBlocksDropdown(namedBlockStore = namedBlockStore, refreshKey = refreshKey)
 
-        val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty()
+        // Skipped tasks leave the plan, so they're listed from the queue to be un-skipped.
+        val skippedTasks = remember(refreshKey, allTasks) { allTasks.filter { taskManager.isSkipped(it.id) } }
+        val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty() || skippedTasks.isNotEmpty()
         if (!hasAny) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -401,6 +403,27 @@ fun TasksTab(
                             },
                             onDelete = {
                                 taskManager.retractTask(be.event.id)
+                                refreshKey++
+                                onRefresh()
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    }
+                }
+                if (skippedTasks.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Skipped",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
+                    items(skippedTasks, key = { "k_${it.id}" }) { task ->
+                        SkippedTaskRow(
+                            title = task.title,
+                            onUnskip = {
+                                taskManager.unskipTask(task.id)
                                 refreshKey++
                                 onRefresh()
                             }
@@ -1783,6 +1806,31 @@ private fun BlockedTaskRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
             )
         }
+    }
+}
+
+@Composable
+private fun SkippedTaskRow(title: String, onUnskip: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(
+            Icons.Default.SkipNext,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onUnskip) { Text("Un-skip") }
     }
 }
 

@@ -88,8 +88,17 @@ data class TaskRequest(
     val triggers: List<TaskTrigger> = emptyList(),
     val scheduleLate: Boolean = false,
     val zone: PlannerZone? = null,
-    val colorArgb: Int? = null
+    val colorArgb: Int? = null,
+    /**
+     * One-off tasks only: the date ("yyyy-MM-dd") it was done. Done marks reset every wake, so
+     * this is what lets a done one-off be cleared from the queue afterwards instead of carrying
+     * over as missed.
+     */
+    val completedOn: String? = null
 )
+
+/** The date of a one-off task's "oneOff" condition, or null if it isn't a one-off. */
+fun List<TaskConditionSpec>.oneOffDate(): String? = firstOrNull { it.type == "oneOff" }?.oneOffDate
 
 class TaskQueueStore(context: Context) {
     private val prefs = context.getSharedPreferences("waypoint_task_queue", Context.MODE_PRIVATE)

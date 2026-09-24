@@ -8,6 +8,10 @@ import com.waypoint.app.planner.TaskExecution
 import com.waypoint.app.planner.TaskExecutionStore
 import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.planner.TaskRequest
+import com.waypoint.app.planner.oneOffDate
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.math.abs
 
 class TaskManagerScript(
@@ -51,9 +55,17 @@ class TaskManagerScript(
     fun getAllTasks(): List<TaskRequest> = store.loadAll()
 
     // Re-synced so a done task is pinned where it happened instead of still floating after now.
-    fun markDone(taskId: String) { completions.markDone(taskId); syncToRegistry() }
-    fun markDoneAt(taskId: String, whenMs: Long) { completions.markDoneAt(taskId, whenMs); syncToRegistry() }
-    fun unmarkDone(taskId: String) { completions.unmarkDone(taskId); syncToRegistry() }
+    fun markDone(taskId: String) = markDoneAt(taskId, System.currentTimeMillis())
+    fun markDoneAt(taskId: String, whenMs: Long) {
+        completions.markDoneAt(taskId, whenMs)
+        setOneOffCompletedOn(taskId, dateOf(whenMs))
+        syncToRegistry()
+    }
+    fun unmarkDone(taskId: String) {
+        completions.unmarkDone(taskId)
+        setOneOffCompletedOn(taskId, null)
+        syncToRegistry()
+    }
     fun isDone(taskId: String) = completions.isDone(taskId)
 
     fun skipTask(taskId: String) { completions.skipTask(taskId); syncToRegistry() }
@@ -69,13 +81,43 @@ class TaskManagerScript(
      *  for something that actually happened earlier and just wasn't logged at the time. */
     fun logPastExecution(taskId: String, startMs: Long, endMs: Long) {
         executions.update(TaskExecution(taskId = taskId, startMillis = startMs, endMillis = endMs))
-        completions.markDoneAt(taskId, endMs)
-        syncToRegistry()
+        markDoneAt(taskId, endMs)
+    }
+
+    private fun dateOf(ms: Long): String =
+        Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
+    private fun setOneOffCompletedOn(taskId: String, date: String?) {
+        val req = store.loadAll().find { it.id == taskId } ?: return
+        if (req.conditions.oneOffDate() == null || req.completedOn == date) return
+        store.submit(req.copy(completedOn = date))
+    }
+
+    /**
+     * One-off tasks after their date. Done (by a past day, and no longer marked done this wake):
+     * removed from the queue — before, they stayed in it forever. Not done: carried over to
+     * today rather than silently dropped. Others pass through unchanged.
+     */
+    private fun settleOneOffs(tasks: List<TaskRequest>): List<TaskRequest> {
+        val today = LocalDate.now()
+        return tasks.mapNotNull { req ->
+            val due = req.conditions.oneOffDate()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            if (due == null || !due.isBefore(today)) return@mapNotNull req
+            val completed = req.completedOn?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            if (completed != null && completed.isBefore(today) && !completions.isDone(req.id)) {
+                store.retract(req.id)
+                AppLogger.i(TAG, "settleOneOffs: cleared done one-off id=${req.id}")
+                return@mapNotNull null
+            }
+            req.copy(conditions = req.conditions.map {
+                if (it.type == "oneOff") it.copy(oneOffDate = today.toString()) else it
+            })
+        }
     }
 
     fun syncToRegistry() {
         registry.unregisterByWidget(WIDGET_ID)
-        val tasks = store.loadAll()
+        val tasks = settleOneOffs(store.loadAll())
         // Loaded once and filtered per-task in memory, rather than re-reading and
         // re-decoding the entire executions store for every useMeasuredDuration task.
         val allExecutions = executions.loadAll()
