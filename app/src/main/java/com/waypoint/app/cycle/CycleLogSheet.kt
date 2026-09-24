@@ -128,7 +128,7 @@ fun CycleLogSheet(
                     NullableTimeField(
                         label        = if (cycle.isOpen) "Close cycle / next wake" else "Next wake",
                         millis       = nextWakeMs,
-                        addLabel     = if (cycle.isOpen) "+ Close cycle" else "+ Set next wake",
+                        addLabel     = "+ Close cycle",
                         defaultMs    = {
                             // Closing an open cycle almost always means "I'm up now" — the old
                             // wake+8h default put a stale cycle's close back at yesterday afternoon.
@@ -136,6 +136,9 @@ fun CycleLogSheet(
                             if (cycle.isOpen) now else minOf((sleepMs ?: wakeMs) + 8 * 3600_000L, now)
                         },
                         anchorMillis = sleepMs ?: wakeMs,
+                        // Clearing a closed cycle's next wake would reopen it alongside the
+                        // current one — two open cycles. Only an open cycle's close is undoable.
+                        clearable    = cycle.isOpen,
                         onChanged    = { nextWakeMs = it }
                     )
 
@@ -186,7 +189,8 @@ fun CycleLogSheet(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "Delete this cycle permanently?",
+                                if (cycle.isOpen) "Delete the current cycle permanently? Today's task checkmarks will reset."
+                                else "Delete this cycle permanently?",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -273,6 +277,7 @@ private fun NullableTimeField(
     addLabel: String,
     defaultMs: () -> Long,
     anchorMillis: Long,
+    clearable: Boolean = true,
     onChanged: (Long?) -> Unit
 ) {
     var showDatePicker by remember { mutableStateOf(false) }
@@ -299,10 +304,12 @@ private fun NullableTimeField(
                 ) {
                     Text(Cycle.formatDate(millis), style = MaterialTheme.typography.bodySmall)
                 }
-                TextButton(
-                    onClick = { onChanged(null) },
-                    contentPadding = PaddingValues(4.dp)
-                ) { Text("Clear", style = MaterialTheme.typography.labelSmall) }
+                if (clearable) {
+                    TextButton(
+                        onClick = { onChanged(null) },
+                        contentPadding = PaddingValues(4.dp)
+                    ) { Text("Clear", style = MaterialTheme.typography.labelSmall) }
+                }
             }
         }
     }

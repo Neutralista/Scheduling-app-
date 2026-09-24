@@ -94,7 +94,7 @@ class WaypointApplication : Application() {
             currentStep = "Cycle tracker"
             cycleTracker = CycleTracker(applicationContext)
             env.taskManager.completions.getCycleId = { cycleTracker.store.loadCurrent()?.id ?: "" }
-            cycleTracker.onNewCycle = { env.taskManager.completions.clearAll() }
+            cycleTracker.onNewCycle = { wakeMillis -> env.taskManager.completions.retainDoneSince(wakeMillis) }
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Built-in scripts"

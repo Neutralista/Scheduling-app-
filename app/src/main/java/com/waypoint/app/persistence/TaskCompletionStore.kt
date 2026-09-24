@@ -72,8 +72,19 @@ class TaskCompletionStore(context: Context) {
     fun getDoneIds(): Set<String> = loadDoneIds()
     fun getSkippedIds(): Set<String> = loadSkippedIds()
 
-    /** Clear all marks immediately (called when a new cycle opens). */
-    fun clearAll() {
-        prefs.edit().clear().apply()
+    /**
+     * Called when a new cycle opens at [sinceMs]. That wake can be in the past (a confirmed
+     * wake, or a stale cycle closed after the fact), so done marks made since then belong to
+     * the new cycle and are kept; everything older — and all skips, which have no time — is
+     * cleared.
+     */
+    fun retainDoneSince(sinceMs: Long) {
+        val kept = (prefs.getStringSet("done_ids", emptySet()) ?: emptySet())
+            .mapNotNull { id -> prefs.getLong("done_at_$id", -1L).takeIf { it >= sinceMs }?.let { id to it } }
+        val editor = prefs.edit().clear()
+            .putString("cycle_id", getCycleId())
+            .putStringSet("done_ids", kept.map { it.first }.toSet())
+        kept.forEach { (id, at) -> editor.putLong("done_at_$id", at) }
+        editor.apply()
     }
 }

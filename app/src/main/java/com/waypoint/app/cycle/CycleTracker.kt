@@ -19,11 +19,11 @@ class CycleTracker(private val context: Context) {
     private val sleepLogStore = SleepLogStore(context)
 
     /**
-     * Called every time a new cycle opens — both automatic and manual.
-     * Wire this up (e.g. in Application.onCreate) to reset per-cycle state such as
-     * task completion marks.
+     * Called every time a new cycle opens — both automatic and manual — with its wake time,
+     * which may be in the past. Wire this up (e.g. in Application.onCreate) to reset per-cycle
+     * state such as task completion marks.
      */
-    var onNewCycle: (() -> Unit)? = null
+    var onNewCycle: ((wakeMillis: Long) -> Unit)? = null
 
     companion object {
         private const val TAG = "CycleTracker"
@@ -145,8 +145,15 @@ class CycleTracker(private val context: Context) {
                 val closeViaUndetectedGap = openMs >= MIN_NEW_CYCLE_GAP_MS &&
                     inactiveDuration >= FALLBACK_INACTIVITY_MS && spannedNight
                 val closeViaWakeAlarm = explicitWake && openMs >= MIN_NEW_CYCLE_GAP_MS
+                // The sleep tracker logged a wake well into this cycle even though the cycle never
+                // got a sleep onset (e.g. the onset predated the cycle and was rejected).
+                val loggedWake = sleepLogStore.loggedWakeAfter(current.wakeMillis + MIN_NEW_CYCLE_GAP_MS - 1, now)
 
-                if (closeViaSleepMode || closeViaUndetectedGap || closeViaWakeAlarm) {
+                if (loggedWake != null) {
+                    AppLogger.i(TAG, "recordActive: no sleep start, but sleep tracker logged wake at $loggedWake — closing cycle ${current.id}")
+                    store.save(current.copy(nextWakeMillis = loggedWake))
+                    openCycle(loggedWake)
+                } else if (closeViaSleepMode || closeViaUndetectedGap || closeViaWakeAlarm) {
                     AppLogger.i(
                         TAG,
                         "recordActive: no sleep start, cycle open ${openMs / 3600_000}h, " +
@@ -212,14 +219,18 @@ class CycleTracker(private val context: Context) {
 
     /**
      * Called by the sleep scheduler when it authoritatively detects sleep onset.
-     * Preferred over the independent inactivity check because the sleep scheduler
-     * already has a calibrated estimate of the onset time.
+     * Overrides an onset from this class's own inactivity check (which may have fired first
+     * with a different estimate), so the cycle and the sleep log agree on the same bedtime.
      */
     fun recordSleepAt(sleepStartMs: Long) {
         try {
             val current = store.loadCurrent() ?: return
-            if (current.sleepStartMillis != null) return  // already recorded
-            AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler)")
+            if (current.sleepStartMillis == sleepStartMs) return
+            if (sleepStartMs <= current.wakeMillis || sleepStartMs > System.currentTimeMillis()) {
+                AppLogger.w(TAG, "recordSleepAt: onset $sleepStartMs outside cycle ${current.id} (woke ${current.wakeMillis}) — ignoring")
+                return
+            }
+            AppLogger.i(TAG, "recordSleepAt: cycle=${current.id} sleepStart=$sleepStartMs (from sleep scheduler, was ${current.sleepStartMillis})")
             store.save(current.copy(sleepStartMillis = sleepStartMs))
         } catch (e: Throwable) {
             AppLogger.e(TAG, "recordSleepAt threw — leaving cycle state as-is", e)
@@ -237,7 +248,10 @@ class CycleTracker(private val context: Context) {
      *   when wakeMillis changes, updates the predecessor cycle's nextWakeMillis.
      * - Auto-start: if an open cycle is being closed, opens a new cycle at nextWakeMillis.
      */
-    fun saveCycle(original: Cycle, updated: Cycle): SleepCalendarChange? {
+    fun saveCycle(original: Cycle, edited: Cycle): SleepCalendarChange? {
+        // Never reopen a closed cycle: there would be two open cycles, and the older one would
+        // be stuck "open" forever.
+        val updated = if (!original.isOpen && edited.isOpen) edited.copy(nextWakeMillis = original.nextWakeMillis) else edited
         store.save(updated)
 
         val calendarChange = syncSleepEntry(original, updated)
@@ -348,7 +362,7 @@ class CycleTracker(private val context: Context) {
         )
         store.save(cycle)
         AppLogger.i(TAG, "openCycle: id=${cycle.id} date=${cycle.dateLabel}")
-        onNewCycle?.invoke()
+        onNewCycle?.invoke(wakeMillis)
         return cycle
     }
 }
