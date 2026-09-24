@@ -27,7 +27,7 @@ Entry point for init failures: `WaypointApplication.startupCrash` is non-null wh
 ## Architecture
 
 - Scripts are registered in `WaypointApplication.kt` via `ScriptRegistry.register()`
-- Built-in scripts: `WorkScheduleScript`, `SleepScheduleScript`
+- Built-in scripts: `SleepScheduleScript` and the task manager (`env.taskManager`, id `BUILTIN.TASK_MANAGER`). There is no work schedule — `BUILTIN.WORK_SCHEDULE` is a leftover id with no script behind it, so the planner is never told a day is a work day or has a shift.
 - User scripts: loaded from `ScriptStore` (`filesDir/scripts/<id>.js`) on launch
 - Script state shape: `ScriptState(doneToday, values: Map<String,Double>, settings: Map<String,String>)`
 - State persistence: `ScriptStateStore` (DataStore)
@@ -38,23 +38,6 @@ Entry point for init failures: `WaypointApplication.startupCrash` is non-null wh
 > **Keep this section current.** Whenever a new signal or method is added to `buildSignalsBridge()` in `ScriptedModule.kt`, add it here so it is available as context when writing new scripts.
 
 All signals are passed as the `signals` argument to every lifecycle hook (`onTick`, `onAction`, `onAnswer`, `widget`, etc.).
-
-### `signals.workSchedule` — work schedule & shift session
-| Property / Method | Type | Description |
-|---|---|---|
-| `.shiftStart` | `"HH:MM"` | Planned start time for today's shift, or `""` |
-| `.shiftEnd` | `"HH:MM"` | Planned end time for today's shift, or `""` |
-| `.isWorkDay` | `Boolean` | Whether today is a scheduled work day |
-| `.isClockedIn` | `Boolean` | True while a shift is active (started, not yet ended) |
-| `.isClockedOut` | `Boolean` | True once a shift has been both started and ended today |
-| `.clockedInAt` | `String` | `Date.toString()` of actual clock-in time, or `""` |
-| `.clockedOutAt` | `String` | `Date.toString()` of actual clock-out time, or `""` |
-| `.shiftDurationMinutes` | `Number` | Actual shift length in minutes (0 if not fully logged) |
-| `.setShiftStart("HH:MM")` | `Function` | Override today's shift start (async) |
-| `.setShiftEnd("HH:MM")` | `Function` | Override today's shift end (async) |
-| `.getScheduleForDate("yyyy-MM-dd")` | `→ {isWork, shiftStart, shiftEnd}` | Read schedule for any date |
-| `.setScheduleForDate("yyyy-MM-dd", opts)` | `Function` | Write a date override (async) |
-| `.setSchedulesForDates({...})` | `Function` | Bulk-write date overrides (async) |
 
 ### `signals.sleep` — sleep schedule & log
 | Property / Method | Type | Description |
@@ -123,7 +106,7 @@ Action `behavior` values: `"snooze"`, `"openTab"`, `"triggerScript"`, `"dismiss"
 | `.unregister(id)` | Remove a planner event |
 | `.getEvents()` | `Array<{id, title, durationMinutes, priority}>` |
 
-Condition types: `timeWindow {start, end}`, `workDayOnly`, `dayOffOnly`, `notDuringShift`, `daysOfWeek {days: [1..7]}`.
+Condition types: `timeWindow {start, end}`, `daysOfWeek {days: [1..7]}`.
 
 ### `signals.memory` — persistent key-value store (shared across all scripts)
 | Method | Description |
@@ -174,7 +157,7 @@ signals.log.error("message")
 | `.retract(id)` | Remove a task from the queue |
 | `.getAll()` | `Array<{id, title, durationMinutes, priority}>` — all queued tasks |
 
-`spec` shape: `{id, title, durationMinutes, priority?, conditions?}` — same condition types as `signals.planner`. Tasks are attributed to the calling script's id automatically. Built-in ID: `BUILTIN.TASK_MANAGER`.
+`spec` shape: `{id, title, durationMinutes, priority?, conditions?}` — condition types as `signals.planner`, plus `aroundTime {start}`. Tasks are attributed to the calling script's id automatically. Built-in ID: `BUILTIN.TASK_MANAGER`.
 
 ### `scripts` object — inter-script state
 ```js

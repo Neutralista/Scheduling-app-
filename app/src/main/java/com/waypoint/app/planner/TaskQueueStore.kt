@@ -45,8 +45,10 @@ data class TaskConditionSpec(
             EventCondition.AroundTime(h, m, flexMinutes ?: 60)
         }
         "daysOfWeek"     -> days?.let { EventCondition.DaysOfWeek(it.toSet()) }
-        "workDayOnly"    -> EventCondition.WorkDayOnly
-        "dayOffOnly"     -> EventCondition.DayOffOnly
+        // No work schedule exists to say which days are work days (the planner is always told
+        // "not a work day"), so these made a block never schedule or always schedule. Ignored,
+        // so blocks/tasks saved with them schedule every day.
+        "workDayOnly", "dayOffOnly" -> null
         "beforeShift"    -> EventCondition.BeforeShift
         "duringShift"    -> EventCondition.DuringShift
         "afterShift"     -> EventCondition.AfterShift

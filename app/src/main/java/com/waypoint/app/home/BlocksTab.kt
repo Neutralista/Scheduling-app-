@@ -286,8 +286,6 @@ private fun ExpandableBlockCard(
         block.isFloating -> buildString {
             append("Auto-place")
             val conds = block.floatingConditions
-            if (conds.any { it.type == "workDayOnly" }) append(" · work days")
-            if (conds.any { it.type == "dayOffOnly" }) append(" · days off")
             val tw = conds.firstOrNull { it.type == "timeWindow" }
             if (tw?.start != null || tw?.end != null) append(" · ${tw?.start ?: "–"}–${tw?.end ?: "–"}")
         }
@@ -560,8 +558,6 @@ private fun FloatingTaskRow(
         else               -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val conditionSummary = buildString {
-        if (task.conditions.any { it.type == "workDayOnly" }) append("work days · ")
-        if (task.conditions.any { it.type == "dayOffOnly" }) append("days off · ")
         if (task.conditions.any { it.type == "beforeShift" }) append("before shift · ")
         if (task.conditions.any { it.type == "duringShift" }) append("during shift · ")
         if (task.conditions.any { it.type == "afterShift" }) append("after shift · ")

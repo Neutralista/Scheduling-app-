@@ -92,7 +92,6 @@ import java.util.Locale
 import java.util.UUID
 
 private enum class BlockSchedulingMode { FIXED, AUTO }
-private enum class BlockAutoDay { ANY, WORK_DAYS, DAYS_OFF }
 
 internal val BLOCK_COLORS = listOf(
     0xFF4DB6AC.toInt(), // teal
@@ -194,14 +193,6 @@ fun NamedBlockSheet(
         mutableStateOf(if (initial?.isFloating == true) BlockSchedulingMode.AUTO else BlockSchedulingMode.FIXED)
     }
 
-    // Auto-place conditions (used when schedulingMode == AUTO)
-    var autoDay by remember {
-        mutableStateOf(when {
-            initial?.floatingConditions?.any { it.type == "workDayOnly" } == true -> BlockAutoDay.WORK_DAYS
-            initial?.floatingConditions?.any { it.type == "dayOffOnly" }  == true -> BlockAutoDay.DAYS_OFF
-            else -> BlockAutoDay.ANY
-        })
-    }
     // Repeats on a schedule (optional) — the full recurrence vocabulary (days of week, every N
     // days/weeks/months, N times per period, one-off) that fixed blocks and tasks already have,
     // not just a bare days-of-week set. Off (null) by default so "any day" stays the simple path.
@@ -314,11 +305,6 @@ fun NamedBlockSheet(
                             }
                         }
                         val autoConditions: List<TaskConditionSpec> = if (schedulingMode == BlockSchedulingMode.AUTO) buildList {
-                            when (autoDay) {
-                                BlockAutoDay.WORK_DAYS -> add(TaskConditionSpec("workDayOnly"))
-                                BlockAutoDay.DAYS_OFF  -> add(TaskConditionSpec("dayOffOnly"))
-                                BlockAutoDay.ANY       -> Unit
-                            }
                             when (val r = autoRecurrenceRule) {
                                 is RecurrenceRule.DaysOfWeek      -> if (r.days.isNotEmpty()) add(TaskConditionSpec("daysOfWeek", days = r.days.sorted()))
                                 is RecurrenceRule.OneOff          -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
@@ -726,23 +712,6 @@ fun NamedBlockSheet(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-
-                                // Day type
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Day", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        FilterChip(selected = autoDay == BlockAutoDay.ANY,
-                                            onClick = { autoDay = BlockAutoDay.ANY },
-                                            label = { Text("Any day") })
-                                        FilterChip(selected = autoDay == BlockAutoDay.WORK_DAYS,
-                                            onClick = { autoDay = BlockAutoDay.WORK_DAYS },
-                                            label = { Text("Work days") })
-                                        FilterChip(selected = autoDay == BlockAutoDay.DAYS_OFF,
-                                            onClick = { autoDay = BlockAutoDay.DAYS_OFF },
-                                            label = { Text("Days off") })
-                                    }
-                                }
 
                                 // Repeats on a schedule (optional) — off by default (any day
                                 // whenever there's room); switching it on reveals the full
