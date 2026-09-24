@@ -120,7 +120,15 @@ fun BlockScopeView(
     LaunchedEffect(zoomIndex) { zoomPrefs.edit().putInt("bs_zoom_index", zoomIndex).apply() }
     val hourHeight = BS_HOUR_HEIGHT * zoomFactors[zoomIndex]
 
-    val blockInstances = remember(date, refreshKey, session) {
+    // A floating block that's running or already done today is pinned at its real times.
+    val floatingSplit = remember(date, refreshKey, session) {
+        namedBlockStore.loadAllBlocks().filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }.map { block ->
+            NamedBlockInstance(block, 0L, 0L,
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
+        }.pinnedBySessions(date, session, blockLogStore)
+    }
+    val floatingInstances = floatingSplit.second
+    val blockInstances = remember(date, refreshKey, session, floatingSplit) {
         val resolved = namedBlockStore.resolveForDate(date).map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -137,13 +145,7 @@ fun BlockScopeView(
         // This block's window reflects when the session actually started (and its current,
         // possibly-extended end), not the merely-planned schedule — otherwise other floating
         // events could never be rescheduled into time freed by a late start or early finish.
-        resolved.reconciledWithActualSessions(date, session, blockLogStore)
-    }
-    val floatingInstances = remember(date, refreshKey) {
-        namedBlockStore.loadAllBlocks().filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }.map { block ->
-            NamedBlockInstance(block, 0L, 0L,
-                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
-        }
+        resolved.reconciledWithActualSessions(date, session, blockLogStore) + floatingSplit.first
     }
 
     var plan by remember(date, refreshKey) {

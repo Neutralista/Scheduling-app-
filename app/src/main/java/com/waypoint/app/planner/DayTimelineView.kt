@@ -159,7 +159,16 @@ fun DayTimelineView(
     // the parent screen.
     var localRefreshKey by remember { mutableIntStateOf(0) }
 
-    val blockInstances = remember(date, refreshKey, localRefreshKey, activeSession) {
+    // A floating block that's running or already done today is pinned at its real times and
+    // treated like a fixed block; only the rest are left for the planner to place.
+    val floatingSplit = remember(date, refreshKey, localRefreshKey, activeSession) {
+        (namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }?.map { block ->
+            NamedBlockInstance(block, 0L, 0L,
+                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
+        } ?: emptyList()).pinnedBySessions(date, activeSession, blockLogStore)
+    }
+    val floatingBlockInstances = floatingSplit.second
+    val blockInstances = remember(date, refreshKey, localRefreshKey, activeSession, floatingSplit) {
         val resolved = namedBlockStore?.resolveForDate(date)?.map { (block, sched) ->
             val startMs = date.atTime(sched.startHour, sched.startMinute)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -176,13 +185,7 @@ fun DayTimelineView(
         // A block that's actually running late/early (or already finished) reserves its real
         // window, not the merely-planned one — otherwise other floating events can never be
         // rescheduled into time the block freed up by starting late or ending early.
-        resolved.reconciledWithActualSessions(date, activeSession, blockLogStore)
-    }
-    val floatingBlockInstances = remember(date, refreshKey) {
-        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }?.map { block ->
-            NamedBlockInstance(block, 0L, 0L,
-                namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
-        } ?: emptyList()
+        resolved.reconciledWithActualSessions(date, activeSession, blockLogStore) + floatingSplit.first
     }
 
     val viewStartMs = remember(date) {
@@ -1061,8 +1064,8 @@ private fun PlannerEventBlock(
     val seStartMin = msToMin(se.startMillis, viewStartMs)
     val seEndMin   = msToMin(se.endMillis,   viewStartMs)
 
-    // blockInstances/nextDayBlockInstances only ever hold fixed blocks (resolveForDate's
-    // contract) — a floating block's own NamedBlock (name/color/isFloating) still needs to come
+    // blockInstances/nextDayBlockInstances hold fixed blocks, plus floating blocks a session has
+    // pinned to real times — an unpinned floating block's own NamedBlock (name/color/isFloating) still needs to come
     // from somewhere, so fall back to floatingBlockInstances (placeholder 0L/0L timing, real
     // block data). Without this, isFloating read as null below, and blockDraggable's "fixed
     // blocks only" gate silently inverted to true for floating blocks; colorArgb likewise fell

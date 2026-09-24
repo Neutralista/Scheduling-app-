@@ -207,3 +207,32 @@ fun List<NamedBlockInstance>.reconciledWithActualSessions(
         }
     }
 }
+
+/**
+ * Splits today's floating blocks into those a session has already pinned down (running now, or
+ * logged earlier today) and those the planner still has to place. Returns (pinned, floating);
+ * each pinned block becomes a fixed instance at its real start and end. Left floating, a running
+ * block was placed a second time elsewhere with its tasks lined up around that copy, and a
+ * finished one came back later the same day.
+ */
+fun List<NamedBlockInstance>.pinnedBySessions(
+    date: LocalDate,
+    activeSession: ActiveBlockSession?,
+    logStore: BlockSessionLogStore?
+): Pair<List<NamedBlockInstance>, List<NamedBlockInstance>> {
+    if (date != LocalDate.now()) return emptyList<NamedBlockInstance>() to this
+    val dateKey = date.toString()
+    val loggedToday = logStore?.loadAll()?.filter { it.date == dateKey }.orEmpty()
+    val pinned = mutableListOf<NamedBlockInstance>()
+    val floating = mutableListOf<NamedBlockInstance>()
+    for (inst in this) {
+        val live = activeSession?.takeIf { it.blockId == inst.block.id && it.date == dateKey }
+        val logged = loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
+        when {
+            live != null -> pinned += inst.copy(scheduledStartMs = live.startedAtMs, estimatedEndMs = live.scheduledEndMs)
+            logged != null -> pinned += inst.copy(scheduledStartMs = logged.startedAtMs, estimatedEndMs = logged.endedAtMs)
+            else -> floating += inst
+        }
+    }
+    return pinned to floating
+}
