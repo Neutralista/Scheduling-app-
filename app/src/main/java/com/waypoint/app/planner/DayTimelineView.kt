@@ -142,8 +142,8 @@ fun DayTimelineView(
     sleepSchedule: SleepSchedule? = null,
     activeBlockId: String? = null,
     activeSession: ActiveBlockSession? = null,
-    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)? = null,
-    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)? = null,
+    onBlockStart: ((blockId: String) -> Unit)? = null,
+    onBlockStartAt: ((blockId: String, startedAtMs: Long) -> Unit)? = null,
     onBlockSkip: ((blockId: String) -> Unit)? = null,
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
@@ -673,8 +673,8 @@ private fun TimelineBody(
     isToday: Boolean,
     sleepSchedule: SleepSchedule?,
     activeBlockId: String?,
-    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
-    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)?,
+    onBlockStart: ((blockId: String) -> Unit)?,
+    onBlockStartAt: ((blockId: String, startedAtMs: Long) -> Unit)?,
     onBlockSkip: ((blockId: String) -> Unit)?,
     outline: Color,
     onSV: Color,
@@ -810,6 +810,7 @@ private fun TimelineBody(
                 blockInstances = blockInstances,
                 nextDayBlockInstances = nextDayBlockInstances,
                 floatingBlockInstances = floatingBlockInstances,
+                blockBounds = plan.blockBounds,
                 defaultColorPair = colorPair,
                 blockSubTasks = subTasks,
                 isToday = isToday,
@@ -1047,12 +1048,13 @@ private fun PlannerEventBlock(
     blockInstances: List<NamedBlockInstance>,
     nextDayBlockInstances: List<NamedBlockInstance>,
     floatingBlockInstances: List<NamedBlockInstance>,
+    blockBounds: Map<String, Pair<Long, Long>>,
     defaultColorPair: Pair<Color, Color>?,
     blockSubTasks: List<ScheduledEvent> = emptyList(),
     isToday: Boolean,
     activeBlockId: String?,
-    onBlockStart: ((blockId: String, scheduledEndMs: Long) -> Unit)?,
-    onBlockStartAt: ((blockId: String, scheduledEndMs: Long, startedAtMs: Long) -> Unit)?,
+    onBlockStart: ((blockId: String) -> Unit)?,
+    onBlockStartAt: ((blockId: String, startedAtMs: Long) -> Unit)?,
     onBlockSkip: ((blockId: String) -> Unit)?,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)?,
     onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null,
@@ -1099,6 +1101,16 @@ private fun PlannerEventBlock(
     // through rememberUpdatedState — otherwise a second drag on the same item commits against
     // the position captured on first composition instead of wherever it currently sits.
     val latestSe = rememberUpdatedState(se)
+    // The block's own window. Its tile can be stretched to wrap before/after tasks, and saving
+    // those stretched bounds made the block grow and drift earlier on every drag. Candidates are
+    // checked against the tile so a next-day tile never picks up today's bounds for the same block.
+    val ownBounds: Pair<Long, Long> = if (isBlock) {
+        listOfNotNull(
+            blockBounds[se.event.id.removePrefix("__block__")],
+            blockInstance?.takeIf { it.estimatedEndMs > it.scheduledStartMs }?.let { it.scheduledStartMs to it.estimatedEndMs }
+        ).firstOrNull { (s, e) -> s >= se.startMillis && e <= se.endMillis } ?: (se.startMillis to se.endMillis)
+    } else se.startMillis to se.endMillis
+    val latestOwnBounds = rememberUpdatedState(ownBounds)
     var isDragging by remember { mutableStateOf(false) }
     var moveOffsetMin by remember { mutableIntStateOf(0) }
     var resizeOffsetMin by remember { mutableIntStateOf(0) }
@@ -1111,7 +1123,7 @@ private fun PlannerEventBlock(
     val taskDraggable = isPlainTask && onTaskDrag != null
     val moveDraggable = blockDraggable || taskDraggable
     val resizeDraggable = blockDraggable
-    val minDurationOffset = 5 - (seEndMin - seStartMin)
+    val minDurationOffset = 5 - ((ownBounds.second - ownBounds.first) / 60_000L).toInt()
 
     val previewStartMin = seStartMin + moveOffsetMin
     val previewEndMin = seEndMin + moveOffsetMin + resizeOffsetMin
@@ -1175,8 +1187,9 @@ private fun PlannerEventBlock(
                         if (delta != 0) {
                             if (isBlock) {
                                 val blockId = current.event.id.removePrefix("__block__")
+                                val (ownStart, ownEnd) = latestOwnBounds.value
                                 onBlockDrag?.invoke(
-                                    blockId, current.startMillis, current.startMillis + delta * 60_000L, current.endMillis + delta * 60_000L, false
+                                    blockId, ownStart, ownStart + delta * 60_000L, ownEnd + delta * 60_000L, false
                                 )
                             } else {
                                 onTaskDrag?.invoke(
@@ -1270,9 +1283,9 @@ private fun PlannerEventBlock(
                             .clip(RoundedCornerShape(4.dp))
                             .then(
                                 if (onBlockStartAt != null) Modifier.combinedClickable(
-                                    onClick = { onBlockStart!!(rawBlockId!!, se.endMillis) },
+                                    onClick = { onBlockStart!!(rawBlockId!!) },
                                     onLongClick = { showStartAtPicker = true }
-                                ) else Modifier.clickable { onBlockStart!!(rawBlockId!!, se.endMillis) }
+                                ) else Modifier.clickable { onBlockStart!!(rawBlockId!!) }
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
@@ -1303,7 +1316,7 @@ private fun PlannerEventBlock(
                     // (TasksTab.kt) treats it — no date field on this picker to say so directly.
                     if (picked.timeInMillis > System.currentTimeMillis()) picked.add(Calendar.DAY_OF_MONTH, -1)
                     showStartAtPicker = false
-                    onBlockStartAt!!(rawBlockId!!, se.endMillis, picked.timeInMillis)
+                    onBlockStartAt!!(rawBlockId!!, picked.timeInMillis)
                 }
             )
         }
@@ -1316,7 +1329,8 @@ private fun PlannerEventBlock(
                 onResizeCommit = { delta ->
                     resizeOffsetMin = 0
                     val blockId = se.event.id.removePrefix("__block__")
-                    onBlockDrag?.invoke(blockId, se.startMillis, se.startMillis, se.endMillis + delta * 60_000L, true)
+                    val (ownStart, ownEnd) = latestOwnBounds.value
+                    onBlockDrag?.invoke(blockId, ownStart, ownStart, ownEnd + delta * 60_000L, true)
                 }
             )
         }

@@ -48,12 +48,14 @@ class BlockStartReceiver : BroadcastReceiver() {
 
     private fun handleProceed(context: Context, intent: Intent) {
         val blockId = intent.getStringExtra(EXTRA_BLOCK_ID) ?: return
-        val scheduledEndMs = intent.getLongExtra(EXTRA_SCHEDULED_END_MS, 0L)
 
         val namedBlockStore = NamedBlockStore(context)
         val block = namedBlockStore.loadBlock(blockId) ?: return
 
-        BlockSessionStore(context).startSession(block, scheduledEndMs, LocalDate.now())
+        // Tapped late, the session still gets the block's full planned length.
+        val now = System.currentTimeMillis()
+        val plannedEndMs = now + namedBlockStore.plannedDurationMs(block, LocalDate.now())
+        BlockSessionStore(context).startSession(block, plannedEndMs, LocalDate.now(), now)
         BlockNotificationHelper.cancelBlockStartNotification(context, blockId)
 
         val mainIntent = Intent(context, MainActivity::class.java).apply {

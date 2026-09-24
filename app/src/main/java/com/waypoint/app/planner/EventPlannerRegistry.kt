@@ -1134,7 +1134,10 @@ class EventPlannerRegistry {
             }
         }
 
-        return DayPlan(date, scheduled.sortedBy { it.startMillis }, blocked)
+        return DayPlan(
+            date, scheduled.sortedBy { it.startMillis }, blocked,
+            blockBounds = allBlockInstancesFinal.associate { it.block.id to (it.scheduledStartMs to it.estimatedEndMs) }
+        )
     }
 
     /**

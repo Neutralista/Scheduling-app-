@@ -147,5 +147,8 @@ data class TimeSlot(val startMillis: Long, val endMillis: Long) {
 data class DayPlan(
     val date: LocalDate,
     val scheduled: List<ScheduledEvent>,
-    val blocked: List<BlockedEvent>
+    val blocked: List<BlockedEvent>,
+    /** Each placed block's own start and end, keyed by block id. A block's tile in [scheduled]
+     *  can be stretched to wrap its before/after tasks; this is the block alone. */
+    val blockBounds: Map<String, Pair<Long, Long>> = emptyMap()
 )

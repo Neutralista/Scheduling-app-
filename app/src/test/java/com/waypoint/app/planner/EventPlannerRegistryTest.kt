@@ -201,4 +201,15 @@ class EventPlannerRegistryTest {
         }
         assertEquals(ms(day, 23, 30), r.planForDate(day).startOf("late"))
     }
+
+    @Test
+    fun blockBounds_areTheBlockAlone_notTheStretchedTile() {
+        val gym = NamedBlockInstance(
+            NamedBlock(id = "gym", name = "Gym"), ms(day, 18), ms(day, 19),
+            activeTasks = listOf(BlockTask("pack", "gym", "pack", 30, BlockTaskPlacement.BEFORE))
+        )
+        val plan = registry().planForDate(day, namedBlockInstances = listOf(gym))
+        assertTrue(plan.startOf("__block__gym")!! < ms(day, 18)) // tile wraps the BEFORE task
+        assertEquals(ms(day, 18) to ms(day, 19), plan.blockBounds["gym"])
+    }
 }

@@ -239,7 +239,10 @@ fun TasksTab(
                         colorArgb = inst.block.colorArgb,
                         startMs = inst.scheduledStartMs,
                         endMs = inst.estimatedEndMs,
-                        onStart = { blockSessionStore.startSession(inst.block, inst.estimatedEndMs, today) }
+                        onStart = {
+                            val now = System.currentTimeMillis()
+                            blockSessionStore.startSession(inst.block, now + namedBlockStore.plannedDurationMs(inst.block, today), today, now)
+                        }
                     )
                 }
             }

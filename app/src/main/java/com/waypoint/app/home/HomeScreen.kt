@@ -683,13 +683,14 @@ private fun PlanTab(
                 sleepSchedule = sleepStore.load(),
                 activeBlockId = activeSession?.blockId,
                 activeSession = activeSession,
-                onBlockStart = { blockId, endMs ->
+                onBlockStart = { blockId ->
                     val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
-                    blockSessionStore.startSession(block, endMs, selectedDate)
+                    val now = System.currentTimeMillis()
+                    blockSessionStore.startSession(block, now + namedBlockStore.plannedDurationMs(block, selectedDate), selectedDate, now)
                 },
-                onBlockStartAt = { blockId, endMs, startedAtMs ->
+                onBlockStartAt = { blockId, startedAtMs ->
                     val block = namedBlockStore.loadBlock(blockId) ?: return@DayTimelineView
-                    blockSessionStore.startSession(block, endMs, selectedDate, startedAtMs)
+                    blockSessionStore.startSession(block, startedAtMs + namedBlockStore.plannedDurationMs(block, selectedDate), selectedDate, startedAtMs)
                 },
                 onBlockSkip = { blockId ->
                     namedBlockStore.skipForDate(blockId, selectedDate)
@@ -904,7 +905,8 @@ private fun PlanTab(
                 {
                     val block = namedBlockStore.loadBlock(blockTileId)
                     if (block != null) {
-                        blockSessionStore.startSession(block, selPlanner.endMillis, selectedDate)
+                        val now = System.currentTimeMillis()
+                        blockSessionStore.startSession(block, now + namedBlockStore.plannedDurationMs(block, selectedDate), selectedDate, now)
                     }
                 }
             } else null,

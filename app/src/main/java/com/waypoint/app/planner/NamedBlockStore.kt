@@ -243,6 +243,17 @@ class NamedBlockStore(private val context: Context) {
     fun effectiveDurationMinutes(block: NamedBlock, date: LocalDate): Int =
         effectiveDurationMinutes(block, resolveActiveTasks(block.id, date))
 
+    /**
+     * How long [block] is planned to run on [date]: its scheduled window for a fixed block
+     * (explicit end time or duration), otherwise its effective duration. A session keeps this
+     * length from the moment it starts; ending at the planned end time instead turned an early
+     * start into a session that reserved the rest of the day.
+     */
+    fun plannedDurationMs(block: NamedBlock, date: LocalDate): Long =
+        resolveFixedInstancesForDate(date).find { it.block.id == block.id }
+            ?.let { it.estimatedEndMs - it.scheduledStartMs }
+            ?: (effectiveDurationMinutes(block, date) * 60_000L)
+
     // ── Planner instance resolution ─────────────────────────────────────────────
 
     /**
