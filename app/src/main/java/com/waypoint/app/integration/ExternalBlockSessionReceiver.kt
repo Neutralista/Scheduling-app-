@@ -6,6 +6,7 @@ import android.content.Intent
 import com.waypoint.app.AppLogger
 import com.waypoint.app.planner.BlockSessionLog
 import com.waypoint.app.planner.BlockSessionLogStore
+import com.waypoint.app.planner.NamedBlockStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,6 +26,11 @@ class ExternalBlockSessionReceiver : BroadcastReceiver() {
         if (intent.action != ACTION_LOG_BLOCK_SESSION) return
 
         val blockId = intent.getStringExtra(EXTRA_BLOCK_ID) ?: return
+        // The permission is "normal", so any app can hold it; only Training-app's own blocks.
+        if (trainingAppWorkoutId(blockId) == null) {
+            AppLogger.w(TAG, "onReceive: ignoring session for non-Training-app block $blockId")
+            return
+        }
         val blockName = intent.getStringExtra(EXTRA_BLOCK_NAME) ?: return
         val startMs = intent.getLongExtra(EXTRA_START_MS, -1L)
         val endMs = intent.getLongExtra(EXTRA_END_MS, -1L)
@@ -37,11 +43,13 @@ class ExternalBlockSessionReceiver : BroadcastReceiver() {
 
         val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(startMs))
 
-        BlockSessionLogStore(context).addEntry(
+        // Training-app reports the whole day each time, from the first set to the last, so a
+        // later sync replaces the day's entry instead of adding a second one.
+        BlockSessionLogStore(context).replaceDay(
             BlockSessionLog(
                 blockId = blockId,
                 blockName = blockName,
-                colorArgb = null,
+                colorArgb = NamedBlockStore(context).loadBlock(blockId)?.colorArgb,
                 date = dateKey,
                 startedAtMs = startMs,
                 endedAtMs = endMs,

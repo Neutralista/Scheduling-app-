@@ -32,6 +32,15 @@ class BlockSessionLogStore(context: Context) {
         prefs.edit().putString("entries", json.encodeToString(trimmed)).apply()
     }
 
+    /**
+     * Adds [log] as that block's only session on its date. For an external app that reports the
+     * whole day each time it syncs: appending made a second sync count the same sets twice.
+     */
+    fun replaceDay(log: BlockSessionLog) {
+        val others = loadAll().filterNot { it.blockId == log.blockId && it.date == log.date }
+        prefs.edit().putString("entries", json.encodeToString((listOf(log) + others).take(200))).apply()
+    }
+
     fun loadAll(): List<BlockSessionLog> =
         prefs.getString("entries", null)?.let {
             try { json.decodeFromString<List<BlockSessionLog>>(it) } catch (_: Exception) { emptyList() }

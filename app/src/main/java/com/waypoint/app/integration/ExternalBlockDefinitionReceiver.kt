@@ -16,17 +16,24 @@ import com.waypoint.app.planner.NamedBlockStore
  *
  * Sent on every visit to that workout in Training-app and again after each logged set (with
  * per-exercise durations refined from logged history) — see WAYPOINT_INTEGRATION.md. Every call
- * is the same idempotent upsert: matching by blockId, replacing the task list, and removing any
- * task whose exercise is no longer present.
+ * is the same idempotent upsert: matching by blockId, updating each exercise task's title,
+ * duration and order, and removing any task whose exercise is no longer present. An empty
+ * exercise list (sent when the workout is deleted) deletes the block.
  *
  * Gated by the same ACTION_LOG_BLOCK_SESSION permission as [ExternalBlockSessionReceiver] — same
- * sender, same trust boundary.
+ * sender, same trust boundary — and limited to Training-app's own block ids.
  */
 class ExternalBlockDefinitionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_UPSERT_TRAINING_BLOCK) return
 
         val blockId = intent.getStringExtra(EXTRA_BLOCK_ID) ?: return
+        // The permission is "normal", so any app can hold it — without this, any app could rename,
+        // rewrite or (with no exercises) delete any block, including ones made in Waypoint.
+        if (trainingAppWorkoutId(blockId) == null) {
+            AppLogger.w(TAG, "onReceive: ignoring non-Training-app block $blockId")
+            return
+        }
         val blockName = intent.getStringExtra(EXTRA_BLOCK_NAME) ?: return
         val exerciseIds = intent.getStringArrayExtra(EXTRA_EXERCISE_IDS) ?: emptyArray()
         val exerciseNames = intent.getStringArrayExtra(EXTRA_EXERCISE_NAMES) ?: emptyArray()

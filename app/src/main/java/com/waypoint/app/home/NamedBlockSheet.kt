@@ -343,7 +343,8 @@ fun NamedBlockSheet(
                             useTotalTaskDuration = useTotalTaskDuration,
                             recurrenceRule = fixedRule,
                             notificationsEnabled = notificationsEnabled,
-                            zone = if (schedulingMode == BlockSchedulingMode.AUTO && autoTimeMode == "zone") autoZone else null
+                            zone = if (schedulingMode == BlockSchedulingMode.AUTO && autoTimeMode == "zone") autoZone else null,
+                            externalDays = initial?.externalDays
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {

@@ -53,7 +53,14 @@ class NamedBlockStore(private val context: Context) {
      *
      * [recurringDays] (ISO weekday numbers, 1=Mon..7=Sun) makes this a normal fixed/recurring
      * block on those days, same as one created in-app; empty makes it floating — "any day, planner
-     * decides" — which is also what every call before this parameter existed always did.
+     * decides".
+     *
+     * The external app owns the exercise list and the days; everything else is Waypoint's. So a
+     * re-sync only updates each task's title, duration and order, and applies the days only when
+     * they differ from what was last sent ([NamedBlock.externalDays]). Rewriting whole tasks and
+     * the schedule on every sync wiped any priority, colour, condition or schedule set here.
+     * A new block starts with notifications off: no start time comes with the sync, so it would
+     * otherwise notify at the 09:00 default until one is set.
      */
     fun upsertExternalBlock(
         blockId: String,
@@ -65,29 +72,37 @@ class NamedBlockStore(private val context: Context) {
             deleteBlock(blockId)
             return
         }
-        val existing = loadBlock(blockId)
-        saveBlock(
-            (existing ?: NamedBlock(id = blockId, name = name, useTotalTaskDuration = true))
-                .copy(name = name, isFloating = recurringDays.isEmpty(), recurringDays = recurringDays)
+        val days = recurringDays.distinct().sorted()
+        val base = loadBlock(blockId)
+            ?: NamedBlock(id = blockId, name = name, useTotalTaskDuration = true, notificationsEnabled = false)
+        val scheduled = if (base.externalDays == days) base else base.copy(
+            isFloating = days.isEmpty(),
+            recurringDays = days,
+            recurrenceRule = null,
+            externalDays = days
         )
-        val previousTaskIds = loadTasksForBlock(blockId).map { it.id }.toSet()
+        saveBlock(scheduled.copy(name = name))
+
+        val previous = loadTasksForBlock(blockId).associateBy { it.id }
         val currentTaskIds = mutableSetOf<String>()
         exercises.forEachIndexed { index, ex ->
             val taskId = "$blockId-${ex.externalId}"
             currentTaskIds += taskId
+            val minutes = ex.durationMinutes.coerceAtLeast(1)
             saveTask(
-                BlockTask(
-                    id = taskId,
-                    blockId = blockId,
-                    title = ex.title,
-                    durationMinutes = ex.durationMinutes.coerceAtLeast(1),
-                    placement = BlockTaskPlacement.DURING,
-                    isAlways = true,
-                    sequence = index
-                )
+                previous[taskId]?.copy(title = ex.title, durationMinutes = minutes, sequence = index)
+                    ?: BlockTask(
+                        id = taskId,
+                        blockId = blockId,
+                        title = ex.title,
+                        durationMinutes = minutes,
+                        placement = BlockTaskPlacement.DURING,
+                        isAlways = true,
+                        sequence = index
+                    )
             )
         }
-        (previousTaskIds - currentTaskIds).forEach { deleteTask(it) }
+        (previous.keys - currentTaskIds).forEach { deleteTask(it) }
     }
 
     fun loadAllBlocks(): List<NamedBlock> = blocks.all.values.mapNotNull { raw ->

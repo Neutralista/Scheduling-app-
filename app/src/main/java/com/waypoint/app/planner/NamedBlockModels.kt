@@ -58,7 +58,11 @@ data class NamedBlock(
     /** Soft time-of-day preference for floating blocks — MORNING is the scheduler's default
      *  first-fit behavior anyway; EVENING places the block as late as possible instead. Shown
      *  in the block's own Time of day section, alongside Around a time/Between two times. */
-    val zone: PlannerZone? = null
+    val zone: PlannerZone? = null,
+    /** For a block an external app (Training-app) owns: the days it last sent. Its days are only
+     *  applied when they change from this, so a schedule edited in Waypoint isn't reset on every
+     *  sync. Null for blocks created in Waypoint. */
+    val externalDays: List<Int>? = null
 )
 
 /** One entry an external app (e.g. Training-app) sends when syncing a block's task list — see
