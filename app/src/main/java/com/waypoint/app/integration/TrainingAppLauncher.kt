@@ -7,7 +7,7 @@ import android.net.Uri
 import android.widget.Toast
 
 /**
- * The "open in Training app" affordance shown on blocks Training-app created (see
+ * The "open in Forge" (Training-app) affordance shown on blocks Training-app created (see
  * [ExternalBlockDefinitionReceiver] and WAYPOINT_INTEGRATION.md) — jumps straight to the workout
  * that block mirrors via the deep link Training-app registers for `trainingapp://workout/{id}`.
  */
@@ -25,6 +25,6 @@ fun openTrainingAppWorkout(context: Context, workoutId: String) {
     try {
         context.startActivity(intent)
     } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "Training app isn't installed", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Forge isn't installed", Toast.LENGTH_SHORT).show()
     }
 }

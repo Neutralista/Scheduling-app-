@@ -1317,7 +1317,7 @@ private fun PlannerEventBlock(
                         ) {
                             Icon(
                                 Icons.Filled.OpenInNew,
-                                contentDescription = "Open in Training app",
+                                contentDescription = "Open in Forge",
                                 tint = fg.copy(alpha = 0.75f),
                                 modifier = Modifier.size(14.dp)
                             )
