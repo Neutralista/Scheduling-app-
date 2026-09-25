@@ -118,6 +118,7 @@ jobs:
         if: github.event_name == 'push'
         env:
           BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --tags --force --quiet
           FILE_VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
@@ -125,9 +126,15 @@ jobs:
           TAG_VERSION=${LAST_TAG#v}
           TAG_VERSION=${TAG_VERSION%-*}
           BASE=$(printf '%s\n%s\n' "$FILE_VERSION" "${TAG_VERSION:-0.0.0}" | sort -V | tail -1)
-          # Commits since the last release, when its tag is on this branch's history; otherwise
-          # just this push's commits.
-          LAST_SHA=$(git rev-list -n1 "$LAST_TAG" 2>/dev/null || true)
+          # Commits since the last release, when its commit is on this branch's history; otherwise
+          # just this push's commits. The commit built is read from the release's notes, not its
+          # tag: the tag goes on the branch tip when the release is published, and pushes made
+          # during that build had already moved the tip on, so their feat commits were skipped.
+          LAST_SHA=$(gh release view "$LAST_TAG" --repo "${{ github.repository }}" --json body --jq .body 2>/dev/null \
+            | grep -oE '[0-9a-f]{40}' | head -1 || true)
+          if [ -z "$LAST_SHA" ] || ! git cat-file -e "$LAST_SHA^{commit}" 2>/dev/null; then
+            LAST_SHA=$(git rev-list -n1 "$LAST_TAG" 2>/dev/null || true)
+          fi
           if [ -n "$LAST_SHA" ] && git merge-base --is-ancestor "$LAST_SHA" HEAD; then
             RANGE="$LAST_SHA..HEAD"
           elif git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then

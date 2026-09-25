@@ -249,7 +249,8 @@ Active development branch: `claude/app-build-issues-mknbj6`
 
 CI works out each release's version at build time; it never commits a version bump. The name is
 the highest `v*` release tag bumped minor when any commit since the last release starts with
-`feat`, else patch; the code is 1000 + the run number. Both go to Gradle as `-PciVersionName` /
+`feat`, else patch; the code is 1000 + the run number. "Since the last release" starts at the commit named
+in that release's notes (`Commit: <sha>`), not its tag, which lands on whatever the branch tip is at publish time. Both go to Gradle as `-PciVersionName` /
 `-PciVersionCode`; the values in `app/build.gradle.kts` are only for local builds. Runs on a branch
 never overlap, and when pushes pile up only the newest runs, and releases them all together.
 After each release CI keeps only the three newest releases (the current one and two to roll back
