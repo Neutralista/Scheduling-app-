@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -373,28 +375,31 @@ fun MonthOverview(
 ) {
     if (summaries == null) { LoadingBox(modifier); return }
     val today = LocalDate.now()
-    LazyColumn(
-        modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    // Not a list: the weeks share the screen's height, so every month fills it.
+    Column(
+        modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item(key = "weekdays") {
-            Row(Modifier.fillMaxWidth().padding(start = 36.dp, end = 10.dp)) {
-                weekDays(month.atDay(1)).forEach { d ->
-                    Text(
-                        d.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        Row(Modifier.fillMaxWidth().padding(start = 36.dp, end = 10.dp)) {
+            weekDays(month.atDay(1)).forEach { d ->
+                Text(
+                    d.dayOfWeek.getDisplayName(TextStyle.SHORT_STANDALONE, Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
-        items(monthWeekStarts(month), key = { it.toString() }) { monday ->
+        monthWeekStarts(month).forEach { monday ->
             val days = weekDays(monday)
-            OverviewTile(highlighted = today in days, onClick = { onWeekClick(monday) }, modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.Top) {
+            OverviewTile(
+                highlighted = today in days,
+                onClick = { onWeekClick(monday) },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
                     Text(
                         "W${monday.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}",
                         style = MaterialTheme.typography.labelSmall,
@@ -407,7 +412,7 @@ fun MonthOverview(
                             inMonth = YearMonth.from(date) == month,
                             isToday = date == today,
                             items = summaries[date]?.items.orEmpty(),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                         )
                     }
                 }
@@ -416,33 +421,67 @@ fun MonthOverview(
     }
 }
 
+/**
+ * A day in the month view: its number, then its items as small labelled chips, as many as the
+ * cell's height fits, and a count of the rest.
+ */
 @Composable
 private fun MonthDayCell(date: LocalDate, inMonth: Boolean, isToday: Boolean, items: List<OverviewItem>, modifier: Modifier) {
     val dim = if (inMonth) 1f else 0.4f
-    Column(modifier.padding(horizontal = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            date.dayOfMonth.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-            color = (if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface).copy(alpha = dim)
-        )
-        Spacer(Modifier.height(3.dp))
-        // Up to three items as little bars, then a count.
-        items.take(3).forEach { item ->
+    BoxWithConstraints(modifier.padding(horizontal = 1.5.dp)) {
+        val chipHeight = 16.dp
+        val numberHeight = 22.dp
+        val moreHeight = 14.dp
+        val fits = ((maxHeight - numberHeight) / (chipHeight + 2.dp)).toInt().coerceAtLeast(0)
+        // Room for all of them, or all but one line kept for "+n".
+        val shown = if (items.size <= fits) items.size
+            else ((maxHeight - numberHeight - moreHeight) / (chipHeight + 2.dp)).toInt().coerceAtLeast(0)
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
-                Modifier
-                    .padding(vertical = 1.dp)
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(itemColor(item).copy(alpha = dim), RoundedCornerShape(2.dp))
-            )
-        }
-        if (items.size > 3) {
-            Text(
-                "+${items.size - 3}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim)
-            )
+                Modifier.height(numberHeight).then(
+                    if (isToday) Modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 6.dp) else Modifier
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    date.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isToday) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = dim)
+                )
+            }
+            items.take(shown).forEach { item ->
+                val color = itemColor(item)
+                Box(
+                    Modifier
+                        .padding(top = 2.dp)
+                        .fillMaxWidth()
+                        .height(chipHeight)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(color.copy(alpha = 0.22f * dim + 0.08f))
+                ) {
+                    Box(Modifier.width(2.dp).fillMaxHeight().background(color.copy(alpha = dim)))
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+                    )
+                }
+            }
+            if (shown < items.size) {
+                Text(
+                    "+${items.size - shown}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
+                    modifier = Modifier.height(moreHeight)
+                )
+            }
         }
     }
 }
@@ -475,7 +514,8 @@ fun YearOverview(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
+                                month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.getDefault())
+                                    .replaceFirstChar { it.titlecase(Locale.getDefault()) },
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -527,6 +567,8 @@ fun zoomPeriodLabel(level: PlanZoomLevel, anchor: LocalDate): String = when (lev
         val endFmt = DateTimeFormatter.ofPattern(if (first.month == last.month) "d" else "MMM d", Locale.getDefault())
         "${first.format(startFmt)} – ${last.format(endFmt)}"
     }
-    PlanZoomLevel.MONTH -> anchor.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
+    // LLLL: the month's name on its own ("wrzesień"), not the form used inside a date ("września").
+    PlanZoomLevel.MONTH -> anchor.format(DateTimeFormatter.ofPattern("LLLL yyyy", Locale.getDefault()))
+        .replaceFirstChar { it.titlecase(Locale.getDefault()) }
     PlanZoomLevel.YEAR -> anchor.year.toString()
 }
