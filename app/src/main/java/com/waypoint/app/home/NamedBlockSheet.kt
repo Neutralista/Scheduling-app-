@@ -935,11 +935,7 @@ fun NamedBlockSheet(
                             Text("Tasks", style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f))
-                            TextButton(onClick = { showAddTask = true }) {
-                                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Add task")
-                            }
+                            AddPill("Add task", onClick = { showAddTask = true })
                         }
                         if (tasks.isEmpty()) {
                             Text(

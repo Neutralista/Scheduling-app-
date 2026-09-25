@@ -330,7 +330,7 @@ fun TasksTab(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            FilledTonalButton(onClick = { showAdd = true }) { Text("+ Add") }
+            AddPill("Add", onClick = { showAdd = true })
         }
         if (todoItems.isNotEmpty()) {
             val fraction = doneItems.size.toFloat() / todoItems.size
@@ -675,10 +675,9 @@ fun TasksTab(
                             .clickable { showAdd = true },
                         contentAlignment = Alignment.TopCenter
                     ) {
-                        Text(
-                            "+ Tap to add",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        AddPill(
+                            "Tap to add",
+                            onClick = { showAdd = true },
                             modifier = Modifier.padding(top = 16.dp)
                         )
                     }

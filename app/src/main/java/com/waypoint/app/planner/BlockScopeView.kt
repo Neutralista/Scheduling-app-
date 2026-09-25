@@ -603,11 +603,20 @@ private fun BsFreeWindow(startMin: Int, endMin: Int, onSV: Color, hourHeight: Dp
             .border(1.dp, onSV.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
     ) {
         if (blockH >= 20.dp) {
+            val pill = onClick != null && blockH >= 26.dp
             Text(
-                text = "free · $durLabel",
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = onSV.copy(alpha = 0.28f)
+                text = if (pill) "+ free · $durLabel" else "free · $durLabel",
+                modifier = Modifier
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .then(
+                        if (pill) Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                        else Modifier.padding(horizontal = 2.dp)
+                    ),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                color = if (pill) MaterialTheme.colorScheme.onSecondaryContainer else onSV.copy(alpha = 0.28f)
             )
         }
     }

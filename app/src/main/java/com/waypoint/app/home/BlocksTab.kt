@@ -448,14 +448,11 @@ private fun ExpandableBlockCard(
                         }
                     }
                     // Add task button
-                    TextButton(
+                    AddPill(
+                        "Add task",
                         onClick = onAddTask,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add task", style = MaterialTheme.typography.labelMedium)
-                    }
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 10.dp)
+                    )
                 }
             }
         }
@@ -665,11 +662,7 @@ private fun BlocksSectionHeader(title: String, onAdd: (() -> Unit)?) {
             color = MaterialTheme.colorScheme.onBackground
         )
         if (onAdd != null) {
-            TextButton(onClick = onAdd) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(2.dp))
-                Text("Add", style = MaterialTheme.typography.labelMedium)
-            }
+            AddPill("Add", onClick = onAdd, modifier = Modifier.padding(end = 8.dp))
         }
     }
 }

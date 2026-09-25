@@ -1047,11 +1047,21 @@ private fun FreeWindowBlock(
             .border(1.dp, onSV.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
     ) {
         if (blockH >= 20.dp) {
+            // Tappable ones get the add buttons' pill, so the + reads as a button.
+            val pill = onClick != null && durMin >= 30 && blockH >= 26.dp
             Text(
                 text = if (durMin >= 30) "+ free · $durLabel" else "free · $durLabel",
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
-                color = onSV.copy(alpha = 0.55f)
+                modifier = Modifier
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .then(
+                        if (pill) Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                        else Modifier.padding(horizontal = 2.dp)
+                    ),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                color = if (pill) MaterialTheme.colorScheme.onSecondaryContainer else onSV.copy(alpha = 0.55f)
             )
         }
     }
