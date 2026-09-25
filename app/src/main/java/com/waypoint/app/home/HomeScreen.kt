@@ -92,6 +92,7 @@ import com.waypoint.app.planner.DaySummary
 import com.waypoint.app.planner.weekDays
 import com.waypoint.app.planner.weekStart
 import com.waypoint.app.planner.monthWeekStarts
+import com.waypoint.app.planner.planLiveDay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -154,14 +155,21 @@ fun HomeScreen(
     val namedBlockStore = remember { NamedBlockStore(context) }
     val allNamedBlocks = remember { namedBlockStore.loadAllBlocks() }
 
-    // Include today's blocks so the header's task count agrees with the Plan tab's
-    // timeline about what's scheduled — a bare planToday() ignores block-reserved time.
+    // Planned exactly as the Plan tab's timeline plans today, so the header's count agrees with it.
     val today = remember { LocalDate.now() }
-    val headerPlan = remember(headerRefreshKey) {
-        eventPlanner.planToday(
+    val headerSession by blockSessionStore.sessionFlow.collectAsState()
+    val headerCalPrefs = remember { CalendarPrefsStore(context) }
+    var headerPlan by remember {
+        mutableStateOf(eventPlanner.planToday(
             namedBlockInstances = namedBlockStore.resolveFixedInstancesForDate(today),
             floatingBlocks = namedBlockStore.resolveFloatingInstancesForDate(today)
-        )
+        ))
+    }
+    LaunchedEffect(headerRefreshKey, headerSession) {
+        while (true) {
+            headerPlan = planLiveDay(eventPlanner, namedBlockStore, blockSessionLogStore, headerSession, calendarSignals, headerCalPrefs, today)
+            delay(60_000L)
+        }
     }
     // Block sub-tasks (before/during/after a named block) carry the block's synthetic event id
     // as their sourceWidgetId ("__block__<blockId>") rather than the flat-task widget id — count

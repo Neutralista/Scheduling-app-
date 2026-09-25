@@ -118,6 +118,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import com.waypoint.app.planner.liveBlockInstances
+import com.waypoint.app.planner.planLiveDay
+import com.waypoint.app.planner.CalendarPrefsStore
 import java.util.Calendar
 import java.util.Locale
 
@@ -145,15 +148,26 @@ fun TasksTab(
 
     val today = remember { LocalDate.now() }
     val namedBlockStore = remember { NamedBlockStore(context) }
-    // Resolved once here and reused both for the plan (so tasks don't get scheduled
-    // into time a block already occupies) and for the block-start cards below —
-    // previously this tab called planToday() with no block info at all, so its task
-    // list could disagree with the Plan tab's timeline about what's happening when.
-    val todayFixedBlocks = remember(refreshKey) { namedBlockStore.resolveFixedInstancesForDate(today) }
-    val todayFloatingBlocks = remember(refreshKey) { namedBlockStore.resolveFloatingInstancesForDate(today) }
-
-    val plannerPlan = remember(refreshKey, todayFixedBlocks, todayFloatingBlocks) {
-        registry.planToday(namedBlockInstances = todayFixedBlocks, floatingBlocks = todayFloatingBlocks)
+    val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
+    val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
+    // Today's plan exactly as the Plan tab's timeline has it (calendar time, measured task
+    // lengths, blocks already run or running), re-planned every minute like it: planned on its
+    // own, this tab's times and countdowns were hours away from the timeline's.
+    val planLogStore = remember { BlockSessionLogStore(context) }
+    val planCalPrefs = remember { CalendarPrefsStore(context) }
+    val liveBlocks = remember(refreshKey, activeSession) {
+        namedBlockStore.liveBlockInstances(today, activeSession, planLogStore)
+    }
+    val todayFixedBlocks = liveBlocks.first
+    val todayFloatingBlocks = liveBlocks.second
+    var plannerPlan by remember {
+        mutableStateOf(registry.planToday(namedBlockInstances = todayFixedBlocks, floatingBlocks = todayFloatingBlocks))
+    }
+    LaunchedEffect(refreshKey, activeSession) {
+        while (true) {
+            plannerPlan = planLiveDay(registry, namedBlockStore, planLogStore, activeSession, calendarSignals, planCalPrefs, today)
+            delay(60_000L)
+        }
     }
     // todayFloatingBlocks carries placeholder 0L/0L times (floating blocks have no fixed slot
     // until the planner places them) — resolve each one's real window from the plan output so
@@ -215,8 +229,6 @@ fun TasksTab(
     val doneItems = todoItems.filter { it.event.id in doneIds }
     var showDone by remember { mutableStateOf(false) }
 
-    val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
-    val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
 
     // ── Blocks already run or skipped today, and Reset ──
     val blockLogStore = remember { BlockSessionLogStore(context) }
