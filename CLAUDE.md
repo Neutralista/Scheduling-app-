@@ -236,7 +236,7 @@ Full inception-style nesting (blocks all the way down) is architecturally possib
 ### Sequential vs flexible task ordering
 - Current routine subtasks: purely sequential, dumb (just title + timer).
 - Block tasks: flexible, independently scheduled.
-- Goal: block tasks get an optional `sequence` field. When set, tasks execute in order within the phase/block window. When null, the planner schedules them flexibly by priority.
+- Done: block tasks have an optional `sequence` field. When set, tasks execute in order within the block window (the planner chains them per placement). When null, the planner schedules them flexibly by priority.
 
 ### What this replaces
 The `isRoutine: Boolean` + `subtasks: List<SubtaskDef>` fields on `TaskRequest` are the legacy model. Long-term these get superseded by unanchored named blocks with ordered tasks.

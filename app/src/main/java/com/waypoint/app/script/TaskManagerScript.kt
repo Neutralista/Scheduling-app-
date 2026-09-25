@@ -187,7 +187,9 @@ class TaskManagerScript(
             }
             val pinnedToday = req.pinnedStarts[LocalDate.now().toString()]
             val (fixedStart, fixedEnd) = when {
-                exec != null && exec.isRunning -> exec.startMillis to exec.startMillis + effectiveDuration * 60_000L
+                // Running past its planned length: it runs until now, not its estimate.
+                exec != null && exec.isRunning -> exec.startMillis to
+                    maxOf(exec.startMillis + effectiveDuration * 60_000L, System.currentTimeMillis())
                 finishedRun != null     -> finishedRun.startMillis to finishedRun.endMillis
                 doneAt != null          -> doneAt - effectiveDuration * 60_000L to doneAt
                 // Dragged to a time for today: held there instead of re-planned.

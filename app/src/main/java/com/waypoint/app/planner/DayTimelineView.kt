@@ -347,16 +347,21 @@ fun DayTimelineView(
             val (allCalBlocks, blocks) = plannerCalendarInputs(combined, calendarPrefsStore)
             calEventBlocks = allCalBlocks
             reservingBlocks = blocks
-            plan = registry.planForDate(date, calendarEventBlocks = allCalBlocks,
-                reservingBlocks = blocks, namedBlockInstances = blockInstances,
-                floatingBlocks = floatingBlockInstances,
-                nowMs = if (isToday) System.currentTimeMillis() else null)
-            nextDayScheduled = registry.planForDate(date.plusDays(1),
-                calendarEventBlocks = allCalBlocks, reservingBlocks = blocks,
-                namedBlockInstances = nextDayBlockInstances,
-                floatingBlocks = nextDayFloatingInstances).scheduled
             onCalEventsChanged?.invoke(combined)
         }
+        // A running task that's gone past its planned length grows with now (see
+        // TaskManagerScript.syncToRegistry), pushing what's after it back.
+        if (isToday) taskManager?.takeIf { it.getRunningExecution() != null }?.syncToRegistry()
+        // Re-planned every time, not only with calendar access: without it, the plan never
+        // moved on with the clock.
+        plan = registry.planForDate(date, calendarEventBlocks = calEventBlocks,
+            reservingBlocks = reservingBlocks, namedBlockInstances = blockInstances,
+            floatingBlocks = floatingBlockInstances,
+            nowMs = if (isToday) System.currentTimeMillis() else null)
+        nextDayScheduled = registry.planForDate(date.plusDays(1),
+            calendarEventBlocks = calEventBlocks, reservingBlocks = reservingBlocks,
+            namedBlockInstances = nextDayBlockInstances,
+            floatingBlocks = nextDayFloatingInstances).scheduled
     }
 
     // Commits a calendar-event drag/resize from the timeline. instanceStartMillis is passed
