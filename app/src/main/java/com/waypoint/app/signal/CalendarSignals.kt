@@ -32,8 +32,20 @@ interface CalendarSignals {
     suspend fun eventsForDate(date: LocalDate): List<CalendarEvent>
     val cachedEvents: List<CalendarEvent>
     suspend fun refreshCache()
-    /** Creates an event in the primary calendar. Returns the new event ID, or -1 on failure. */
-    suspend fun createEvent(title: String, startMillis: Long, endMillis: Long, description: String = "", allDay: Boolean = false): Long
+    /**
+     * Creates an event in the primary calendar. Returns the new event ID, or -1 on failure.
+     * [rrule] (an iCalendar RRULE like "FREQ=WEEKLY") makes it repeat; [reminderMinutes] adds
+     * the calendar's own alert that many minutes before it starts.
+     */
+    suspend fun createEvent(
+        title: String,
+        startMillis: Long,
+        endMillis: Long,
+        description: String = "",
+        allDay: Boolean = false,
+        rrule: String? = null,
+        reminderMinutes: Int? = null
+    ): Long
     /**
      * Deletes an event by ID. If [instanceStartMillis] is provided and the event is part of a
      * recurring series, only that single occurrence is canceled (via an exception row) instead
@@ -121,7 +133,9 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
         startMillis: Long,
         endMillis: Long,
         description: String,
-        allDay: Boolean
+        allDay: Boolean,
+        rrule: String?,
+        reminderMinutes: Int?
     ): Long = withContext(Dispatchers.IO) {
         if (!hasWritePermission()) {
             AppLogger.w(TAG, "createEvent: no WRITE_CALENDAR permission")
@@ -145,6 +159,14 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
             }
             if (description.isNotEmpty()) put(CalendarContract.Events.DESCRIPTION, description)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
+            if (!rrule.isNullOrBlank()) {
+                // A repeating event gives its length as DURATION; the provider rejects DTEND.
+                put(CalendarContract.Events.RRULE, rrule)
+                val minutes = ((endMillis - startMillis) / 60_000L).coerceAtLeast(1)
+                put(CalendarContract.Events.DURATION, if (allDay) "P${(minutes / 1440).coerceAtLeast(1)}D" else "PT${minutes}M")
+                putNull(CalendarContract.Events.DTEND)
+            }
+            if (reminderMinutes != null) put(CalendarContract.Events.HAS_ALARM, 1)
         }
         val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
             ?: run {
@@ -152,7 +174,16 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
                 return@withContext -1L
             }
         val eventId = uri.lastPathSegment?.toLongOrNull() ?: -1L
-        AppLogger.i(TAG, "createEvent: created '$title' calId=$calId eventId=$eventId")
+        if (reminderMinutes != null && eventId > 0) {
+            runCatching {
+                context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, ContentValues().apply {
+                    put(CalendarContract.Reminders.EVENT_ID, eventId)
+                    put(CalendarContract.Reminders.MINUTES, reminderMinutes)
+                    put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                })
+            }.onFailure { AppLogger.e(TAG, "createEvent: reminder insert failed", it) }
+        }
+        AppLogger.i(TAG, "createEvent: created '$title' calId=$calId eventId=$eventId rrule=$rrule reminder=$reminderMinutes")
         eventId
     }
 

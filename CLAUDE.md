@@ -65,7 +65,7 @@ All signals are passed as the `signals` argument to every lifecycle hook (`onTic
 | `.hasPermission` | `Boolean` | READ_CALENDAR granted |
 | `.hasWritePermission` | `Boolean` | WRITE_CALENDAR granted |
 | `.events` | `Array<{title, startMillis, endMillis, allDay}>` | Cached today's calendar events |
-| `.createEvent({title, startMillis, endMillis, description?, allDay?})` | `→ Number eventId` | Create an event; returns id or -1 on failure (synchronous IO) |
+| `.createEvent({title, startMillis, endMillis, description?, allDay?, rrule?, reminderMinutes?})` | `→ Number eventId` | Create an event; returns id or -1 on failure (synchronous IO). `rrule` is an iCalendar RRULE (e.g. `"FREQ=WEEKLY"`) to repeat it; `reminderMinutes` adds a calendar alert that long before it starts |
 | `.deleteEvent(eventId)` | `Function` | Delete an event by id (async) |
 
 ### `signals.health` — Health Connect

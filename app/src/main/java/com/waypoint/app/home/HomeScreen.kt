@@ -797,9 +797,12 @@ private fun PlanTab(
             initialStartMs = slot?.first,
             initialEndMs = slot?.second,
             onDismiss = { freeSlotAddEvent = false; freeSlot = null },
-            onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
+            onSave = { title, startMs, endMs, notes, allDay, reservesTime, options ->
                 scope.launch {
-                    val eventId = calendarSignals.createEvent(title, startMs, endMs, notes, allDay)
+                    val eventId = calendarSignals.createEvent(
+                        title, startMs, endMs, notes, allDay,
+                        rrule = options.rrule, reminderMinutes = options.reminderMinutes
+                    )
                     if (eventId > 0) calPrefsStore.setReservesTime(eventId, reservesTime)
                     calRefreshKey++
                     freeSlotAddEvent = false
@@ -997,7 +1000,7 @@ private fun PlanTab(
             initialCalEvent = calBeingEdited,
             initialReservesTime = calPrefsStore.reservesTime(calBeingEdited.eventId),
             onDismiss = { editingCalEvent = null },
-            onSave = { title, startMs, endMs, notes, allDay, reservesTime ->
+            onSave = { title, startMs, endMs, notes, allDay, reservesTime, _ ->
                 scope.launch {
                     calendarSignals.updateEvent(
                         calBeingEdited.eventId, title, startMs, endMs, notes, allDay,

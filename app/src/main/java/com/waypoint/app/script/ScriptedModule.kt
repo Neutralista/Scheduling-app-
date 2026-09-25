@@ -275,9 +275,11 @@ private fun buildSignalsBridge(env: ScriptEnvironment, cx: Context, scope: Scrip
                 val endMs   = (opts.get("endMillis",   opts) as? Number)?.toLong() ?: return -1.0
                 val desc   = opts.jsString("description") ?: ""
                 val allDay = opts.jsBool("allDay")
+                val rrule  = opts.jsString("rrule")
+                val reminder = (opts.get("reminderMinutes", opts) as? Number)?.toInt()
                 return try {
                     kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                        env.calendar.createEvent(title, startMs, endMs, desc, allDay)
+                        env.calendar.createEvent(title, startMs, endMs, desc, allDay, rrule, reminder)
                     }.toDouble()
                 } catch (e: Throwable) {
                     AppLogger.e("Bridge", "calendar.createEvent failed", e)

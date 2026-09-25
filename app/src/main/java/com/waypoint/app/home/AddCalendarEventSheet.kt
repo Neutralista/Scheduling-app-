@@ -3,6 +3,8 @@ package com.waypoint.app.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,11 +47,33 @@ import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
 
+/** What a new event repeats on and when it alerts; editing an event doesn't change either. */
+data class NewEventOptions(val rrule: String? = null, val reminderMinutes: Int? = null)
+
+private val REPEAT_CHOICES = listOf(
+    "Never" to null,
+    "Daily" to "FREQ=DAILY",
+    "Weekdays" to "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+    "Weekly" to "FREQ=WEEKLY",
+    "Monthly" to "FREQ=MONTHLY",
+    "Yearly" to "FREQ=YEARLY"
+)
+
+private val REMINDER_CHOICES = listOf(
+    "None" to null,
+    "At start" to 0,
+    "10 min" to 10,
+    "30 min" to 30,
+    "1 hour" to 60,
+    "1 day" to 1440
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddCalendarEventSheet(
     date: LocalDate,
     onDismiss: () -> Unit,
-    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean, reservesTime: Boolean) -> Unit,
+    onSave: (title: String, startMs: Long, endMs: Long, notes: String, allDay: Boolean, reservesTime: Boolean, options: NewEventOptions) -> Unit,
     initialCalEvent: CalendarEvent? = null,
     initialReservesTime: Boolean = true,
     initialStartMs: Long? = null,
@@ -77,6 +103,8 @@ fun AddCalendarEventSheet(
         }
     ) }
     var notes by remember { mutableStateOf(initialCalEvent?.description ?: "") }
+    var repeatRule by remember { mutableStateOf<String?>(null) }
+    var reminderMinutes by remember { mutableStateOf<Int?>(null) }
 
     fun save() {
         if (title.trim().isEmpty()) { titleError = true; return }
@@ -100,7 +128,7 @@ fun AddCalendarEventSheet(
             endMs = if (rawEnd <= startMs) rawEnd + 24 * 3_600_000L else rawEnd
         }
 
-        onSave(title.trim(), startMs, endMs, notes.trim(), allDay, reservesTime)
+        onSave(title.trim(), startMs, endMs, notes.trim(), allDay, reservesTime, NewEventOptions(repeatRule, reminderMinutes))
     }
 
     Dialog(
@@ -241,6 +269,13 @@ fun AddCalendarEventSheet(
                         }
                     }
 
+                    if (!isEditing) {
+                        Spacer(Modifier.height(20.dp))
+                        ChoiceChips("Repeat", REPEAT_CHOICES, repeatRule) { repeatRule = it }
+                        Spacer(Modifier.height(12.dp))
+                        ChoiceChips("Reminder", REMINDER_CHOICES, reminderMinutes) { reminderMinutes = it }
+                    }
+
                     Spacer(Modifier.height(20.dp))
 
                     // Notes
@@ -254,6 +289,27 @@ fun AddCalendarEventSheet(
 
                     Spacer(Modifier.height(32.dp))
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun <T> ChoiceChips(label: String, choices: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            choices.forEach { (name, value) ->
+                FilterChip(
+                    selected = selected == value,
+                    onClick = { onSelect(value) },
+                    label = { Text(name) }
+                )
             }
         }
     }
