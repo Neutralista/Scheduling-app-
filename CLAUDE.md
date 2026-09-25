@@ -172,7 +172,11 @@ scripts.set(scriptId, state)   // overwrites another script's state
 
 Package `com.neutralista.trainingapp`, declared in `<queries>`. Receivers in `integration/`: workout
 block upserts (`ExternalBlockDefinitionReceiver`) and logged sessions (`ExternalBlockSessionReceiver`),
-both limited to `training-app-workout-*` block ids. `MightThemeSync` sends Waypoint's theme to Might
+both limited to `training-app-workout-*` block ids. A logged session may carry per-exercise
+`exerciseIds` / `exerciseStartMs` / `exerciseEndMs`: they become the block's `BlockTaskMeasurement`s (task
+id `"$blockId-$slug"`), those tasks are ticked done at their end, and `NamedBlockInstance.taskActuals` makes the
+planner place them at those real times (`pinnedBySessions` / `reconciledWithActualSessions` fill it from a
+logged session). `MightThemeSync` sends Waypoint's theme to Might
 whenever it changes (`ThemeStore`) and on launch, so both apps look the same.
 
 ## Named block / planner architecture
