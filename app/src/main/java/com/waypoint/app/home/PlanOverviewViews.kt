@@ -518,7 +518,11 @@ private fun MonthDayCell(date: LocalDate, inMonth: Boolean, isToday: Boolean, it
 
 // ── Year: a tile per month ────────────────────────────────────────────────────
 
-/** Twelve month tiles for [year], each a small calendar shaded by how much each day holds. */
+/**
+ * [year]'s months, two to a row, each a small calendar: weekday letters, dated day squares
+ * shaded by how much each day holds, weekends in their own colour, a dot for calendar events,
+ * past days dimmed and today filled. Opens scrolled to the current month.
+ */
 @Composable
 fun YearOverview(
     year: Int,
@@ -528,15 +532,19 @@ fun YearOverview(
 ) {
     if (summaries == null) { LoadingBox(modifier); return }
     val today = LocalDate.now()
-    val months = (1..12).map { YearMonth.of(year, it) }
+    val rows = (1..12).map { YearMonth.of(year, it) }.chunked(2)
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = if (today.year == year) (today.monthValue - 1) / 2 else 0
+    )
     LazyColumn(
         modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(months.chunked(3), key = { it.first().toString() }) { row ->
+        items(rows, key = { it.first().toString() }) { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { month ->
+                pair.forEach { month ->
                     OverviewTile(
                         highlighted = YearMonth.from(today) == month,
                         onClick = { onMonthClick(month) },
@@ -546,11 +554,12 @@ fun YearOverview(
                             Text(
                                 month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.getDefault())
                                     .replaceFirstChar { it.titlecase(Locale.getDefault()) },
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1
                             )
+                            MonthStats(month, summaries)
                             MiniMonth(month, today, summaries)
                         }
                     }
@@ -560,28 +569,87 @@ fun YearOverview(
     }
 }
 
-/** A tiny month calendar: a square per day, darker the more it holds; today outlined. */
+/** "22 blocks · 4 events" for [month], or "Nothing planned". */
+@Composable
+private fun MonthStats(month: YearMonth, summaries: Map<LocalDate, DaySummary>) {
+    val items = (1..month.lengthOfMonth()).flatMap { summaries[month.atDay(it)]?.items.orEmpty() }
+    val blocks = items.count { it.kind == OverviewKind.BLOCK }
+    val events = items.count { it.kind == OverviewKind.EVENT }
+    val text = listOfNotNull(
+        blocks.takeIf { it > 0 }?.let { "$it ${if (it == 1) "block" else "blocks"}" },
+        events.takeIf { it > 0 }?.let { "$it ${if (it == 1) "event" else "events"}" }
+    ).joinToString(" · ").ifEmpty { "Nothing planned" }
+    Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+}
+
+/** A small month calendar with weekday letters and dated squares; see [YearOverview]. */
 @Composable
 private fun MiniMonth(month: YearMonth, today: LocalDate, summaries: Map<LocalDate, DaySummary>) {
     val primary = MaterialTheme.colorScheme.primary
-    val empty = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-    val todayRing = MaterialTheme.colorScheme.error
-    val counts = remember(month, summaries) {
-        (1..month.lengthOfMonth()).map { summaries[month.atDay(it)]?.items?.size ?: 0 }
-    }
+    val weekend = MaterialTheme.colorScheme.tertiary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val empty = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+    val eventDot = MaterialTheme.colorScheme.secondary
     val lead = month.atDay(1).dayOfWeek.value - 1
-    val rows = (lead + month.lengthOfMonth() + 6) / 7
-    Canvas(Modifier.fillMaxWidth().aspectRatio(7f / rows)) {
-        val cell = size.width / 7f
-        val gap = cell * 0.15f
-        counts.forEachIndexed { i, count ->
-            val pos = lead + i
-            val topLeft = Offset((pos % 7) * cell + gap / 2, (pos / 7) * cell + gap / 2)
-            val sq = Size(cell - gap, cell - gap)
-            val color = if (count == 0) empty else primary.copy(alpha = (0.25f + 0.15f * count).coerceAtMost(1f))
-            drawRoundRect(color, topLeft, sq, CornerRadius(cell * 0.2f))
-            if (month.atDay(i + 1) == today) {
-                drawRoundRect(todayRing, topLeft, sq, CornerRadius(cell * 0.2f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = gap))
+    val cells = List(lead) { null } + (1..month.lengthOfMonth()).map { month.atDay(it) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row {
+            weekDays(month.atDay(1)).forEach { d ->
+                val isWeekend = d.dayOfWeek.value >= 6
+                Text(
+                    d.dayOfWeek.getDisplayName(TextStyle.NARROW_STANDALONE, Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isWeekend) weekend else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        cells.chunked(7).forEach { week ->
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                (0 until 7).forEach { i ->
+                    val date = week.getOrNull(i)
+                    Box(Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
+                        if (date != null) {
+                            val items = summaries[date]?.items.orEmpty()
+                            val isToday = date == today
+                            val isPast = date.isBefore(today)
+                            val isWeekend = date.dayOfWeek.value >= 6
+                            val fade = if (isPast) 0.5f else 1f
+                            val bg = when {
+                                isToday -> primary
+                                items.isEmpty() -> empty
+                                else -> primary.copy(alpha = ((0.18f + 0.1f * items.size).coerceAtMost(0.7f)) * fade)
+                            }
+                            Box(
+                                Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)).background(bg),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    date.dayOfMonth.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                    color = when {
+                                        isToday -> MaterialTheme.colorScheme.onPrimary
+                                        isWeekend -> weekend.copy(alpha = fade)
+                                        else -> onSurface.copy(alpha = 0.85f * fade)
+                                    },
+                                    maxLines = 1
+                                )
+                                if (items.any { it.kind == OverviewKind.EVENT }) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = 2.dp)
+                                            .size(3.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(if (isToday) MaterialTheme.colorScheme.onPrimary else eventDot)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
