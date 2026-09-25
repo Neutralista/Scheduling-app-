@@ -114,6 +114,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.text.style.TextOverflow
 import com.waypoint.app.planner.EventCategory
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import java.util.Calendar
 import java.util.Locale
 
@@ -338,66 +342,213 @@ fun TasksTab(
 
         SleepTaskRow(registry = registry, context = context, onRefresh = { refreshKey++; onRefresh() })
 
-        // Block session cards
-        if (blockSessionStore != null) {
-            val sess = activeSession
-            if (sess != null) {
-                BlockSessionCard(
-                    session = sess,
-                    namedBlockStore = namedBlockStore,
-                    blockSessionStore = blockSessionStore,
-                    taskManager = taskManager,
-                    onRefresh = onRefresh
-                )
-            } else {
-                // A block already done today shows when it ran, with Reset; one not yet, Start.
-                (todayFixedBlocks + todayScheduledFloatingBlocks).forEach { inst ->
-                    val ran = blockLogsToday[inst.block.id]
-                    if (ran != null) {
-                        BlockStartCard(
-                            blockName = inst.block.name,
-                            colorArgb = inst.block.colorArgb,
-                            startMs = ran.minOf { it.startedAtMs },
-                            endMs = ran.maxOf { it.endedAtMs },
-                            statusPrefix = "Done ",
-                            actionLabel = "Reset",
-                            actionIsReset = true,
-                            onStart = { resetBlockToday(inst.block.id) }
-                        )
-                    } else {
-                        BlockStartCard(
-                            blockName = inst.block.name,
-                            colorArgb = inst.block.colorArgb,
-                            startMs = inst.scheduledStartMs,
-                            endMs = inst.estimatedEndMs,
-                            onStart = {
-                                val now = System.currentTimeMillis()
-                                blockSessionStore.startSession(inst.block, now + namedBlockStore.plannedDurationMs(inst.block, today), today, now)
-                            }
-                        )
-                    }
-                }
-                // Skipped today: Reset puts it back.
-                skippedBlocksToday.forEach { block ->
-                    BlockStartCard(
-                        blockName = block.name,
-                        colorArgb = block.colorArgb,
-                        startMs = null,
-                        endMs = null,
-                        statusPrefix = "Skipped today",
-                        actionLabel = "Reset",
-                        actionIsReset = true,
-                        onStart = { resetBlockToday(block.id) }
-                    )
-                }
-            }
+        // Entering a block (tapping it, or starting it) shows only its tasks; a block that's
+        // running when the tab opens is entered straight away.
+        var scopeBlockId by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(activeSession?.blockId) {
+            activeSession?.blockId?.let { scopeBlockId = it }
         }
 
+        // Today's blocks, planned, with their own window (not the tile stretched over before/after
+        // tasks), and what's become of them: run (logged) or skipped.
+        val todayBlocks = remember(plannerPlan, todayFixedBlocks, todayScheduledFloatingBlocks) {
+            (todayFixedBlocks + todayScheduledFloatingBlocks).map { inst ->
+                val (start, end) = plannerPlan.blockBounds[inst.block.id] ?: (inst.scheduledStartMs to inst.estimatedEndMs)
+                TodayBlock(inst.block, start, end)
+            }.sortedBy { it.startMs }
+        }
+        fun tasksOf(blockId: String) = todoItems.filter { it.event.sourceWidgetId == "__block__$blockId" }
+        val phaseNames = remember(refreshKey) {
+            (todayFixedBlocks + todayFloatingBlocks).flatMap { inst ->
+                inst.activeTasks.mapNotNull { t -> t.phaseOf(inst.block)?.let { t.id to it.name } }
+            }.toMap()
+        }
+        fun startBlock(block: NamedBlock) {
+            val store = blockSessionStore ?: return
+            val now = System.currentTimeMillis()
+            store.startSession(block, now + namedBlockStore.plannedDurationMs(block, today), today, now)
+            scopeBlockId = block.id
+        }
+        fun skipBlock(blockId: String) {
+            namedBlockStore.skipForDate(blockId, today)
+            refreshKey++
+            onRefresh()
+        }
+
+        @Composable
+        fun TodoItem(se: ScheduledEvent, chip: String? = null) {
+            val plain = isPlain(se)
+            val taskReq = if (plain) allTasks.find { it.id == se.event.id } else null
+            val running = runningExecution?.taskId == se.event.id
+            TodoRow(
+                se = se,
+                blockName = chip,
+                blockColor = se.event.sourceWidgetId?.let { blockColors[it] }?.toOpaqueColor(),
+                done = se.event.id in doneIds,
+                runningSinceMs = if (running) runningExecution?.startMillis else null,
+                nowMs = tickMs,
+                chained = se.event.id in chainTargetIds,
+                measured = taskReq?.useMeasuredDuration == true,
+                onToggle = { toggle(se) },
+                onStart = if (plain) { { startTimer(se) } } else null,
+                onStop = { stopTimer(se) },
+                onEdit = taskReq?.let { req -> { editTarget = req } },
+                onSkip = { skip(se) },
+                onDelete = if (plain) { { delete(se) } } else null,
+                onMarkDoneAt = { whenMs ->
+                    taskManager.markDoneAt(se.event.id, whenMs)
+                    doneIds = taskManager.completions.getDoneIds()
+                    refreshKey++
+                    onRefresh()
+                },
+                onLogPastExecution = { startMs, endMs ->
+                    taskManager.logPastExecution(se.event.id, startMs, endMs)
+                    doneIds = taskManager.completions.getDoneIds()
+                    refreshKey++
+                    onRefresh()
+                }
+            )
+        }
+
+        /** A block's card in the list: its time, its tasks' progress, a countdown, and a menu. */
+        @Composable
+        fun BlockItem(tb: TodayBlock, skipped: Boolean = false) {
+            val id = tb.block.id
+            val tasks = tasksOf(id)
+            val doneCount = tasks.count { it.event.id in doneIds }
+            val ran = blockLogsToday[id]
+            val session = activeSession?.takeIf { it.blockId == id }
+            val taskInfo = if (tasks.isEmpty()) "no tasks" else "$doneCount of ${tasks.size} tasks"
+            val subtitle = when {
+                skipped -> "Skipped today"
+                session != null -> "Running since ${formatShiftTime(session.startedAtMs)} · $taskInfo"
+                ran != null -> "Done ${formatShiftTime(ran.minOf { it.startedAtMs })} – " +
+                    "${formatShiftTime(ran.maxOf { it.endedAtMs })} · $taskInfo"
+                else -> "${formatShiftTime(tb.startMs)} – ${formatShiftTime(tb.endMs)} · $taskInfo"
+            }
+            val pill: Pair<String, Color>? = when {
+                skipped || ran != null -> null
+                session != null -> {
+                    val left = session.scheduledEndMs - tickMs
+                    (if (left > 0) "now · ${formatSpan(left)} left" else "over by ${formatSpan(-left)}") to
+                        MaterialTheme.colorScheme.primary
+                }
+                else -> todoCountdown(tickMs, tb.startMs, tb.endMs).let { c ->
+                    c.label to when (c.state) {
+                        CountdownState.UPCOMING -> MaterialTheme.colorScheme.onSurfaceVariant
+                        CountdownState.NOW -> MaterialTheme.colorScheme.primary
+                        CountdownState.OVERDUE -> MaterialTheme.colorScheme.error
+                    }
+                }
+            }
+            BlockTodoRow(
+                name = tb.block.name,
+                color = tb.block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary,
+                subtitle = subtitle,
+                pill = pill,
+                onOpen = if (skipped) null else { { scopeBlockId = id } },
+                onStart = if (!skipped && ran == null && activeSession == null && blockSessionStore != null) {
+                    { startBlock(tb.block) }
+                } else null,
+                onSkip = if (!skipped && ran == null && session == null) { { skipBlock(id) } } else null,
+                onReset = if (skipped || ran != null) { { resetBlockToday(id) } } else null
+            )
+        }
+
+        val scoped = scopeBlockId?.let { id ->
+            todayBlocks.find { it.block.id == id }
+                ?: activeSession?.takeIf { it.blockId == id }?.let { sess ->
+                    namedBlockStore.loadBlock(id)?.let { TodayBlock(it, sess.startedAtMs, sess.scheduledEndMs) }
+                }
+        }
+
+        if (scoped != null) {
+            // ── Inside a block: only its tasks ──────────────────────────────
+            val id = scoped.block.id
+            val session = activeSession?.takeIf { it.blockId == id }
+            val tasks = tasksOf(id)
+            val ran = blockLogsToday[id]
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { scopeBlockId = null }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to all tasks")
+                }
+                Box(
+                    Modifier.width(4.dp).height(32.dp).background(
+                        scoped.block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(2.dp)
+                    )
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        scoped.block.name,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        "${formatShiftTime(scoped.startMs)} – ${formatShiftTime(scoped.endMs)} · " +
+                            "${tasks.count { it.event.id in doneIds }} of ${tasks.size} tasks",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                when {
+                    session != null -> Unit
+                    ran != null -> TextButton(onClick = { resetBlockToday(id) }) {
+                        Text("Reset", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                    }
+                    activeSession == null && blockSessionStore != null ->
+                        FilledTonalButton(onClick = { startBlock(scoped.block) }) { Text("▶ Start") }
+                }
+            }
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (session != null && blockSessionStore != null) {
+                    // Running: the session card (timer, phases, +30m, End) holds the checklist.
+                    item(key = "session") {
+                        BlockSessionCard(
+                            session = session,
+                            namedBlockStore = namedBlockStore,
+                            blockSessionStore = blockSessionStore,
+                            taskManager = taskManager,
+                            onRefresh = { refreshKey++; onRefresh() }
+                        )
+                    }
+                } else if (tasks.isEmpty()) {
+                    item(key = "no_tasks") {
+                        Text(
+                            "No tasks in this block today",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                } else {
+                    items(tasks, key = { "t_${it.event.id}" }) { se -> TodoItem(se, chip = phaseNames[se.event.id]) }
+                }
+            }
+        } else {
         ScheduledBlocksDropdown(namedBlockStore = namedBlockStore, refreshKey = refreshKey)
 
         // Skipped tasks leave the plan, so they're listed from the queue to be un-skipped.
         val skippedTasks = remember(refreshKey, allTasks) { allTasks.filter { taskManager.isSkipped(it.id) } }
-        val hasAny = todoItems.isNotEmpty() || blockedTasks.isNotEmpty() || skippedTasks.isNotEmpty()
+        // The list: loose tasks and blocks (whose own tasks are inside them), in time order.
+        val plainOpen = openItems.filter { isPlain(it) }
+        val plainDone = doneItems.filter { isPlain(it) }
+        val blocksOpen = todayBlocks.filter { blockLogsToday[it.block.id] == null || activeSession?.blockId == it.block.id }
+        val blocksDone = todayBlocks - blocksOpen.toSet()
+        val openEntries: List<Pair<Long, Any>> =
+            (plainOpen.map { it.startMillis to it } + blocksOpen.map { it.startMs to it }).sortedBy { it.first }
+        val doneEntries: List<Pair<Long, Any>> =
+            (plainDone.map { it.startMillis to it } + blocksDone.map { it.startMs to it }).sortedBy { it.first }
+        val hasAny = openEntries.isNotEmpty() || doneEntries.isNotEmpty() || blockedTasks.isNotEmpty() ||
+            skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty()
         if (!hasAny) {
             // Tapping anywhere in the empty list adds a task.
             Column(
@@ -419,45 +570,23 @@ fun TasksTab(
             }
         } else {
             @Composable
-            fun TodoItem(se: ScheduledEvent) {
-                val plain = isPlain(se)
-                val taskReq = if (plain) allTasks.find { it.id == se.event.id } else null
-                val running = runningExecution?.taskId == se.event.id
-                TodoRow(
-                    se = se,
-                    blockName = se.event.sourceWidgetId?.let { blockNames[it] },
-                    blockColor = se.event.sourceWidgetId?.let { blockColors[it] }?.toOpaqueColor(),
-                    done = se.event.id in doneIds,
-                    runningSinceMs = if (running) runningExecution?.startMillis else null,
-                    nowMs = tickMs,
-                    chained = se.event.id in chainTargetIds,
-                    measured = taskReq?.useMeasuredDuration == true,
-                    onToggle = { toggle(se) },
-                    onStart = if (plain) { { startTimer(se) } } else null,
-                    onStop = { stopTimer(se) },
-                    onEdit = taskReq?.let { req -> { editTarget = req } },
-                    onSkip = { skip(se) },
-                    onDelete = if (plain) { { delete(se) } } else null,
-                    onMarkDoneAt = { whenMs ->
-                        taskManager.markDoneAt(se.event.id, whenMs)
-                        doneIds = taskManager.completions.getDoneIds()
-                        refreshKey++
-                        onRefresh()
-                    },
-                    onLogPastExecution = { startMs, endMs ->
-                        taskManager.logPastExecution(se.event.id, startMs, endMs)
-                        doneIds = taskManager.completions.getDoneIds()
-                        refreshKey++
-                        onRefresh()
-                    }
-                )
+            fun Entry(entry: Any) {
+                when (entry) {
+                    is ScheduledEvent -> TodoItem(entry)
+                    is TodayBlock -> BlockItem(entry)
+                }
+            }
+            fun entryKey(prefix: String, entry: Any) = prefix + when (entry) {
+                is ScheduledEvent -> "t_${entry.event.id}"
+                is TodayBlock -> "b_${entry.block.id}"
+                else -> entry.hashCode().toString()
             }
             LazyColumn(
                 Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (openItems.isEmpty() && todoItems.isNotEmpty()) {
+                if (openEntries.isEmpty() && doneEntries.isNotEmpty()) {
                     item(key = "all_done") {
                         Text(
                             "All done for today",
@@ -467,16 +596,16 @@ fun TasksTab(
                         )
                     }
                 }
-                items(openItems, key = { "s_${it.event.id}" }) { se -> TodoItem(se) }
-                if (doneItems.isNotEmpty()) {
+                items(openEntries, key = { entryKey("o_", it.second) }) { (_, entry) -> Entry(entry) }
+                if (doneEntries.isNotEmpty()) {
                     item(key = "done_header") {
                         TodoSectionHeader(
-                            title = "Done (${doneItems.size})",
+                            title = "Done (${doneEntries.size})",
                             expanded = showDone,
                             onClick = { showDone = !showDone }
                         )
                     }
-                    if (showDone) items(doneItems, key = { "d_${it.event.id}" }) { se -> TodoItem(se) }
+                    if (showDone) items(doneEntries, key = { entryKey("d_", it.second) }) { (_, entry) -> Entry(entry) }
                 }
                 if (blockedTasks.isNotEmpty()) {
                     item(key = "unscheduled_header") { TodoSectionHeader(title = "Unscheduled (${blockedTasks.size})") }
@@ -499,8 +628,13 @@ fun TasksTab(
                         )
                     }
                 }
-                if (skippedTasks.isNotEmpty()) {
-                    item(key = "skipped_header") { TodoSectionHeader(title = "Skipped (${skippedTasks.size})") }
+                if (skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty()) {
+                    item(key = "skipped_header") {
+                        TodoSectionHeader(title = "Skipped (${skippedTasks.size + skippedBlocksToday.size})")
+                    }
+                    items(skippedBlocksToday, key = { "kb_${it.id}" }) { block ->
+                        BlockItem(TodayBlock(block, 0L, 0L), skipped = true)
+                    }
                     items(skippedTasks, key = { "k_${it.id}" }) { task ->
                         SkippedTaskRow(
                             title = task.title,
@@ -531,6 +665,7 @@ fun TasksTab(
                     }
                 }
             }
+        }
         }
     }
 
@@ -1778,6 +1913,103 @@ internal fun todoCountdown(nowMs: Long, startMs: Long, endMs: Long): TodoCountdo
     nowMs < startMs -> TodoCountdown("in ${formatSpan(startMs - nowMs)}", CountdownState.UPCOMING)
     nowMs < endMs -> TodoCountdown("now · ${formatSpan(endMs - nowMs)} left", CountdownState.NOW)
     else -> TodoCountdown("overdue ${formatSpan(nowMs - endMs)}", CountdownState.OVERDUE)
+}
+
+/** One of today's blocks in the to-do list, with its own planned window. */
+private data class TodayBlock(val block: NamedBlock, val startMs: Long, val endMs: Long)
+
+/**
+ * A block in the to-do list, looking like a task: its colour, name and status, a countdown, a
+ * ⋮ menu (Start, Skip today, Reset) and, when it can be entered, a chevron. Tapping it enters it.
+ */
+@Composable
+private fun BlockTodoRow(
+    name: String,
+    color: Color,
+    subtitle: String,
+    pill: Pair<String, Color>?,
+    onOpen: (() -> Unit)?,
+    onStart: (() -> Unit)?,
+    onSkip: (() -> Unit)?,
+    onReset: (() -> Unit)?
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    if (confirmReset && onReset != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset $name for today?") },
+            text = { Text("Its logged session, ticked tasks and any skip today are cleared, so it's back to planned.") },
+            confirmButton = {
+                TextButton(onClick = { confirmReset = false; onReset() }) {
+                    Text("Reset", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } }
+        )
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.width(5.dp).fillMaxHeight().background(color))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (pill != null) {
+            Spacer(Modifier.width(8.dp))
+            CountdownPill(pill.first, pill.second)
+        }
+        if (onStart != null || onSkip != null || onReset != null) {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More for $name",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (onStart != null) {
+                        DropdownMenuItem(text = { Text("Start") }, onClick = { menuOpen = false; onStart() })
+                    }
+                    if (onSkip != null) {
+                        DropdownMenuItem(text = { Text("Skip today") }, onClick = { menuOpen = false; onSkip() })
+                    }
+                    if (onReset != null) {
+                        DropdownMenuItem(
+                            text = { Text("Reset", color = MaterialTheme.colorScheme.error) },
+                            onClick = { menuOpen = false; confirmReset = true }
+                        )
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.width(8.dp))
+        }
+        if (onOpen != null) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+        }
+    }
 }
 
 /** A to-do list section heading; with [onClick] it folds its section open and shut. */

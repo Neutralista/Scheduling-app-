@@ -1363,7 +1363,11 @@ private fun PlannerEventBlock(
                 // Phases head the tasks that run in them, all in time order.
                 val lines: List<Pair<Long, Any>> = (phases.map { it.startMs to it } + blockSubTasks.map { it.startMillis to it })
                     .sortedWith(compareBy({ it.first }, { if (it.second is PhaseWindow) 0 else 1 }))
-                lines.forEach { (_, item) ->
+                // As many lines as the tile's height holds (under its name and time), then a count:
+                // a short tile used to cut the list off silently, as if the rest weren't there.
+                val fits = ((eventH - 44.dp) / 14.dp).toInt().coerceAtLeast(1)
+                val shown = if (lines.size <= fits) lines.size else (fits - 1).coerceAtLeast(1)
+                lines.take(shown).forEach { (_, item) ->
                     when (item) {
                         is PhaseWindow -> Text(
                             "${item.phase.name}  ${fmtMs(item.startMs)}–${fmtMs(item.endMs)}",
@@ -1385,6 +1389,14 @@ private fun PlannerEventBlock(
                         }
                         else -> Unit
                     }
+                }
+                if (shown < lines.size) {
+                    Text(
+                        "+${lines.size - shown} more",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                        color = fg.copy(alpha = 0.75f),
+                        maxLines = 1
+                    )
                 }
             }
             }
