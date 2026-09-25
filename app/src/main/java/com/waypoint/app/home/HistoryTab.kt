@@ -64,16 +64,35 @@ import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.toOpaqueColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.Locale
 
 // ── Data models ───────────────────────────────────────────────────────────────
 
 private data class TaskSummary(
     val taskId: String,
     val title: String,
-    val executions: List<TaskExecution>
+    val executions: List<TaskExecution>,
+    /** Days it was done on, newest first — ticked off or timed. */
+    val doneDates: List<LocalDate> = emptyList()
 ) {
     val count: Int get() = executions.size
+    val lastActivityMs: Long get() = maxOf(
+        executions.firstOrNull()?.startMillis ?: 0L,
+        doneDates.firstOrNull()?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: 0L
+    )
+
+    /** Consecutive days done, up to today (or yesterday, if today isn't done yet). */
+    val streak: Int get() {
+        val dates = doneDates.toSet()
+        var day = LocalDate.now().let { if (it in dates) it else it.minusDays(1) }
+        var n = 0
+        while (day in dates) { n++; day = day.minusDays(1) }
+        return n
+    }
     val avgMinutes: Int? get() {
         val measured = executions.mapNotNull { it.measuredMinutes }
         return if (measured.isEmpty()) null else measured.average().toInt()
@@ -98,6 +117,16 @@ private data class MeasurementRecord(
 
 private fun Set<String>.toggle(id: String) = if (id in this) this - id else this + id
 
+private fun relativeDay(date: LocalDate): String {
+    val today = LocalDate.now()
+    return when {
+        date == today -> "today"
+        date == today.minusDays(1) -> "yesterday"
+        date.isAfter(today.minusDays(7)) -> date.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault()))
+        else -> date.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
+    }
+}
+
 // ── Main composable ───────────────────────────────────────────────────────────
 
 @Composable
@@ -117,17 +146,21 @@ fun HistoryTab(
     // ── Data ──────────────────────────────────────────────────────────────────
     val taskSummaries = remember(combinedKey) {
         val allTasks = taskManager.getAllTasks().associateBy { it.id }
-        taskManager.executions.loadAll()
-            .filter { it.endMillis != null }
-            .groupBy { it.taskId }
-            .map { (taskId, execs) ->
+        val runs = taskManager.executions.loadAll().filter { it.endMillis != null }.groupBy { it.taskId }
+        // Queued tasks only: block tasks share the done store but have their own history.
+        val done = taskManager.doneHistory().filterKeys { it in allTasks }
+        (runs.keys + done.keys)
+            .map { taskId ->
                 TaskSummary(
                     taskId = taskId,
                     title = allTasks[taskId]?.title ?: "Deleted task",
-                    executions = execs.sortedByDescending { it.startMillis }
+                    executions = runs[taskId].orEmpty().sortedByDescending { it.startMillis },
+                    doneDates = done[taskId].orEmpty()
+                        .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+                        .sortedDescending()
                 )
             }
-            .sortedByDescending { it.executions.first().startMillis }
+            .sortedByDescending { it.lastActivityMs }
     }
 
     val blockGroups = remember(combinedKey) {
@@ -349,10 +382,13 @@ fun HistoryTab(
                 item(key = "task_${summary.taskId}") {
                     HistorySectionHeader(
                         title = summary.title,
-                        subtitle = buildString {
-                            append("${summary.count} ${if (summary.count == 1) "run" else "runs"}")
-                            summary.avgMinutes?.let { append(" · avg ${it}m") }
-                        },
+                        subtitle = listOfNotNull(
+                            summary.doneDates.size.takeIf { it > 0 }?.let { "done $it×" },
+                            summary.doneDates.firstOrNull()?.let { "last ${relativeDay(it)}" },
+                            summary.streak.takeIf { it >= 2 }?.let { "$it-day streak" },
+                            summary.count.takeIf { it > 0 }?.let { "$it ${if (it == 1) "run" else "runs"}" },
+                            summary.avgMinutes?.let { "avg ${it}m" }
+                        ).joinToString(" · "),
                         accentColor = primary,
                         expanded = summary.taskId in expandedIds,
                         onToggle = { expandedIds = expandedIds.toggle(summary.taskId) }
@@ -376,6 +412,17 @@ fun HistoryTab(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
                             modifier = Modifier.padding(start = 16.dp)
                         )
+                    }
+                    if (summary.executions.isEmpty() && summary.doneDates.isNotEmpty()) {
+                        item(key = "task_${summary.taskId}_dates") {
+                            Text(
+                                text = "Done " + summary.doneDates.take(14).joinToString(", ") { relativeDay(it) } +
+                                    if (summary.doneDates.size > 14) ", …" else "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+                            )
+                        }
                     }
                     item(key = "task_${summary.taskId}_space") {
                         Spacer(Modifier.height(4.dp))

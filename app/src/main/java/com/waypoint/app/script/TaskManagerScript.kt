@@ -72,6 +72,9 @@ class TaskManagerScript(
 
     fun getAllTasks(): List<TaskRequest> = store.loadAll()
 
+    /** Task id to the "yyyy-MM-dd" dates it was done on (kept a year). */
+    fun doneHistory(): Map<String, Set<String>> = doneHistory.all()
+
     // Re-synced so a done task is pinned where it happened instead of still floating after now.
     fun markDone(taskId: String) = markDoneAt(taskId, System.currentTimeMillis())
     fun markDoneAt(taskId: String, whenMs: Long) {

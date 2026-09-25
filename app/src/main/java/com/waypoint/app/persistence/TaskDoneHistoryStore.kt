@@ -28,6 +28,10 @@ class TaskDoneHistoryStore(context: Context) {
     /** "yyyy-MM-dd" dates [taskId] was done on. */
     fun dates(taskId: String): Set<String> = prefs.getStringSet(taskId, emptySet()).orEmpty().toSet()
 
+    /** Every task with a done date, to the dates it was done on. */
+    fun all(): Map<String, Set<String>> =
+        prefs.all.mapNotNull { (id, v) -> (v as? Set<*>)?.filterIsInstance<String>()?.toSet()?.let { id to it } }.toMap()
+
     fun forget(taskId: String) {
         prefs.edit().remove(taskId).apply()
     }
