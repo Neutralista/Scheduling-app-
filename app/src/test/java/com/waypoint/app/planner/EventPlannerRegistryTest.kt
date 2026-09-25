@@ -273,4 +273,19 @@ class EventPlannerRegistryTest {
         )
         assertEquals(75, effectiveDurationMinutes(block, tasks))
     }
+    @Test
+    fun doneTasks_stayWhereTheyActuallyHappened_othersAvoidThatTime() {
+        fun during(id: String) = BlockTask(id, "gym", id, 20, BlockTaskPlacement.DURING)
+        val gym = NamedBlockInstance(
+            NamedBlock(id = "gym", name = "Gym"), ms(day, 9), ms(day, 10),
+            activeTasks = listOf(during("a"), during("b")),
+            // "b" was done 9:05–9:25 (e.g. logged by Might).
+            taskActuals = mapOf("b" to (ms(day, 9, 5) to ms(day, 9, 25)))
+        )
+        val plan = registry().planForDate(day, namedBlockInstances = listOf(gym))
+        val b = plan.scheduled.first { it.event.id == "b" }
+        assertEquals(ms(day, 9, 5) to ms(day, 9, 25), b.startMillis to b.endMillis)
+        val a = plan.scheduled.first { it.event.id == "a" }
+        assertTrue(a.endMillis <= ms(day, 9, 5) || a.startMillis >= ms(day, 9, 25))
+    }
 }

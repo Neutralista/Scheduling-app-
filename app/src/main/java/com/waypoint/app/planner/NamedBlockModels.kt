@@ -282,8 +282,17 @@ data class NamedBlockInstance(
     val block: NamedBlock,
     val scheduledStartMs: Long,
     val estimatedEndMs: Long,
-    val activeTasks: List<BlockTask> = emptyList()
+    val activeTasks: List<BlockTask> = emptyList(),
+    /**
+     * Tasks already done in a session logged today, at the times they were actually done
+     * (BlockTaskMeasurement, e.g. exercises Might logged). The planner places them there, as
+     * past, instead of planning them again.
+     */
+    val taskActuals: Map<String, Pair<Long, Long>> = emptyMap()
 )
+
+private fun BlockSessionLog.actuals(): Map<String, Pair<Long, Long>> =
+    taskMeasurements.associate { it.taskId to (it.startMs to it.endMs) }
 
 /**
  * For today's date, overrides a fixed block instance's bounds with what actually happened once a
@@ -309,7 +318,7 @@ fun List<NamedBlockInstance>.reconciledWithActualSessions(
             // The latest session — an earlier one (stopped, then restarted) is in the past and
             // can't affect what's still plannable; the first one used to win.
             else -> loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
-                ?.let { inst.copy(scheduledStartMs = it.startedAtMs, estimatedEndMs = it.endedAtMs) }
+                ?.let { inst.copy(scheduledStartMs = it.startedAtMs, estimatedEndMs = it.endedAtMs, taskActuals = it.actuals()) }
                 ?: inst
         }
     }
@@ -337,7 +346,9 @@ fun List<NamedBlockInstance>.pinnedBySessions(
         val logged = loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
         when {
             live != null -> pinned += inst.copy(scheduledStartMs = live.startedAtMs, estimatedEndMs = live.scheduledEndMs)
-            logged != null -> pinned += inst.copy(scheduledStartMs = logged.startedAtMs, estimatedEndMs = logged.endedAtMs)
+            logged != null -> pinned += inst.copy(
+                scheduledStartMs = logged.startedAtMs, estimatedEndMs = logged.endedAtMs, taskActuals = logged.actuals()
+            )
             else -> floating += inst
         }
     }

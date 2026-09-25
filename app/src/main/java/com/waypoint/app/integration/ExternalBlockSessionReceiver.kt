@@ -6,6 +6,9 @@ import android.content.Intent
 import com.waypoint.app.AppLogger
 import com.waypoint.app.planner.BlockSessionLog
 import com.waypoint.app.planner.BlockSessionLogStore
+import com.waypoint.app.planner.BlockTaskMeasurement
+import com.waypoint.app.WaypointApplication
+import java.time.LocalDate
 import com.waypoint.app.planner.NamedBlockStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -14,9 +17,13 @@ import java.util.Locale
 /**
  * Accepts a completed workout reported by Training-app (com.neutralista.trainingapp) and logs it
  * into Waypoint's own block-session history, so it shows up in the History tab like any other
- * gym/activity block. One-way and retroactive only: Training-app reports sessions after they
- * finish, there is no live "in progress" state and no attempt to reconcile edits or deletions
- * made on either side afterward.
+ * gym/activity block. One-way: Training-app (Might) reports the day's session as sets are logged,
+ * each time replacing the day's entry.
+ *
+ * With per-exercise times (the parallel arrays EXTRA_EXERCISE_IDS / _START_MS / _END_MS), each
+ * exercise is logged as a measurement of its block task ("$blockId-$exerciseId") and ticked done
+ * at its end, so it shows as a completed task at the time it was actually done: the exercises are
+ * completed in Might, and Waypoint shows what happened.
  *
  * Gated by the ACTION_LOG_BLOCK_SESSION permission this app declares (protectionLevel="normal"),
  * which the sender must hold — see AndroidManifest.xml.
@@ -38,8 +45,28 @@ class ExternalBlockSessionReceiver : BroadcastReceiver() {
             AppLogger.w(TAG, "onReceive: ignoring malformed session (start=$startMs, end=$endMs)")
             return
         }
-        val tasksCompleted = intent.getIntExtra(EXTRA_TASKS_COMPLETED, 0)
-        val tasksTotal = intent.getIntExtra(EXTRA_TASKS_TOTAL, 0)
+        var tasksCompleted = intent.getIntExtra(EXTRA_TASKS_COMPLETED, 0)
+        var tasksTotal = intent.getIntExtra(EXTRA_TASKS_TOTAL, 0)
+
+        // Per-exercise times, when this Might sends them; older versions don't.
+        val ids = intent.getStringArrayExtra(EXTRA_EXERCISE_IDS)
+        val starts = intent.getLongArrayExtra(EXTRA_EXERCISE_START_MS)
+        val ends = intent.getLongArrayExtra(EXTRA_EXERCISE_END_MS)
+        val blockTaskIds = NamedBlockStore(context).loadTasksForBlock(blockId).map { it.id }.toSet()
+        val measurements = if (ids != null && starts != null && ends != null &&
+            ids.size == starts.size && ids.size == ends.size
+        ) {
+            ids.indices.mapNotNull { i ->
+                val taskId = "$blockId-${ids[i]}"
+                if (taskId !in blockTaskIds || ends[i] <= starts[i]) null
+                else BlockTaskMeasurement(taskId = taskId, startMs = starts[i], endMs = ends[i])
+            }
+        } else emptyList()
+        if (measurements.isNotEmpty()) {
+            // The block's checklist counts exercises done, not sets.
+            tasksCompleted = measurements.map { it.taskId }.distinct().size
+            tasksTotal = maxOf(blockTaskIds.size, tasksCompleted)
+        }
 
         val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(startMs))
 
@@ -54,9 +81,19 @@ class ExternalBlockSessionReceiver : BroadcastReceiver() {
                 startedAtMs = startMs,
                 endedAtMs = endMs,
                 tasksCompleted = tasksCompleted,
-                tasksTotal = tasksTotal
+                tasksTotal = tasksTotal,
+                taskMeasurements = measurements
             )
         )
+        // Tick today's exercises done, at when each finished (earlier days' ticks have lapsed).
+        if (dateKey == LocalDate.now().toString() && measurements.isNotEmpty()) {
+            runCatching {
+                val taskManager = (context.applicationContext as WaypointApplication).env.taskManager
+                measurements.forEach { m ->
+                    if (!taskManager.isDone(m.taskId)) taskManager.markDoneAt(m.taskId, m.endMs)
+                }
+            }.onFailure { AppLogger.e(TAG, "onReceive: couldn't tick exercises done", it) }
+        }
         AppLogger.i(TAG, "onReceive: logged '$blockName' ($startMs-$endMs)")
     }
 
@@ -68,6 +105,9 @@ class ExternalBlockSessionReceiver : BroadcastReceiver() {
         const val EXTRA_END_MS = "endMs"
         const val EXTRA_TASKS_COMPLETED = "tasksCompleted"
         const val EXTRA_TASKS_TOTAL = "tasksTotal"
+        const val EXTRA_EXERCISE_IDS = "exerciseIds"
+        const val EXTRA_EXERCISE_START_MS = "exerciseStartMs"
+        const val EXTRA_EXERCISE_END_MS = "exerciseEndMs"
         private const val TAG = "ExternalBlockSession"
     }
 }

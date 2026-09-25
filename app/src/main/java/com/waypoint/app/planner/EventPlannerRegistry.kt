@@ -452,6 +452,12 @@ class EventPlannerRegistry {
             // (AfterBlock tasks will be scheduled after estimatedEndMs via condition)
 
             for (syntheticEvent in buildSubTaskEvents(inst, blockEventId)) {
+                // Already done in a logged session: where it actually happened, not planned again.
+                val actual = inst.taskActuals[syntheticEvent.id]
+                if (actual != null) {
+                    scheduled += ScheduledEvent(syntheticEvent, actual.first, actual.second)
+                    continue
+                }
                 val dayReason = checkDayConditions(syntheticEvent.conditions, date, isWorkDay, shiftStartMs, shiftEndMs, deadlineCutoffMs)
                 if (dayReason != null) blocked += BlockedEvent(syntheticEvent, dayReason)
                 else allSchedulable += syntheticEvent
@@ -772,8 +778,14 @@ class EventPlannerRegistry {
                     } else ownerSched.startMillis to ownerSched.endMillis
                     val blockSched = ScheduledEvent(ownerSched.event, window.first, window.second)
                     val slots = blockFreeSlots.getOrPut(duringBlock.blockId) {
-                        if ('#' in duringBlock.blockId || ownerInst == null) mutableListOf(window)
-                        else unphasedSlots(ownerInst, window.first, window.second)
+                        when {
+                            ownerInst == null -> mutableListOf(window)
+                            // A phase's window, less the time its done tasks actually took.
+                            '#' in duringBlock.blockId -> subtractIntervals(
+                                window.first, window.second, ownerInst.taskActuals.values.toList()
+                            ).toMutableList()
+                            else -> unphasedSlots(ownerInst, window.first, window.second)
+                        }
                     }
                     val blockDuration = blockSched.endMillis - blockSched.startMillis
                     // MID: lower bound at 1/3 of block window; END: last-fit
@@ -1180,11 +1192,15 @@ class EventPlannerRegistry {
         )
     }
 
-    /** A block's window less its phases' windows: where its unphased DURING tasks may go. */
+    /**
+     * A block's window less its phases' windows and the time its done tasks actually took:
+     * where its unphased DURING tasks may go.
+     */
     private fun unphasedSlots(inst: NamedBlockInstance, startMs: Long, endMs: Long): MutableList<Pair<Long, Long>> {
-        val phases = phaseWindows(inst.block, inst.activeTasks, startMs, endMs).map { it.startMs to it.endMs }
-        return if (phases.isEmpty()) mutableListOf(startMs to endMs)
-        else subtractIntervals(startMs, endMs, phases).toMutableList()
+        val taken = phaseWindows(inst.block, inst.activeTasks, startMs, endMs).map { it.startMs to it.endMs } +
+            inst.taskActuals.values
+        return if (taken.isEmpty()) mutableListOf(startMs to endMs)
+        else subtractIntervals(startMs, endMs, taken).toMutableList()
     }
 
     /**
