@@ -1022,7 +1022,7 @@ class EventPlannerRegistry {
 
                 // BEFORE block tasks: if the free pool failed because planStartMs > blockStartMs
                 // (i.e. the block has already started), fall back to historical slots.
-                if (!placed && beforeBlock != null && historicalSlots.isNotEmpty()) {
+                if (!placed && beforeBlocks.isNotEmpty() && historicalSlots.isNotEmpty()) {
                     if (aroundAnchorMs != null) {
                         // Same anchor/flex bounds as the primary pool — a BeforeBlock task that
                         // couldn't fit in the remaining free time (block already started) still
