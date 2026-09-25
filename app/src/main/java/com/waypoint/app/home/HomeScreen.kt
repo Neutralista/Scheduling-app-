@@ -85,6 +85,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.waypoint.app.planner.PlanZoomLevel
+import com.waypoint.app.planner.PlanOverviewLoader
+import com.waypoint.app.planner.DaySummary
+import com.waypoint.app.planner.weekDays
+import com.waypoint.app.planner.weekStart
+import com.waypoint.app.planner.monthWeekStarts
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -445,14 +452,35 @@ private fun PlanTab(
     var dayOffset by remember { mutableIntStateOf(0) }
     val selectedDate = remember(dayOffset) { today.plusDays(dayOffset.toLong()) }
     val dateFmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()) }
-    val monthFmt = remember { DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()) }
     var calRefreshKey by remember { mutableIntStateOf(0) }
 
-    // Calendar grid state
-    var calendarExpanded by remember { mutableStateOf(false) }
-    var displayMonth by remember { mutableStateOf(YearMonth.now()) }
-    var eventDays by remember { mutableStateOf(emptySet<LocalDate>()) }
-    val hasCalPermission = remember { calendarSignals.hasPermission() }
+    // Zoom level: the day's timeline, or tiles for its week, month or year. selectedDate is the
+    // anchor at every level; tapping a tile moves it and zooms in.
+    var zoomLevel by rememberSaveable { mutableStateOf(PlanZoomLevel.DAY) }
+    fun goTo(date: LocalDate, level: PlanZoomLevel) {
+        dayOffset = ChronoUnit.DAYS.between(today, date).toInt()
+        zoomLevel = level
+    }
+    val overviewLoader = remember { PlanOverviewLoader(eventPlanner, namedBlockStore, calendarSignals, calPrefsStore) }
+    val overviewDates = remember(zoomLevel, selectedDate) {
+        when (zoomLevel) {
+            PlanZoomLevel.DAY -> emptyList()
+            PlanZoomLevel.WEEK -> weekDays(selectedDate)
+            PlanZoomLevel.MONTH -> monthWeekStarts(YearMonth.from(selectedDate)).flatMap { weekDays(it) }
+            PlanZoomLevel.YEAR -> {
+                val jan1 = LocalDate.of(selectedDate.year, 1, 1)
+                (0 until jan1.lengthOfYear()).map { jan1.plusDays(it.toLong()) }
+            }
+        }
+    }
+    var overview by remember { mutableStateOf<Map<LocalDate, DaySummary>?>(null) }
+    LaunchedEffect(overviewDates, calRefreshKey) {
+        if (overviewDates.isEmpty()) return@LaunchedEffect
+        overview = null
+        // A year of days isn't planned one by one: its tiles count fixed blocks and events.
+        overview = runCatching { overviewLoader.load(overviewDates, withPlan = zoomLevel != PlanZoomLevel.YEAR) }
+            .getOrElse { emptyMap() }
+    }
 
     // Timeline tap / detail state
     var selectedCalEvent by remember { mutableStateOf<CalendarEvent?>(null) }
@@ -476,18 +504,6 @@ private fun PlanTab(
     // Latest calendar events from the timeline — forwarded to AddTaskSheet for conditions
     var planTabCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
 
-    // Keep the calendar grid in sync when day arrows navigate across month boundaries
-    LaunchedEffect(selectedDate) {
-        val month = YearMonth.from(selectedDate)
-        if (month != displayMonth) displayMonth = month
-    }
-
-    // Load event dots whenever the visible month or expand state changes
-    LaunchedEffect(displayMonth, calRefreshKey, hasCalPermission, calendarExpanded) {
-        if (!hasCalPermission || !calendarExpanded) return@LaunchedEffect
-        eventDays = loadEventDaysForMonth(context, displayMonth)
-    }
-
     // Refresh timeline whenever sleep times change
     val sleepTimes by sleepTimesFlow.collectAsState()
     LaunchedEffect(sleepTimes) {
@@ -496,142 +512,121 @@ private fun PlanTab(
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
 
-        // ── Day navigation row ────────────────────────────────────────────────
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { dayOffset-- }) {
-                Icon(
-                    Icons.Filled.KeyboardArrowLeft,
-                    contentDescription = "Previous day",
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .then(if (dayOffset != 0) Modifier.clickable { dayOffset = 0 } else Modifier)
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                val label = when (dayOffset) {
-                    -1 -> "Yesterday"
-                    0  -> "Today"
-                    1  -> "Tomorrow"
-                    else -> selectedDate.format(dateFmt)
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                if (dayOffset == 0) {
-                    Text(
-                        text = "Full day timeline",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
-                if (dayOffset == -1 || dayOffset == 1) {
-                    Text(
-                        text = selectedDate.format(dateFmt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (dayOffset != 0) {
-                    Text(
-                        text = "tap to return to today",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                    )
-                }
-            }
-            IconButton(onClick = { dayOffset++ }) {
-                Icon(
-                    Icons.Filled.KeyboardArrowRight,
-                    contentDescription = "Next day",
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = { calendarExpanded = !calendarExpanded }) {
-                Icon(
-                    if (calendarExpanded) Icons.Filled.KeyboardArrowUp
-                    else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (calendarExpanded) "Hide calendar" else "Show calendar",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        // ── Collapsible month grid ────────────────────────────────────────────
-        if (calendarExpanded) {
-            // Month navigation
+        // ── Period navigation row ─────────────────────────────────────────────
+        if (zoomLevel == PlanZoomLevel.DAY) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { displayMonth = displayMonth.minusMonths(1) }) {
+                IconButton(onClick = { dayOffset-- }) {
                     Icon(
                         Icons.Filled.KeyboardArrowLeft,
-                        contentDescription = "Previous month",
+                        contentDescription = "Previous day",
+                        modifier = Modifier.size(28.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = displayMonth.format(monthFmt),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                IconButton(onClick = { displayMonth = displayMonth.plusMonths(1) }) {
-                    Icon(
-                        Icons.Filled.KeyboardArrowRight,
-                        contentDescription = "Next month",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Weekday headers
-            Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
-                listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { label ->
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(if (dayOffset != 0) Modifier.clickable { dayOffset = 0 } else Modifier)
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val label = when (dayOffset) {
+                        -1 -> "Yesterday"
+                        0  -> "Today"
+                        1  -> "Tomorrow"
+                        else -> selectedDate.format(dateFmt)
+                    }
                     Text(
                         text = label,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelSmall,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    if (dayOffset == 0) {
+                        Text(
+                            text = "Full day timeline",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                    if (dayOffset == -1 || dayOffset == 1) {
+                        Text(
+                            text = selectedDate.format(dateFmt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (dayOffset != 0) {
+                        Text(
+                            text = "tap to return to today",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+                IconButton(onClick = { dayOffset++ }) {
+                    Icon(
+                        Icons.Filled.KeyboardArrowRight,
+                        contentDescription = "Next day",
+                        modifier = Modifier.size(28.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-
-            // Grid — tapping a day updates dayOffset (arrows still work in parallel)
-            MonthGrid(
-                month = displayMonth,
-                selectedDate = selectedDate,
-                eventDays = eventDays,
-                today = today,
-                onDayClick = { date ->
-                    dayOffset = ChronoUnit.DAYS.between(today, date).toInt()
+        } else {
+            val isCurrentPeriod = when (zoomLevel) {
+                PlanZoomLevel.WEEK -> weekStart(selectedDate) == weekStart(today)
+                PlanZoomLevel.MONTH -> YearMonth.from(selectedDate) == YearMonth.from(today)
+                else -> selectedDate.year == today.year
+            }
+            fun shift(by: Long) = when (zoomLevel) {
+                PlanZoomLevel.WEEK -> goTo(selectedDate.plusWeeks(by), zoomLevel)
+                PlanZoomLevel.MONTH -> goTo(selectedDate.plusMonths(by), zoomLevel)
+                else -> goTo(selectedDate.plusYears(by), zoomLevel)
+            }
+            val unit = zoomLevel.name.lowercase()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { shift(-1) }) {
+                    Icon(Icons.Filled.KeyboardArrowLeft, contentDescription = "Previous $unit",
+                        modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            )
-
-            HorizontalDivider(
-                modifier = Modifier.padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(if (!isCurrentPeriod) Modifier.clickable { goTo(today, zoomLevel) } else Modifier)
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = zoomPeriodLabel(zoomLevel, selectedDate),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = if (isCurrentPeriod) "This $unit" else "tap to return to this $unit",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isCurrentPeriod) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(onClick = { shift(1) }) {
+                    Icon(Icons.Filled.KeyboardArrowRight, contentDescription = "Next $unit",
+                        modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
-
+        ZoomLevelSwitcher(
+            level = zoomLevel,
+            onSelect = { zoomLevel = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+        )
 
         val sessionForToday = if (selectedDate == today && !blockScopeHidden) activeSession else null
         val planningSession = planningBlockId?.let { blockId ->
@@ -649,7 +644,36 @@ private fun PlanTab(
             } else null
         }
         val displaySession = sessionForToday ?: planningSession
-        if (displaySession != null) {
+        val overviewModifier = Modifier.weight(1f).pinchZoomLevels(
+            onZoomIn = { zoomLevel.inner?.let { zoomLevel = it } },
+            onZoomOut = { zoomLevel.outer?.let { zoomLevel = it } }
+        )
+        if (zoomLevel == PlanZoomLevel.WEEK) {
+            WeekOverview(
+                anchor = selectedDate,
+                summaries = overview,
+                onDayClick = { goTo(it, PlanZoomLevel.DAY) },
+                modifier = overviewModifier
+            )
+        } else if (zoomLevel == PlanZoomLevel.MONTH) {
+            MonthOverview(
+                month = YearMonth.from(selectedDate),
+                summaries = overview,
+                onWeekClick = { monday ->
+                    goTo(if (today in weekDays(monday)) today else monday, PlanZoomLevel.WEEK)
+                },
+                modifier = overviewModifier
+            )
+        } else if (zoomLevel == PlanZoomLevel.YEAR) {
+            YearOverview(
+                year = selectedDate.year,
+                summaries = overview,
+                onMonthClick = { month ->
+                    goTo(if (YearMonth.from(today) == month) today else month.atDay(1), PlanZoomLevel.MONTH)
+                },
+                modifier = overviewModifier
+            )
+        } else if (displaySession != null) {
             BlockScopeView(
                 session = displaySession,
                 isPlanningMode = planningSession != null && sessionForToday == null,
@@ -704,7 +728,8 @@ private fun PlanTab(
                 onCalendarEventClick = { selectedCalEvent = it },
                 onPlannerEventClick = { selectedPlannerEvent = it },
                 onCalEventsChanged = { planTabCalEvents = it },
-                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = false }
+                onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = false },
+                onZoomOut = { zoomLevel = PlanZoomLevel.WEEK }
             )
         }
     }
@@ -1156,133 +1181,3 @@ private fun SleepEditSheet(
         }
     }
 }
-
-// ── Month grid ─────────────────────────────────────────────────────────────────
-
-@Composable
-private fun MonthGrid(
-    month: YearMonth,
-    selectedDate: LocalDate,
-    eventDays: Set<LocalDate>,
-    today: LocalDate,
-    onDayClick: (LocalDate) -> Unit
-) {
-    val firstDay = month.atDay(1)
-    val startOffset = firstDay.dayOfWeek.value - 1  // 0 = Mon, 6 = Sun
-    val daysInMonth = month.lengthOfMonth()
-    val totalWeeks = (startOffset + daysInMonth + 6) / 7
-
-    Column(Modifier.fillMaxWidth()) {
-        for (week in 0 until totalWeeks) {
-            Row(Modifier.fillMaxWidth()) {
-                for (dow in 0 until 7) {
-                    val dayNum = week * 7 + dow - startOffset + 1
-                    Box(Modifier.weight(1f)) {
-                        if (dayNum in 1..daysInMonth) {
-                            val date = month.atDay(dayNum)
-                            DayCell(
-                                day = dayNum,
-                                isToday = date == today,
-                                isSelected = date == selectedDate,
-                                hasEvents = date in eventDays,
-                                onClick = { onDayClick(date) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DayCell(
-    day: Int,
-    isToday: Boolean,
-    isSelected: Boolean,
-    hasEvents: Boolean,
-    onClick: () -> Unit
-) {
-    val primary = MaterialTheme.colorScheme.primary
-    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
-
-    val circleBg = when {
-        isSelected -> primary
-        isToday    -> primaryContainer
-        else       -> Color.Transparent
-    }
-    val textColor = when {
-        isSelected -> onPrimary
-        isToday    -> onPrimaryContainer
-        else       -> MaterialTheme.colorScheme.onSurface
-    }
-    val dotColor = if (isSelected) onPrimary.copy(alpha = 0.65f) else primary
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 3.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(circleBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = day.toString(),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (isToday || isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = textColor
-            )
-        }
-        if (hasEvents) {
-            Box(
-                Modifier
-                    .size(4.dp)
-                    .clip(CircleShape)
-                    .background(dotColor)
-            )
-        } else {
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-}
-
-// ── Range query — which days in a month have at least one event ────────────────
-
-private suspend fun loadEventDaysForMonth(context: Context, month: YearMonth): Set<LocalDate> =
-    withContext(Dispatchers.IO) {
-        val zone = ZoneId.systemDefault()
-        val startMs = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val endMs = month.atEndOfMonth().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-
-        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
-            .appendPath(startMs.toString())
-            .appendPath(endMs.toString())
-            .build()
-
-        val days = mutableSetOf<LocalDate>()
-        runCatching {
-            context.contentResolver.query(
-                uri,
-                arrayOf(CalendarContract.Instances.BEGIN),
-                null, null, null
-            )?.use { cursor ->
-                val beginIdx = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
-                while (cursor.moveToNext()) {
-                    days.add(
-                        Instant.ofEpochMilli(cursor.getLong(beginIdx))
-                            .atZone(zone).toLocalDate()
-                    )
-                }
-            }
-        }
-        days
-    }

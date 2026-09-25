@@ -30,6 +30,8 @@ interface CalendarSignals {
     fun hasWritePermission(): Boolean
     suspend fun todayEvents(): List<CalendarEvent>
     suspend fun eventsForDate(date: LocalDate): List<CalendarEvent>
+    /** Every event instance overlapping [start] up to (not including) [endExclusive], in one query. */
+    suspend fun eventsInRange(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent>
     val cachedEvents: List<CalendarEvent>
     suspend fun refreshCache()
     /**
@@ -79,12 +81,14 @@ class RealCalendarSignals(private val context: Context) : CalendarSignals {
 
     override suspend fun todayEvents(): List<CalendarEvent> = eventsForDate(LocalDate.now())
 
-    override suspend fun eventsForDate(date: LocalDate): List<CalendarEvent> = withContext(Dispatchers.IO) {
+    override suspend fun eventsForDate(date: LocalDate): List<CalendarEvent> = eventsInRange(date, date.plusDays(1))
+
+    override suspend fun eventsInRange(start: LocalDate, endExclusive: LocalDate): List<CalendarEvent> = withContext(Dispatchers.IO) {
         if (!hasPermission()) return@withContext emptyList()
 
         val zone = ZoneId.systemDefault()
-        val startMillis = date.atStartOfDay(zone).toInstant().toEpochMilli()
-        val endMillis = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val startMillis = start.atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMillis = endExclusive.atStartOfDay(zone).toInstant().toEpochMilli()
 
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
             .appendPath(startMillis.toString())

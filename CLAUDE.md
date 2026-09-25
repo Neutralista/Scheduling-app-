@@ -200,6 +200,16 @@ Block events in `plan.scheduled` use `EventCategory.BLOCK` and `id = "__block__$
 **Notification / alarm flow for blocks:**
 `BlockAlarmScheduler` → `AlarmManager.setExactAndAllowWhileIdle` → fires `BlockStartReceiver` (`ACTION_BLOCK_START`) → posts "starts now" notification via `BlockNotificationHelper` → user taps "Proceed" → `BlockStartReceiver` (`ACTION_PROCEED_BLOCK`) → `startSession()`.
 
+## Plan tab zoom levels
+
+`PlanZoomLevel` DAY → WEEK → MONTH → YEAR (`planner/PlanOverview.kt`). The Plan tab's `selectedDate`
+anchors every level. DAY is `DayTimelineView` (pinching out at its widest zoom calls `onZoomOut`);
+the others are tile views in `home/PlanOverviewViews.kt` (Week: a tile per day; Month: a tile per
+week; Year: a tile per month). Tapping a tile zooms in to it, pinching steps a level
+(`pinchZoomLevels`), and `ZoomLevelSwitcher` jumps directly. `PlanOverviewLoader` builds each
+day's `DaySummary`: planned like the day timeline for Week/Month, fixed blocks + calendar events
+only for Year. `CalendarSignals.eventsInRange` fetches a range in one query.
+
 ## SharedPreferences stores
 
 | Key | Store class | Contents |

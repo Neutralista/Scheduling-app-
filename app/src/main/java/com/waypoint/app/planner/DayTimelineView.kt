@@ -172,9 +172,12 @@ fun DayTimelineView(
     onCalendarEventClick: ((CalendarEvent) -> Unit)? = null,
     onPlannerEventClick: ((ScheduledEvent) -> Unit)? = null,
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null,
-    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null
+    onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null,
+    /** Pinching out at the widest zoom: leave the day for the week view. */
+    onZoomOut: (() -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
+    val latestOnZoomOut = rememberUpdatedState(onZoomOut)
     val zone = remember { ZoneId.systemDefault() }
     val scope = rememberCoroutineScope()
 
@@ -586,8 +589,14 @@ fun DayTimelineView(
                                         }
                                         accumulatedZoom = 1f
                                     }
+                                    val zoomOutOfDay = latestOnZoomOut.value
                                     when {
                                         accumulatedZoom > 1.25f -> jumpTo((zoomIndex + 1).coerceAtMost(zoomFactors.lastIndex))
+                                        // Already as wide as a day goes: out to the week.
+                                        accumulatedZoom < 0.8f && zoomIndex == 0 && zoomOutOfDay != null -> {
+                                            accumulatedZoom = 1f
+                                            zoomOutOfDay()
+                                        }
                                         accumulatedZoom < 0.8f  -> jumpTo((zoomIndex - 1).coerceAtLeast(0))
                                     }
                                 }
