@@ -135,8 +135,18 @@ sealed class EventCondition {
     /** Occurs every N months counting from anchorDate */
     data class EveryNMonths(val n: Int, val anchorDate: String) : EventCondition()
 
-    /** Occurs [count] times per [periodDays]-day window, evenly spaced from anchorDate */
-    data class NTimesPerPeriod(val count: Int, val periodDays: Int, val anchorDate: String) : EventCondition()
+    /**
+     * Occurs [count] times per [periodDays]-day window from anchorDate. With [doneDates] (the
+     * "yyyy-MM-dd" days it was done) it's a quota: due while the period's count isn't met, paced
+     * evenly, so a missed day is caught up later and an extra one done early counts. Without,
+     * it's on fixed, evenly spaced days (see RecurrenceRule.NTimesPerPeriod).
+     */
+    data class NTimesPerPeriod(
+        val count: Int,
+        val periodDays: Int,
+        val anchorDate: String,
+        val doneDates: Set<String>? = null
+    ) : EventCondition()
 }
 
 data class ScheduledEvent(

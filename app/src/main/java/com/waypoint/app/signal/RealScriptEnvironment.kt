@@ -9,6 +9,7 @@ import com.waypoint.app.persistence.ScriptStateStore
 import com.waypoint.app.persistence.SharedMemoryStore
 import com.waypoint.app.persistence.StreakStore
 import com.waypoint.app.persistence.TaskCompletionStore
+import com.waypoint.app.persistence.TaskDoneHistoryStore
 import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -44,7 +45,8 @@ class RealScriptEnvironment(
         store = TaskQueueStore(context),
         registry = eventPlanner,
         completions = TaskCompletionStore(context),
-        executions = taskExecutionStore
+        executions = taskExecutionStore,
+        doneHistory = TaskDoneHistoryStore(context)
     )
     override val sleepStore: SleepScheduleStore = SleepScheduleStore(context)
     override val memory: SharedMemoryStore = SharedMemoryStore(context)

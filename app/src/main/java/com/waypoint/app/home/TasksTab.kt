@@ -1855,6 +1855,9 @@ private fun applyTriggers(
             } else {
                 target.conditions
             }
+            // Triggered again means to do again, even if it was done or skipped earlier this wake.
+            taskManager.unskipTask(target.id)
+            if (taskManager.isDone(target.id)) taskManager.unmarkDone(target.id)
             taskManager.submitTask(target.copy(conditions = updatedConditions))
         }
 }

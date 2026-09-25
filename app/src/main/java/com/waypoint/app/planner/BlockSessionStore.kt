@@ -89,6 +89,13 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
         AppLogger.i(TAG, "endSession: measurements=${taskMeasurements.size}")
     }
 
+    /** Ends the running session if it's [blockId]'s, counting its ticked-off tasks. */
+    fun endIfBlock(blockId: String) {
+        val session = loadFromPrefs()?.takeIf { it.blockId == blockId } ?: return
+        val (done, total) = taskCounter?.let { count -> runCatching { count(session) }.getOrNull() } ?: (0 to 0)
+        endSession(tasksCompleted = done, tasksTotal = total)
+    }
+
     fun updateColor(colorArgb: Int?) {
         val current = loadFromPrefs() ?: return
         val updated = current.copy(colorArgb = colorArgb)

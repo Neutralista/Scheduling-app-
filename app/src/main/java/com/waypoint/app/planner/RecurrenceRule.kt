@@ -71,6 +71,29 @@ fun RecurrenceRule.occursOn(date: LocalDate): Boolean {
     }
 }
 
+/**
+ * "[count] times every [periodDays] days" as a quota, for a task that records when it was done.
+ * Due on [date] while the period's count isn't met and the pace calls for one: by the end of
+ * day k (0-based) of the period, ceil(count·(k+1)/periodDays) should be done. So 3 a week is
+ * due on days 0, 2 and 4 when kept up; a missed one is due again the next day, and one done
+ * early pushes the next back. A day it was done on counts as due (it's already in the plan).
+ */
+fun nTimesQuotaDue(count: Int, periodDays: Int, anchorDate: String, doneDates: Set<String>, date: LocalDate): Boolean {
+    if (count <= 0 || periodDays <= 0) return false
+    val anchor = runCatching { LocalDate.parse(anchorDate) }.getOrNull() ?: return false
+    val daysSince = ChronoUnit.DAYS.between(anchor, date)
+    if (daysSince < 0) return false
+    if (date.toString() in doneDates) return true
+    val dayInPeriod = daysSince % periodDays
+    val periodStart = date.minusDays(dayInPeriod)
+    val doneBefore = doneDates.count { d ->
+        val done = runCatching { LocalDate.parse(d) }.getOrNull() ?: return@count false
+        !done.isBefore(periodStart) && done.isBefore(date)
+    }
+    val paced = ((count.toLong() * (dayInPeriod + 1) + periodDays - 1) / periodDays).toInt()
+    return doneBefore < minOf(count, paced)
+}
+
 fun RecurrenceRule.label(): String = when (this) {
     is RecurrenceRule.OneOff -> "Once"
     is RecurrenceRule.DaysOfWeek -> {

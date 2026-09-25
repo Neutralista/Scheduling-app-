@@ -1287,8 +1287,11 @@ class EventPlannerRegistry {
                 if (!RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
             is EventCondition.EveryNMonths ->
                 if (!RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
-            is EventCondition.NTimesPerPeriod ->
-                if (!RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate).occursOn(date)) return "Not scheduled for today"
+            is EventCondition.NTimesPerPeriod -> {
+                val due = cond.doneDates?.let { nTimesQuotaDue(cond.count, cond.periodDays, cond.anchorDate, it, date) }
+                    ?: RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate).occursOn(date)
+                if (!due) return "Not scheduled for today"
+            }
             else -> Unit
         }
         return null

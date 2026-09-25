@@ -2,6 +2,8 @@ package com.waypoint.app.script
 
 import com.waypoint.app.AppLogger
 import com.waypoint.app.persistence.TaskCompletionStore
+import com.waypoint.app.persistence.TaskDoneHistoryStore
+import com.waypoint.app.planner.EventCondition
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.TaskExecution
@@ -18,7 +20,8 @@ class TaskManagerScript(
     private val store: TaskQueueStore,
     private val registry: EventPlannerRegistry,
     val completions: TaskCompletionStore,
-    val executions: TaskExecutionStore
+    val executions: TaskExecutionStore,
+    private val doneHistory: TaskDoneHistoryStore
 ) : AppScript {
 
     override val id = "built_in.task_manager"
@@ -43,7 +46,22 @@ class TaskManagerScript(
 
     fun retractTask(taskId: String) {
         store.retract(taskId)
+        doneHistory.forget(taskId)
         AppLogger.i(TAG, "retractTask: id=$taskId")
+        syncToRegistry()
+    }
+
+    /**
+     * A block was deleted: tasks set before, during or after it lose that condition and float
+     * like any other, rather than sitting in Unscheduled for good waiting on a block that's gone.
+     */
+    fun dropBlockConditions(blockId: String) {
+        val blockTypes = setOf("beforeBlock", "duringBlock", "afterBlock")
+        store.loadAll()
+            .filter { req -> req.conditions.any { it.type in blockTypes && it.blockId == blockId } }
+            .forEach { req ->
+                store.submit(req.copy(conditions = req.conditions.filterNot { it.type in blockTypes && it.blockId == blockId }))
+            }
         syncToRegistry()
     }
 
@@ -57,11 +75,15 @@ class TaskManagerScript(
     // Re-synced so a done task is pinned where it happened instead of still floating after now.
     fun markDone(taskId: String) = markDoneAt(taskId, System.currentTimeMillis())
     fun markDoneAt(taskId: String, whenMs: Long) {
+        // Re-marked at a different time: the old day no longer counts as done.
+        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskId, dateOf(it)) }
         completions.markDoneAt(taskId, whenMs)
+        doneHistory.add(taskId, dateOf(whenMs))
         setOneOffCompletedOn(taskId, dateOf(whenMs))
         syncToRegistry()
     }
     fun unmarkDone(taskId: String) {
+        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskId, dateOf(it)) }
         completions.unmarkDone(taskId)
         setOneOffCompletedOn(taskId, null)
         syncToRegistry()
@@ -155,7 +177,13 @@ class TaskManagerScript(
                     title = req.title,
                     durationMinutes = effectiveDuration,
                     priority = req.priority,
-                    conditions = req.conditions.mapNotNull { it.toEventCondition() },
+                    conditions = req.conditions.mapNotNull { spec ->
+                        when (val cond = spec.toEventCondition()) {
+                            // A quota needs what's been done this period.
+                            is EventCondition.NTimesPerPeriod -> cond.copy(doneDates = doneHistory.dates(req.id))
+                            else -> cond
+                        }
+                    },
                     sourceWidgetId = WIDGET_ID,
                     bufferMinutes = req.bufferMinutes,
                     scheduleLate = req.scheduleLate,

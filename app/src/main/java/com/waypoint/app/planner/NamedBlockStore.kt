@@ -27,6 +27,8 @@ class NamedBlockStore(private val context: Context) {
     }
 
     fun deleteBlock(blockId: String) {
+        // Before its tasks go, so the logged session still counts them.
+        BlockSessionStore(context).endIfBlock(blockId)
         blocks.edit().remove(blockId).apply()
         // Cascade: remove schedules, tasks, and activations for this block
         schedules.edit().apply {
@@ -207,6 +209,19 @@ class NamedBlockStore(private val context: Context) {
     fun updateTaskColor(taskId: String, colorArgb: Int?) {
         val task = loadTask(taskId) ?: return
         saveTask(task.copy(colorArgb = colorArgb))
+    }
+
+    /**
+     * Drops per-date schedule overrides and situational picks older than [keepDays] days. Every
+     * edit, skip and pick was kept forever before. Keys are "blockId|yyyy-MM-dd"; ISO dates
+     * compare correctly as strings.
+     */
+    fun pruneOldDates(keepDays: Long = 60) {
+        val cutoff = LocalDate.now().minusDays(keepDays).format(dateFmt)
+        listOf(schedules, activations).forEach { prefs ->
+            val old = prefs.all.keys.filter { '|' in it && it.substringAfterLast('|') < cutoff }
+            if (old.isNotEmpty()) prefs.edit().apply { old.forEach { remove(it) } }.apply()
+        }
     }
 
     // ── Situational task activations ──────────────────────────────────────────

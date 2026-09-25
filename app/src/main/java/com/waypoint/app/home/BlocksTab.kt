@@ -159,7 +159,11 @@ fun BlocksTab(
                     namedBlockStore = namedBlockStore,
                     parentRefreshKey = refreshKey,
                     onEdit = { editBlock = block },
-                    onDelete = { namedBlockStore.deleteBlock(block.id); refreshKey++ },
+                    onDelete = {
+                        namedBlockStore.deleteBlock(block.id)
+                        taskManager.dropBlockConditions(block.id)
+                        refreshKey++
+                    },
                     onAddTask = { addTaskForBlockId = block.id },
                     onEditTask = { editBlockTask = it },
                     onDeleteTask = { taskId -> namedBlockStore.deleteTask(taskId); refreshKey++ },

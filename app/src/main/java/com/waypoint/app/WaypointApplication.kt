@@ -135,6 +135,11 @@ class WaypointApplication : Application() {
             }
             // Now that it can count tasks: log a session that timed out while the app was closed.
             _env.blockSessionStore.loadCurrent()
+            // Housekeeping: both kept every day's entries forever.
+            runCatching {
+                NamedBlockStore(applicationContext).pruneOldDates()
+                _env.taskManager.executions.pruneOld()
+            }
             initSteps += InitStep(currentStep, true)
 
             currentStep = "Built-in scripts"

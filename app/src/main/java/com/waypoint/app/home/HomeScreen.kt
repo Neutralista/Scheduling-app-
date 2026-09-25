@@ -662,7 +662,8 @@ private fun PlanTab(
                 refreshKey = calRefreshKey,
                 modifier = Modifier.weight(1f),
                 onEndSession = {
-                    if (sessionForToday != null) blockSessionStore.endSession()
+                    // With the tasks ticked off so far, not logged as "0 of 0".
+                    if (sessionForToday != null) blockSessionStore.endIfBlock(sessionForToday.blockId)
                     else { planningBlockId = null; planningWindow = null }
                 },
                 onExitScope = if (sessionForToday != null) { { blockScopeHidden = true } } else null,
@@ -695,6 +696,8 @@ private fun PlanTab(
                     blockSessionStore.startSession(block, startedAtMs + namedBlockStore.plannedDurationMs(block, selectedDate), selectedDate, startedAtMs)
                 },
                 onBlockSkip = { blockId ->
+                    // Skipping the block that's running today ends its session too.
+                    if (selectedDate == LocalDate.now()) blockSessionStore.endIfBlock(blockId)
                     namedBlockStore.skipForDate(blockId, selectedDate)
                     calRefreshKey++
                 },
@@ -866,6 +869,7 @@ private fun PlanTab(
                 } }
                 isBlockTile && blockTileId != null -> { {
                     namedBlockStore.deleteBlock(blockTileId)
+                    taskManager.dropBlockConditions(blockTileId)
                     calRefreshKey++
                     selectedPlannerEvent = null
                 } }
