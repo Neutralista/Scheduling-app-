@@ -69,7 +69,6 @@ import com.waypoint.app.planner.PlannerEvent
 import com.waypoint.app.planner.PlannerZone
 import com.waypoint.app.planner.RecurrenceRule
 import com.waypoint.app.planner.TASK_REF_SLEEP
-import com.waypoint.app.planner.SubtaskDef
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.oneOffDate
@@ -226,13 +225,8 @@ fun AddTaskSheet(
             }
     ) }
 
-    // ── Routine & buffer state ───────────────────────────────────────────────
-    var isRoutine by remember { mutableStateOf(initial?.isRoutine ?: initialBlockTask?.isRoutine ?: false) }
-    val subtasks = remember { mutableStateListOf<SubtaskDef>().also {
-        it.addAll(initial?.subtasks ?: initialBlockTask?.subtasks ?: emptyList())
-    } }
-    var newSubtaskTitle by remember { mutableStateOf("") }
-    var newSubtaskDurText by remember { mutableStateOf("15") }
+    // ── Buffer state ─────────────────────────────────────────────────────────
+    // Routines (steps with timers) are gone: they're auto-placed blocks now (RoutineMigration).
 
     val bufferPresets = listOf(0, 5, 10, 15, 30)
     val bufferLabels  = listOf("None", "5m", "10m", "15m", "30m")
@@ -402,8 +396,6 @@ fun AddTaskSheet(
                     conditions          = blockConditions,
                     useMeasuredDuration = useMeasuredDuration,
                     triggers            = triggers.toList(),
-                    isRoutine           = isRoutine,
-                    subtasks            = subtasks.toList(),
                     colorArgb           = taskColor
                 )
             )
@@ -420,8 +412,6 @@ fun AddTaskSheet(
                 priority            = priority,
                 sourceScriptId      = initial?.sourceScriptId ?: "user",
                 conditions          = conditions,
-                isRoutine           = isRoutine,
-                subtasks            = subtasks.toList(),
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
                 remindAtStart       = remindAtStart,
@@ -1498,99 +1488,6 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Routine & subtasks — block tasks can save isRoutine/subtasks, but
-                    // BlockSessionCard's checklist has no subtask-stepping UI to run them, so
-                    // hide the control rather than let it silently do nothing in block mode.
-                    if (!isBlockMode) {
-                    FormSection(title = "Routine") {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        "Routine task",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        "Step through subtasks with individual timers",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Switch(checked = isRoutine, onCheckedChange = { isRoutine = it })
-                            }
-
-                            if (isRoutine) {
-                                // Existing subtasks
-                                subtasks.forEachIndexed { i, sub ->
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            "${i + 1}. ${sub.title} (${sub.defaultDurationMinutes}m)",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.weight(1f),
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        IconButton(
-                                            onClick = { subtasks.removeAt(i) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Remove subtask",
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Add new subtask
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = newSubtaskTitle,
-                                        onValueChange = { newSubtaskTitle = it },
-                                        label = { Text("Step name") },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true
-                                    )
-                                    OutlinedTextField(
-                                        value = newSubtaskDurText,
-                                        onValueChange = { newSubtaskDurText = it },
-                                        label = { Text("min") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.width(72.dp),
-                                        singleLine = true
-                                    )
-                                    TextButton(onClick = {
-                                        val dur = newSubtaskDurText.toIntOrNull() ?: 15
-                                        if (newSubtaskTitle.isNotBlank()) {
-                                            subtasks.add(
-                                                SubtaskDef(
-                                                    id = UUID.randomUUID().toString(),
-                                                    title = newSubtaskTitle.trim(),
-                                                    defaultDurationMinutes = dur.coerceAtLeast(1)
-                                                )
-                                            )
-                                            newSubtaskTitle = ""
-                                            newSubtaskDurText = "15"
-                                        }
-                                    }) { Text("Add") }
-                                }
-                            }
-                        }
-                    }
-                    }
-
                     // Options
                     FormSection(title = "Options") {
                         Row(
@@ -1633,9 +1530,9 @@ fun AddTaskSheet(
                         }
                     }
 
-                    // Chains — same dead-config concern as Routine above: block tasks can save
-                    // triggers, but nothing ever fires them for a BlockTask (applyTriggers only
-                    // runs against TaskManagerScript's floating-task list).
+                    // Chains — hidden for block tasks: they can save triggers, but nothing ever
+                    // fires them for a BlockTask (applyTriggers only runs against
+                    // TaskManagerScript's floating-task list).
                     if (!isBlockMode)
                     FormSection(title = "Chains") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

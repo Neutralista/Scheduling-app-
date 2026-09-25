@@ -239,7 +239,10 @@ Full inception-style nesting (blocks all the way down) is architecturally possib
 - Done: block tasks have an optional `sequence` field. When set, tasks execute in order within the block window (the planner chains them per placement). When null, the planner schedules them flexibly by priority.
 
 ### What this replaces
-The `isRoutine: Boolean` + `subtasks: List<SubtaskDef>` fields on `TaskRequest` are the legacy model. Long-term these get superseded by unanchored named blocks with ordered tasks.
+Done: routines (`isRoutine` + `subtasks` on `TaskRequest`) are converted at launch by `RoutineMigration` into
+auto-placed (floating) blocks with the same id, whose steps are sequenced always-on DURING tasks; references
+from other tasks/blocks move to the block. The task sheet no longer offers routines. The fields stay only so
+old saved data still decodes.
 
 ## Branch
 

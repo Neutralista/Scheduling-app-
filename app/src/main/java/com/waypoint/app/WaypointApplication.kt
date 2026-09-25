@@ -135,6 +135,9 @@ class WaypointApplication : Application() {
             }
             // Now that it can count tasks: log a session that timed out while the app was closed.
             _env.blockSessionStore.loadCurrent()
+            // Routines are auto-placed blocks now; converts any left from before (once).
+            runCatching { com.waypoint.app.planner.RoutineMigration.run(_env.taskManager, NamedBlockStore(applicationContext)) }
+                .onFailure { AppLogger.e("WaypointApplication", "routine migration failed", it) }
             // Housekeeping: both kept every day's entries forever.
             runCatching {
                 NamedBlockStore(applicationContext).pruneOldDates()
