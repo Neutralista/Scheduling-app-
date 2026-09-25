@@ -60,6 +60,11 @@ import com.waypoint.app.planner.PlanZoomLevel
 import com.waypoint.app.planner.monthWeekStarts
 import com.waypoint.app.planner.weekDays
 import com.waypoint.app.ui.components.toOpaqueColor
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -181,15 +186,31 @@ fun WeekOverview(
     val today = LocalDate.now()
     // Days whose dropdown is open: everything scheduled, blocks with their tasks.
     var expanded by remember(anchor) { mutableStateOf(emptySet<LocalDate>()) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val days = weekDays(anchor)
+    BoxWithConstraints(modifier.fillMaxSize()) {
+    // Closed, the seven tiles share the screen's height; each is at least that tall, so an open
+    // one grows and the list scrolls.
+    val gap = 8.dp
+    val tileMin = ((maxHeight - gap * 2 - gap * 6) / 7).coerceAtLeast(64.dp)
+    // Preview lines that fit under the day strip, keeping one for "+n more" when needed.
+    val lineRoom = ((tileMin - 20.dp - 14.dp - 4.dp) / 22.dp).toInt().coerceIn(1, 8)
     LazyColumn(
-        modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = gap),
+        verticalArrangement = Arrangement.spacedBy(gap)
     ) {
-        items(weekDays(anchor), key = { it.toString() }) { date ->
+        items(days, key = { it.toString() }) { date ->
             val items = summaries[date]?.items.orEmpty()
             val isOpen = date in expanded
-            OverviewTile(highlighted = date == today, onClick = { onDayClick(date) }, modifier = Modifier.fillMaxWidth()) {
+            val preview = if (items.size <= lineRoom) items.size else (lineRoom - 1).coerceAtLeast(1)
+            OverviewTile(
+                highlighted = date == today,
+                onClick = { onDayClick(date) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = tileMin)
+            ) {
               Column {
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -206,7 +227,7 @@ fun WeekOverview(
                         )
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        DayStrip(date, items)
+                        DayStrip(date, items, height = 14.dp)
                         if (items.isEmpty()) {
                             Text(
                                 "Nothing planned",
@@ -215,7 +236,7 @@ fun WeekOverview(
                             )
                         } else {
                             // The dropdown lists them all when it's open.
-                            items.take(if (isOpen) 0 else 4).forEach { item ->
+                            items.take(if (isOpen) 0 else preview).forEach { item ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.width(3.dp).height(14.dp).background(itemColor(item), RoundedCornerShape(2.dp)))
                                     Spacer(Modifier.width(6.dp))
@@ -228,9 +249,9 @@ fun WeekOverview(
                                     )
                                 }
                             }
-                            if (items.size > 4 && !isOpen) {
+                            if (items.size > preview && !isOpen) {
                                 Text(
-                                    "+${items.size - 4} more",
+                                    "+${items.size - preview} more",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -240,7 +261,15 @@ fun WeekOverview(
                     val taskCount = items.sumOf { if (it.kind == OverviewKind.BLOCK) it.subItems.size else 1 }
                     if (items.isNotEmpty()) {
                         IconButton(
-                            onClick = { expanded = if (isOpen) expanded - date else expanded + date },
+                            onClick = {
+                                expanded = if (isOpen) expanded - date else expanded + date
+                                // Bring the opened day to the top so its whole list is in view, the
+                                // last day's too (the open list makes room to scroll it up).
+                                if (!isOpen) scope.launch {
+                                    delay(80)
+                                    listState.animateScrollToItem(days.indexOf(date))
+                                }
+                            },
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
@@ -255,6 +284,7 @@ fun WeekOverview(
               }
             }
         }
+    }
     }
 }
 
@@ -334,7 +364,7 @@ private fun ScheduleLine(item: OverviewItem, indent: androidx.compose.ui.unit.Dp
 
 /** The day from 06:00 to midnight as a bar, with each timed item drawn where it falls. */
 @Composable
-private fun DayStrip(date: LocalDate, items: List<OverviewItem>) {
+private fun DayStrip(date: LocalDate, items: List<OverviewItem>, height: androidx.compose.ui.unit.Dp = 10.dp) {
     val zone = ZoneId.systemDefault()
     val from = date.atTime(6, 0).atZone(zone).toInstant().toEpochMilli()
     val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -343,7 +373,7 @@ private fun DayStrip(date: LocalDate, items: List<OverviewItem>) {
     val colors = timed.map { itemColor(it) }
     val now = System.currentTimeMillis()
     val nowColor = MaterialTheme.colorScheme.error
-    Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+    Canvas(Modifier.fillMaxWidth().height(height)) {
         val r = CornerRadius(3.dp.toPx())
         drawRoundRect(track, size = size, cornerRadius = r)
         val span = (to - from).toFloat()
