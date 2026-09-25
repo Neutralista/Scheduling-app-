@@ -108,6 +108,11 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.text.style.TextOverflow
+import com.waypoint.app.planner.EventCategory
 import java.util.Calendar
 import java.util.Locale
 
@@ -168,58 +173,135 @@ fun TasksTab(
         allTasks.flatMap { it.triggers }.map { it.chainTaskId }.toSet()
     }
 
-    // Running execution — refreshed every 10 s for the elapsed-time display
+    // Running execution, and the clock the countdowns run on: every second while a timer runs
+    // (it shows seconds), otherwise every 15 s (the countdowns show minutes).
     var runningExecution by remember { mutableStateOf(taskManager.getRunningExecution()) }
-    var routineSubtaskIdx by remember { mutableIntStateOf(0) }
     var tickMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
-    var headerClock by remember { mutableStateOf(clockNow()) }
     var headerDay by remember { mutableStateOf(LocalDate.now().format(dayFmt)) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(10_000L)
+            delay(if (runningExecution != null) 1_000L else 15_000L)
             tickMs = System.currentTimeMillis()
-            headerClock = clockNow()
             headerDay = LocalDate.now().format(dayFmt)
         }
+    }
+
+    // The to-do list: every task scheduled today, plain ones and those inside blocks, in the
+    // order they're planned. Skipped ones are listed separately below.
+    val blockNames = remember(plannerPlan) {
+        plannerPlan.scheduled.filter { it.event.category == EventCategory.BLOCK }
+            .associate { it.event.id to it.event.title }
+    }
+    val blockColors = remember(refreshKey) {
+        namedBlockStore.loadAllBlocks().associate { "__block__${it.id}" to it.colorArgb }
+    }
+    val todoItems = remember(plannerPlan, refreshKey) {
+        plannerPlan.scheduled
+            .filter { se ->
+                se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID ||
+                    se.event.sourceWidgetId?.startsWith("__block__") == true
+            }
+            .filter { !taskManager.isSkipped(it.event.id) }
+            .sortedBy { it.startMillis }
+    }
+    val openItems = todoItems.filter { it.event.id !in doneIds }
+    val doneItems = todoItems.filter { it.event.id in doneIds }
+    var showDone by remember { mutableStateOf(false) }
+
+    // ── Row actions ──
+    fun isPlain(se: ScheduledEvent) = se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID
+    fun toggle(se: ScheduledEvent) {
+        if (se.event.id in doneIds) taskManager.unmarkDone(se.event.id)
+        else {
+            taskManager.markDone(se.event.id)
+            if (isPlain(se)) applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
+        }
+        doneIds = taskManager.completions.getDoneIds()
+        refreshKey++
+        onRefresh()
+    }
+    fun startTimer(se: ScheduledEvent) {
+        runningExecution?.let { taskManager.stopExecution(it.taskId) }
+        runningExecution = taskManager.startExecution(se.event.id)
+        tickMs = System.currentTimeMillis()
+        applyTriggers(TriggerEvent.TASK_STARTED, se.event.id, allTasks, taskManager)
+        // Pin the started task in the registry so it stops sliding
+        taskManager.syncToRegistry()
+        refreshKey++
+        onRefresh()
+    }
+    fun stopTimer(se: ScheduledEvent) {
+        val finished = taskManager.stopExecution(se.event.id)
+        runningExecution = null
+        if (finished != null) {
+            taskManager.markDone(se.event.id)
+            applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
+            doneIds = taskManager.completions.getDoneIds()
+            refreshKey++
+            onRefresh()
+        }
+    }
+    fun stopIfRunning(se: ScheduledEvent) {
+        if (runningExecution?.taskId == se.event.id) {
+            taskManager.stopExecution(se.event.id)
+            runningExecution = null
+        }
+    }
+    fun skip(se: ScheduledEvent) {
+        stopIfRunning(se)
+        taskManager.skipTask(se.event.id)
+        refreshKey++
+        onRefresh()
+    }
+    fun delete(se: ScheduledEvent) {
+        stopIfRunning(se)
+        taskManager.retractTask(se.event.id)
+        refreshKey++
+        onRefresh()
     }
 
     val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
     val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
-        // ── Header bar: clock + day + Add button ──────────────────────────
+        // ── Header: what's left today, and Add ────────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = headerClock,
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontWeight = FontWeight.Light,
-                        letterSpacing = (-1).sp
-                    ),
+                    text = "To do",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "Today's checklist",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    text = "$headerDay · ${openItems.size} left · ${doneItems.size} done",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = headerDay,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            FilledTonalButton(onClick = { showAdd = true }) { Text("+ Add") }
+        }
+        if (todoItems.isNotEmpty()) {
+            val fraction = doneItems.size.toFloat() / todoItems.size
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 10.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+            ) {
+                Box(
+                    Modifier.fillMaxWidth(fraction).height(4.dp)
+                        .background(MaterialTheme.colorScheme.primary)
                 )
-                Spacer(Modifier.width(4.dp))
-                TextButton(onClick = { showAdd = true }) { Text("+ Add") }
             }
         }
 
@@ -258,7 +340,7 @@ fun TasksTab(
 
         // Skipped tasks leave the plan, so they're listed from the queue to be un-skipped.
         val skippedTasks = remember(refreshKey, allTasks) { allTasks.filter { taskManager.isSkipped(it.id) } }
-        val hasAny = scheduledTasks.isNotEmpty() || blockedTasks.isNotEmpty() || skippedTasks.isNotEmpty()
+        val hasAny = todoItems.isNotEmpty() || blockedTasks.isNotEmpty() || skippedTasks.isNotEmpty()
         if (!hasAny) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -266,136 +348,80 @@ fun TasksTab(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    "No tasks for today",
+                    "Nothing to do today",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Tap + Add to create one",
+                    "Tap + Add to create a task",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f)) {
-                items(scheduledTasks, key = { "s_${it.event.id}" }) { se ->
-                    val done = se.event.id in doneIds
-                    val isRunning = runningExecution?.taskId == se.event.id
-                    val taskReq = allTasks.find { it.id == se.event.id }
-                    PlannerTaskRow(
-                        se = se,
-                        taskReq = taskReq,
-                        done = done,
-                        isRunning = isRunning,
-                        routineSubtaskIdx = if (isRunning) routineSubtaskIdx else 0,
-                        elapsedMs = if (isRunning) tickMs - (runningExecution!!.startMillis) else null,
-                        hasIncomingChain = se.event.id in chainTargetIds,
-                        onToggle = {
-                            if (done) taskManager.unmarkDone(se.event.id)
-                            else taskManager.markDone(se.event.id)
-                            doneIds = taskManager.completions.getDoneIds()
-                            onRefresh()
-                        },
-                        onStart = {
-                            // Stop any existing running task first
-                            runningExecution?.let { taskManager.stopExecution(it.taskId) }
-                            val exec = taskManager.startExecution(se.event.id)
-                            runningExecution = exec
-                            routineSubtaskIdx = 0
-                            taskReq?.subtasks?.firstOrNull()?.let { sub ->
-                                taskManager.executions.startSubtask(se.event.id, sub.id)
-                            }
-                            applyTriggers(TriggerEvent.TASK_STARTED, se.event.id, allTasks, taskManager)
-                            // Pin the started task in the registry so it stops sliding
-                            taskManager.syncToRegistry()
-                            refreshKey++
-                            onRefresh()
-                        },
-                        onStop = {
-                            // Stop active subtask if any
-                            taskReq?.subtasks?.getOrNull(routineSubtaskIdx)?.let { sub ->
-                                taskManager.executions.stopSubtask(se.event.id, sub.id)
-                            }
-                            val finished = taskManager.stopExecution(se.event.id)
-                            runningExecution = null
-                            if (finished != null) {
-                                taskManager.markDone(se.event.id)
-                                applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
-                                doneIds = taskManager.completions.getDoneIds()
-                                taskManager.syncToRegistry()
-                                refreshKey++
-                                onRefresh()
-                            }
-                        },
-                        onNextSubtask = {
-                            val subtasks = taskReq?.subtasks ?: emptyList()
-                            // Stop current subtask
-                            subtasks.getOrNull(routineSubtaskIdx)?.let { sub ->
-                                taskManager.executions.stopSubtask(se.event.id, sub.id)
-                            }
-                            val nextIdx = routineSubtaskIdx + 1
-                            if (nextIdx < subtasks.size) {
-                                subtasks[nextIdx].let { sub ->
-                                    taskManager.executions.startSubtask(se.event.id, sub.id)
-                                }
-                                routineSubtaskIdx = nextIdx
-                            } else {
-                                // All subtasks done — auto-finish the task
-                                val finished = taskManager.stopExecution(se.event.id)
-                                runningExecution = null
-                                if (finished != null) {
-                                    taskManager.markDone(se.event.id)
-                                    applyTriggers(TriggerEvent.TASK_COMPLETED, se.event.id, allTasks, taskManager)
-                                    doneIds = taskManager.completions.getDoneIds()
-                                    taskManager.syncToRegistry()
-                                    refreshKey++
-                                    onRefresh()
-                                }
-                            }
-                        },
-                        onEdit = { editTarget = allTasks.find { it.id == se.event.id } },
-                        onSkip = {
-                            if (isRunning) {
-                                taskManager.stopExecution(se.event.id)
-                                runningExecution = null
-                            }
-                            taskManager.skipTask(se.event.id)
-                            refreshKey++
-                            onRefresh()
-                        },
-                        onDelete = {
-                            if (isRunning) {
-                                taskManager.stopExecution(se.event.id)
-                                runningExecution = null
-                            }
-                            taskManager.retractTask(se.event.id)
-                            refreshKey++
-                            onRefresh()
-                        },
-                        onMarkDoneAt = { whenMs ->
-                            taskManager.markDoneAt(se.event.id, whenMs)
-                            doneIds = taskManager.completions.getDoneIds()
-                            onRefresh()
-                        },
-                        onLogPastExecution = { startMs, endMs ->
-                            taskManager.logPastExecution(se.event.id, startMs, endMs)
-                            doneIds = taskManager.completions.getDoneIds()
-                            refreshKey++
-                            onRefresh()
-                        }
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                }
-                if (blockedTasks.isNotEmpty()) {
-                    item {
+            @Composable
+            fun TodoItem(se: ScheduledEvent) {
+                val plain = isPlain(se)
+                val taskReq = if (plain) allTasks.find { it.id == se.event.id } else null
+                val running = runningExecution?.taskId == se.event.id
+                TodoRow(
+                    se = se,
+                    blockName = se.event.sourceWidgetId?.let { blockNames[it] },
+                    blockColor = se.event.sourceWidgetId?.let { blockColors[it] }?.toOpaqueColor(),
+                    done = se.event.id in doneIds,
+                    runningSinceMs = if (running) runningExecution?.startMillis else null,
+                    nowMs = tickMs,
+                    chained = se.event.id in chainTargetIds,
+                    measured = taskReq?.useMeasuredDuration == true,
+                    onToggle = { toggle(se) },
+                    onStart = if (plain) { { startTimer(se) } } else null,
+                    onStop = { stopTimer(se) },
+                    onEdit = taskReq?.let { req -> { editTarget = req } },
+                    onSkip = { skip(se) },
+                    onDelete = if (plain) { { delete(se) } } else null,
+                    onMarkDoneAt = { whenMs ->
+                        taskManager.markDoneAt(se.event.id, whenMs)
+                        doneIds = taskManager.completions.getDoneIds()
+                        refreshKey++
+                        onRefresh()
+                    },
+                    onLogPastExecution = { startMs, endMs ->
+                        taskManager.logPastExecution(se.event.id, startMs, endMs)
+                        doneIds = taskManager.completions.getDoneIds()
+                        refreshKey++
+                        onRefresh()
+                    }
+                )
+            }
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (openItems.isEmpty() && todoItems.isNotEmpty()) {
+                    item(key = "all_done") {
                         Text(
-                            text = "Unscheduled",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            "All done for today",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)
                         )
                     }
+                }
+                items(openItems, key = { "s_${it.event.id}" }) { se -> TodoItem(se) }
+                if (doneItems.isNotEmpty()) {
+                    item(key = "done_header") {
+                        TodoSectionHeader(
+                            title = "Done (${doneItems.size})",
+                            expanded = showDone,
+                            onClick = { showDone = !showDone }
+                        )
+                    }
+                    if (showDone) items(doneItems, key = { "d_${it.event.id}" }) { se -> TodoItem(se) }
+                }
+                if (blockedTasks.isNotEmpty()) {
+                    item(key = "unscheduled_header") { TodoSectionHeader(title = "Unscheduled (${blockedTasks.size})") }
                     items(blockedTasks, key = { "b_${it.event.id}" }) { be ->
                         BlockedTaskRow(
                             be = be,
@@ -413,18 +439,10 @@ fun TasksTab(
                                 onRefresh()
                             }
                         )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     }
                 }
                 if (skippedTasks.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Skipped",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                        )
-                    }
+                    item(key = "skipped_header") { TodoSectionHeader(title = "Skipped (${skippedTasks.size})") }
                     items(skippedTasks, key = { "k_${it.id}" }) { task ->
                         SkippedTaskRow(
                             title = task.title,
@@ -433,19 +451,6 @@ fun TasksTab(
                                 refreshKey++
                                 onRefresh()
                             }
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    }
-                }
-                val doneCount = scheduledTasks.count { it.event.id in doneIds }
-                if (doneCount > 0) {
-                    item {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Text(
-                            text = "$doneCount done",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -1369,14 +1374,15 @@ private fun RoundCheckbox(
     checked: Boolean,
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 22.dp
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.outline
 
     Box(
         modifier = modifier
-            .size(22.dp)
+            .size(size)
             .clip(CircleShape)
             .then(
                 if (onClick != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -1391,7 +1397,7 @@ private fun RoundCheckbox(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(size * 0.6f)
             )
         }
     }
@@ -1656,36 +1662,86 @@ private fun SleepTaskRow(
 
 // ── Planner task row (scheduled) ──────────────────────────────────────────────
 
+/** What a task's countdown says, and how urgent it looks. */
+internal enum class CountdownState { UPCOMING, NOW, OVERDUE }
+internal data class TodoCountdown(val label: String, val state: CountdownState)
+
+/** "1h 5m", "25m", or "<1m". */
+internal fun formatSpan(ms: Long): String {
+    val minutes = (ms / 60_000L).toInt()
+    return when {
+        minutes < 1 -> "<1m"
+        minutes < 60 -> "${minutes}m"
+        minutes % 60 == 0 -> "${minutes / 60}h"
+        else -> "${minutes / 60}h ${minutes % 60}m"
+    }
+}
+
+/** "in 25m" before [startMs], "now · 12m left" during, "overdue 15m" after [endMs]. */
+internal fun todoCountdown(nowMs: Long, startMs: Long, endMs: Long): TodoCountdown = when {
+    nowMs < startMs -> TodoCountdown("in ${formatSpan(startMs - nowMs)}", CountdownState.UPCOMING)
+    nowMs < endMs -> TodoCountdown("now · ${formatSpan(endMs - nowMs)} left", CountdownState.NOW)
+    else -> TodoCountdown("overdue ${formatSpan(nowMs - endMs)}", CountdownState.OVERDUE)
+}
+
+/** A to-do list section heading; with [onClick] it folds its section open and shut. */
 @Composable
-private fun PlannerTaskRow(
+private fun TodoSectionHeader(title: String, expanded: Boolean? = null, onClick: (() -> Unit)? = null) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        if (expanded != null) {
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Hide" else "Show",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * One to-do: a tick circle, the task and when it's planned (and its block, for a block's task),
+ * a countdown to it, and a ⋮ menu with the rest (timer, earlier completion, edit, skip, delete).
+ * Long-pressing the circle logs it done earlier, as before.
+ */
+@Composable
+private fun TodoRow(
     se: ScheduledEvent,
-    taskReq: TaskRequest?,
+    blockName: String?,
+    blockColor: Color?,
     done: Boolean,
-    isRunning: Boolean,
-    routineSubtaskIdx: Int,
-    elapsedMs: Long?,
-    hasIncomingChain: Boolean = false,
+    runningSinceMs: Long?,
+    nowMs: Long,
+    chained: Boolean,
+    measured: Boolean,
     onToggle: () -> Unit,
-    onStart: () -> Unit,
+    onStart: (() -> Unit)?,
     onStop: () -> Unit,
-    onNextSubtask: () -> Unit,
-    onEdit: () -> Unit,
+    onEdit: (() -> Unit)?,
     onSkip: () -> Unit,
-    onDelete: () -> Unit,
+    onDelete: (() -> Unit)?,
     onMarkDoneAt: (Long) -> Unit,
     onLogPastExecution: (startMs: Long, endMs: Long) -> Unit
 ) {
+    val running = runningSinceMs != null
+    var menuOpen by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    if (showDeleteDialog) {
-        TaskDeleteDialog(
-            taskTitle = se.event.title,
-            onDelete = onDelete,
-            onDismiss = { showDeleteDialog = false }
-        )
+    if (showDeleteDialog && onDelete != null) {
+        TaskDeleteDialog(taskTitle = se.event.title, onDelete = onDelete, onDismiss = { showDeleteDialog = false })
     }
-    // Long-press the checkbox to log a completion that actually happened a bit earlier —
-    // a plain time for a regular task, or a start+end pair (asked one after another, reusing
-    // the same picker) for a measured-duration one.
+    // Logging a completion that happened earlier: a time, or for a measured task a start then
+    // an end (the same picker asked twice).
     var showBackdateStart by remember { mutableStateOf(false) }
     var pendingBackdateStart by remember { mutableStateOf<Long?>(null) }
     if (showBackdateStart) {
@@ -1693,11 +1749,7 @@ private fun PlannerTaskRow(
             onDismiss = { showBackdateStart = false },
             onConfirm = { startMs ->
                 showBackdateStart = false
-                if (taskReq?.useMeasuredDuration == true) {
-                    pendingBackdateStart = startMs
-                } else {
-                    onMarkDoneAt(startMs)
-                }
+                if (measured) pendingBackdateStart = startMs else onMarkDoneAt(startMs)
             }
         )
     }
@@ -1710,128 +1762,131 @@ private fun PlannerTaskRow(
             }
         )
     }
+
     val primary = MaterialTheme.colorScheme.primary
-    val rowBg = if (isRunning)
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-    else Color.Transparent
-
-    Column(
-        modifier = Modifier
+    val accent = se.event.colorArgb?.toOpaqueColor() ?: blockColor ?: primary
+    Row(
+        Modifier
             .fillMaxWidth()
-            .background(rowBg)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            RoundCheckbox(
-                checked = done,
-                onClick = if (!isRunning) onToggle else null,
-                onLongClick = if (!isRunning && !done) { { showBackdateStart = true } } else null
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (running) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (done) 0.25f else 0.5f)
             )
-            Column(modifier = Modifier.weight(1f)) {
+            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RoundCheckbox(
+            checked = done,
+            onClick = if (!running) onToggle else null,
+            onLongClick = if (!running && !done) { { showBackdateStart = true } } else null,
+            size = 26.dp
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = se.event.title,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None
+                ),
+                color = if (done) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = se.event.title,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        textDecoration = if (done && !isRunning) TextDecoration.LineThrough else TextDecoration.None
-                    ),
-                    color = when {
-                        isRunning -> primary
-                        done -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        else -> MaterialTheme.colorScheme.onSurface
-                    }
-                )
-                val isRoutine = taskReq?.isRoutine == true
-                val subtasks = taskReq?.subtasks ?: emptyList()
-                val subtitle = when {
-                    isRunning && isRoutine && subtasks.isNotEmpty() -> {
-                        val step = subtasks.getOrNull(routineSubtaskIdx)
-                        "Step ${routineSubtaskIdx + 1}/${subtasks.size}" +
-                            (step?.let { " · ${it.title}" } ?: "")
-                    }
-                    isRunning && elapsedMs != null -> {
-                        val mins = (elapsedMs / 60_000L).toInt()
-                        if (mins < 1) "Running · just started" else "Running · ${mins}m elapsed"
-                    }
-                    else -> "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${se.event.durationMinutes}m"
-                }
-                val chainSuffix = if (hasIncomingChain && !isRunning) " · chained" else ""
-                Text(
-                    text = subtitle + chainSuffix,
+                    "${formatShiftTime(se.startMillis)} – ${formatShiftTime(se.endMillis)} · ${formatSpan(se.endMillis - se.startMillis)}" +
+                        if (chained) " · chained" else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isRunning) primary.copy(alpha = 0.7f)
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            if (!done) {
-                if (isRunning) {
-                    val isRoutine = taskReq?.isRoutine == true
-                    val subtasks = taskReq?.subtasks ?: emptyList()
-                    val isLastStep = routineSubtaskIdx >= subtasks.size - 1
-
-                    if (isRoutine && subtasks.isNotEmpty()) {
-                        FilledTonalButton(
-                            onClick = onNextSubtask,
-                            modifier = Modifier.size(width = 72.dp, height = 32.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(
-                                if (isLastStep) "Finish" else "Next",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    } else {
-                        FilledTonalButton(
-                            onClick = onStop,
-                            modifier = Modifier.size(width = 60.dp, height = 32.dp),
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("Stop", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                } else {
-                    IconButton(onClick = onStart, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = "Start timer",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-            }
-
-            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = "Edit task",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                )
-            }
-            if (!done) {
-                IconButton(onClick = onSkip, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.SkipNext,
-                        contentDescription = "Skip today",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                if (blockName != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        blockName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(accent.copy(alpha = 0.15f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     )
                 }
             }
-            IconButton(onClick = { showDeleteDialog = true }) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Delete task",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+        }
+        // Countdown (or the running timer, which stops when tapped); nothing once it's done.
+        if (!done) {
+            Spacer(Modifier.width(8.dp))
+            if (runningSinceMs != null) {
+                val secs = ((nowMs - runningSinceMs) / 1000L).coerceAtLeast(0)
+                CountdownPill("▶ %d:%02d".format(secs / 60, secs % 60), primary, onClick = onStop)
+            } else {
+                val c = todoCountdown(nowMs, se.startMillis, se.endMillis)
+                CountdownPill(
+                    c.label,
+                    when (c.state) {
+                        CountdownState.UPCOMING -> MaterialTheme.colorScheme.onSurfaceVariant
+                        CountdownState.NOW -> primary
+                        CountdownState.OVERDUE -> MaterialTheme.colorScheme.error
+                    }
                 )
             }
         }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "More for ${se.event.title}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (!done) {
+                    if (running) {
+                        DropdownMenuItem(text = { Text("Stop timer") }, onClick = { menuOpen = false; onStop() })
+                    } else if (onStart != null) {
+                        DropdownMenuItem(text = { Text("Start timer") }, onClick = { menuOpen = false; onStart() })
+                    }
+                    if (!running) {
+                        DropdownMenuItem(
+                            text = { Text("Done earlier…") },
+                            onClick = { menuOpen = false; showBackdateStart = true }
+                        )
+                    }
+                }
+                if (onEdit != null) {
+                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
+                }
+                if (!done) {
+                    DropdownMenuItem(text = { Text("Skip today") }, onClick = { menuOpen = false; onSkip() })
+                }
+                if (onDelete != null) {
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        onClick = { menuOpen = false; showDeleteDialog = true }
+                    )
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun CountdownPill(text: String, color: Color, onClick: (() -> Unit)? = null) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+        color = color,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = 0.12f))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    )
 }
 
 // ── Blocked task row ──────────────────────────────────────────────────────────
