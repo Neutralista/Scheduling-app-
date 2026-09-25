@@ -130,6 +130,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".notification.TaskReminderReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".planner.SleepCheckReceiver"
             android:exported="false">
             <intent-filter>

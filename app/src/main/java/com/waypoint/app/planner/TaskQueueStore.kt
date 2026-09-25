@@ -94,7 +94,9 @@ data class TaskRequest(
      * this is what lets a done one-off be cleared from the queue afterwards instead of carrying
      * over as missed.
      */
-    val completedOn: String? = null
+    val completedOn: String? = null,
+    /** Notify when the plan says this task starts (TaskReminderScheduler). */
+    val remindAtStart: Boolean = false
 )
 
 /** The date of a one-off task's "oneOff" condition, or null if it isn't a one-off. */

@@ -241,6 +241,7 @@ fun AddTaskSheet(
     var customBuffer  by remember { mutableStateOf(initBuffer !in bufferPresets && initBuffer > 0) }
     var customBufText by remember { mutableStateOf(if (initBuffer !in bufferPresets && initBuffer > 0) initBuffer.toString() else "") }
 
+    var remindAtStart by remember { mutableStateOf(initial?.remindAtStart ?: false) }
     var useMeasuredDuration by remember { mutableStateOf(initial?.useMeasuredDuration ?: initialBlockTask?.useMeasuredDuration ?: false) }
     // Migrate old scheduleLate=true tasks that pre-date the zone field
     var zone by remember { mutableStateOf(
@@ -423,6 +424,7 @@ fun AddTaskSheet(
                 subtasks            = subtasks.toList(),
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
+                remindAtStart       = remindAtStart,
                 triggers            = triggers.toList(),
                 scheduleLate        = aroundMode == "zone" && zone == PlannerZone.EVENING,
                 zone                = if (aroundMode == "zone") zone else null,
@@ -1611,6 +1613,23 @@ fun AddTaskSheet(
                                 checked = useMeasuredDuration,
                                 onCheckedChange = { useMeasuredDuration = it }
                             )
+                        }
+                        if (!isBlockMode) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Remind me", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "Notify when the plan says it's time to start",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                Switch(checked = remindAtStart, onCheckedChange = { remindAtStart = it })
+                            }
                         }
                     }
 

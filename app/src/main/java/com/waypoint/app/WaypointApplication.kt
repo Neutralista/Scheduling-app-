@@ -165,6 +165,7 @@ class WaypointApplication : Application() {
             NotificationHelper.createScriptsChannel(this)
             SleepNotificationHelper.createChannels(this)
             BlockNotificationHelper.createChannel(this)
+            com.waypoint.app.notification.TaskReminderScheduler.createChannel(this)
             ReminderScheduler.cancel(this)
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)

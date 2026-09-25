@@ -269,6 +269,13 @@ fun DayTimelineView(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("waypoint_timeline", android.content.Context.MODE_PRIVATE) }
+    // Task reminders follow today's live plan: re-armed at each task's current start.
+    LaunchedEffect(plan, isToday) {
+        val tm = taskManager
+        if (isToday && tm != null) {
+            runCatching { com.waypoint.app.notification.TaskReminderScheduler.sync(context, plan.scheduled, tm) }
+        }
+    }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
 
