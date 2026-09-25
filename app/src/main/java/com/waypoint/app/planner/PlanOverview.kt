@@ -30,7 +30,14 @@ data class OverviewItem(
     val startMs: Long,
     val endMs: Long,
     val kind: OverviewKind,
-    val allDay: Boolean = false
+    val allDay: Boolean = false,
+    val id: String = "",
+    /** Ticked off (today only: done marks last a wake). */
+    val done: Boolean = false,
+    /** A block's own tasks (before, during and after it), in time order. */
+    val subItems: List<OverviewItem> = emptyList(),
+    /** For a block's task: the phase it runs in, if any. */
+    val phaseName: String? = null
 )
 
 data class DaySummary(val date: LocalDate, val items: List<OverviewItem>)
@@ -58,7 +65,9 @@ class PlanOverviewLoader(
     private val registry: EventPlannerRegistry,
     private val blocks: NamedBlockStore,
     private val calendar: CalendarSignals?,
-    private val calendarPrefs: CalendarPrefsStore?
+    private val calendarPrefs: CalendarPrefsStore?,
+    /** Whether a task is ticked off; only asked about today's. */
+    private val isDone: (String) -> Boolean = { false }
 ) {
     suspend fun load(dates: List<LocalDate>, withPlan: Boolean): Map<LocalDate, DaySummary> {
         if (dates.isEmpty()) return emptyMap()
@@ -100,24 +109,42 @@ class PlanOverviewLoader(
         today: LocalDate
     ): List<OverviewItem> {
         val (calBlocks, reserving) = plannerCalendarInputs(dayEvents, calendarPrefs)
+        val fixed = blocks.resolveFixedInstancesForDate(date)
+        val floating = blocks.resolveFloatingInstancesForDate(date)
         val plan = registry.planForDate(
             date,
             calendarEventBlocks = calBlocks,
             reservingBlocks = reserving,
             nowMs = if (date == today) System.currentTimeMillis() else null,
-            namedBlockInstances = blocks.resolveFixedInstancesForDate(date),
-            floatingBlocks = blocks.resolveFloatingInstancesForDate(date)
+            namedBlockInstances = fixed,
+            floatingBlocks = floating
         )
+        val phaseNames = (fixed + floating).flatMap { inst ->
+            inst.activeTasks.mapNotNull { t -> t.phaseOf(inst.block)?.let { t.id to it.name } }
+        }.toMap()
+        fun done(id: String) = date == today && isDone(id)
         return plan.scheduled.mapNotNull { se ->
             when {
                 se.event.category == EventCategory.BLOCK -> {
                     val id = se.event.id.removePrefix("__block__")
                     // The block alone, not its tile stretched over its before/after tasks.
                     val (start, end) = plan.blockBounds[id] ?: (se.startMillis to se.endMillis)
-                    OverviewItem(se.event.title, blockColors[id], start, end, OverviewKind.BLOCK)
+                    val tasks = plan.scheduled
+                        .filter { it.event.sourceWidgetId == se.event.id }
+                        .sortedBy { it.startMillis }
+                        .map { t ->
+                            OverviewItem(
+                                t.event.title, t.event.colorArgb, t.startMillis, t.endMillis, OverviewKind.TASK,
+                                id = t.event.id, done = done(t.event.id), phaseName = phaseNames[t.event.id]
+                            )
+                        }
+                    OverviewItem(se.event.title, blockColors[id], start, end, OverviewKind.BLOCK, id = id, subItems = tasks)
                 }
                 se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID ->
-                    OverviewItem(se.event.title, se.event.colorArgb, se.startMillis, se.endMillis, OverviewKind.TASK)
+                    OverviewItem(
+                        se.event.title, se.event.colorArgb, se.startMillis, se.endMillis, OverviewKind.TASK,
+                        id = se.event.id, done = done(se.event.id)
+                    )
                 else -> null
             }
         }

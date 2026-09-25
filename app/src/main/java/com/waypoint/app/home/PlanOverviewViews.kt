@@ -19,6 +19,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -167,6 +177,8 @@ fun WeekOverview(
 ) {
     if (summaries == null) { LoadingBox(modifier); return }
     val today = LocalDate.now()
+    // Days whose dropdown is open: everything scheduled, blocks with their tasks.
+    var expanded by remember(anchor) { mutableStateOf(emptySet<LocalDate>()) }
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -174,7 +186,9 @@ fun WeekOverview(
     ) {
         items(weekDays(anchor), key = { it.toString() }) { date ->
             val items = summaries[date]?.items.orEmpty()
+            val isOpen = date in expanded
             OverviewTile(highlighted = date == today, onClick = { onDayClick(date) }, modifier = Modifier.fillMaxWidth()) {
+              Column {
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
@@ -198,7 +212,8 @@ fun WeekOverview(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            items.take(4).forEach { item ->
+                            // The dropdown lists them all when it's open.
+                            items.take(if (isOpen) 0 else 4).forEach { item ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.width(3.dp).height(14.dp).background(itemColor(item), RoundedCornerShape(2.dp)))
                                     Spacer(Modifier.width(6.dp))
@@ -211,7 +226,7 @@ fun WeekOverview(
                                     )
                                 }
                             }
-                            if (items.size > 4) {
+                            if (items.size > 4 && !isOpen) {
                                 Text(
                                     "+${items.size - 4} more",
                                     style = MaterialTheme.typography.labelSmall,
@@ -220,8 +235,97 @@ fun WeekOverview(
                             }
                         }
                     }
+                    val taskCount = items.sumOf { if (it.kind == OverviewKind.BLOCK) it.subItems.size else 1 }
+                    if (items.isNotEmpty()) {
+                        IconButton(
+                            onClick = { expanded = if (isOpen) expanded - date else expanded + date },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                if (isOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                contentDescription = if (isOpen) "Hide the day's schedule" else "Show all $taskCount scheduled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
+                if (isOpen) DaySchedule(items)
+              }
             }
+        }
+    }
+}
+
+/**
+ * The dropdown's list: every item of the day in time order, each block followed by its tasks
+ * (indented, under their phase when they have one), with lengths and, today, what's done.
+ */
+@Composable
+private fun DaySchedule(items: List<OverviewItem>) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier.fillMaxWidth().padding(start = 52.dp, top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+        Spacer(Modifier.height(4.dp))
+        items.forEach { item ->
+            ScheduleLine(item, indent = 0.dp, bold = item.kind == OverviewKind.BLOCK)
+            var lastPhase: String? = null
+            item.subItems.forEach { sub ->
+                if (sub.phaseName != null && sub.phaseName != lastPhase) {
+                    Text(
+                        sub.phaseName,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = itemColor(item),
+                        modifier = Modifier.padding(start = 14.dp, top = 2.dp)
+                    )
+                }
+                lastPhase = sub.phaseName
+                ScheduleLine(sub, indent = 14.dp, bold = false, fallbackColor = itemColor(item))
+            }
+        }
+        if (items.all { it.subItems.isEmpty() } && items.none { it.kind == OverviewKind.TASK }) {
+            Text("No tasks scheduled", style = MaterialTheme.typography.bodySmall, color = muted)
+        }
+    }
+}
+
+@Composable
+private fun ScheduleLine(item: OverviewItem, indent: androidx.compose.ui.unit.Dp, bold: Boolean, fallbackColor: Color? = null) {
+    val color = item.colorArgb?.toOpaqueColor() ?: fallbackColor ?: itemColor(item)
+    val minutes = ((item.endMs - item.startMs) / 60_000L).toInt()
+    val length = when {
+        item.allDay -> "all day"
+        minutes >= 60 -> "${minutes / 60}h" + if (minutes % 60 > 0) " ${minutes % 60}m" else ""
+        else -> "${minutes}m"
+    }
+    Row(Modifier.fillMaxWidth().padding(start = indent), verticalAlignment = Alignment.CenterVertically) {
+        if (item.done) {
+            Icon(Icons.Filled.Check, contentDescription = "Done", tint = color, modifier = Modifier.size(14.dp))
+        } else {
+            Box(Modifier.width(3.dp).height(14.dp).background(color, RoundedCornerShape(2.dp)))
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (item.allDay) "All day" else fmt(item.startMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(44.dp)
+        )
+        Text(
+            item.title,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (item.done) 0.5f else 1f),
+            textDecoration = if (item.done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (!item.allDay) {
+            Text(length, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

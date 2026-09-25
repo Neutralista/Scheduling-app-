@@ -461,7 +461,7 @@ private fun PlanTab(
         dayOffset = ChronoUnit.DAYS.between(today, date).toInt()
         zoomLevel = level
     }
-    val overviewLoader = remember { PlanOverviewLoader(eventPlanner, namedBlockStore, calendarSignals, calPrefsStore) }
+    val overviewLoader = remember { PlanOverviewLoader(eventPlanner, namedBlockStore, calendarSignals, calPrefsStore, isDone = { taskManager.isDone(it) }) }
     val overviewDates = remember(zoomLevel, selectedDate) {
         when (zoomLevel) {
             PlanZoomLevel.DAY -> emptyList()
