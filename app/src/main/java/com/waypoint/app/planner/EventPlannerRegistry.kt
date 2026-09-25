@@ -386,18 +386,23 @@ class EventPlannerRegistry {
             // independent chains) — expressed as an implicit AfterTask on the previous sibling
             // in sequence order, reusing the scheduler's existing dependency-graph machinery
             // instead of adding new placement logic.
+            // Within DURING, each phase is its own chain too.
             val sequencedByPlacement = inst.activeTasks.filter { it.sequence != null }
-                .groupBy { it.placement }
+                .groupBy { it.placement to it.phaseOf(inst.block)?.id }
                 .mapValues { (_, ts) -> ts.sortedBy { it.sequence!! } }
 
             return inst.activeTasks.map { task ->
+                val phase = task.phaseOf(inst.block)
                 val placementCond: EventCondition = when (task.placement) {
                     BlockTaskPlacement.BEFORE -> EventCondition.BeforeBlock(inst.block.id)
-                    BlockTaskPlacement.DURING -> EventCondition.DuringBlock(inst.block.id)
+                    // A phase's task is placed inside that phase's window (see phaseWindowOf).
+                    BlockTaskPlacement.DURING -> EventCondition.DuringBlock(
+                        if (phase != null) phaseKey(inst.block.id, phase.id) else inst.block.id
+                    )
                     BlockTaskPlacement.AFTER  -> EventCondition.AfterBlock(inst.block.id)
                 }
                 val extraConds = task.conditions.mapNotNull { it.toEventCondition() }
-                val seqChain = sequencedByPlacement[task.placement]
+                val seqChain = sequencedByPlacement[task.placement to phase?.id]
                 val seqPredecessor = seqChain?.let { chain ->
                     val idx = chain.indexOfFirst { it.id == task.id }
                     if (idx > 0) chain[idx - 1] else null
@@ -429,6 +434,8 @@ class EventPlannerRegistry {
         }
 
         val allBlockInstances = namedBlockInstances + floatingResolved
+        // Every block occurrence by id, placed or not yet (Round 2), for its phases and tasks.
+        val instancesById = (namedBlockInstances + floatingBlocks + floatingResolved).associateBy { it.block.id }
         for (inst in allBlockInstances) {
             val blockEventId = "$blockEventPrefix${inst.block.id}"
             val blockPlannerEvent = PlannerEvent(
@@ -477,7 +484,7 @@ class EventPlannerRegistry {
         // Per-calendar-event free slot lists for DuringCalEvent task placement, seeded lazily.
         val calFreeSlots: MutableMap<Long, MutableList<Pair<Long, Long>>> = mutableMapOf()
         for (inst in allBlockInstances) {
-            blockFreeSlots[inst.block.id] = mutableListOf(inst.scheduledStartMs to inst.estimatedEndMs)
+            blockFreeSlots[inst.block.id] = unphasedSlots(inst, inst.scheduledStartMs, inst.estimatedEndMs)
         }
         // Free slot list for DuringShift task placement (prevents overlap)
         val shiftFreeSlots: MutableList<Pair<Long, Long>> = if (shiftStartMs != null && shiftEndMs != null)
@@ -747,12 +754,26 @@ class EventPlannerRegistry {
                 // DuringBlock: greedy first-fit (or last-fit for END zone) within per-block free slots
                 val duringBlock = event.conditions.filterIsInstance<EventCondition.DuringBlock>().firstOrNull()
                 if (duringBlock != null) {
-                    val blockSched = scheduled.find { it.event.id == "$blockEventPrefix${duringBlock.blockId}" }
-                    if (blockSched == null) {
+                    // "blockId#phaseId" for a phase's task: its window is that phase's.
+                    val ownerBlockId = duringBlock.blockId.substringBefore('#')
+                    val ownerSched = scheduled.find { it.event.id == "$blockEventPrefix$ownerBlockId" }
+                    if (ownerSched == null) {
                         blocked += BlockedEvent(event, "Named block not scheduled today"); continue
                     }
+                    val ownerInst = instancesById[ownerBlockId]
+                    val window: Pair<Long, Long> = if ('#' in duringBlock.blockId) {
+                        val phaseId = duringBlock.blockId.substringAfter('#')
+                        ownerInst?.let { inst ->
+                            phaseWindows(inst.block, inst.activeTasks, ownerSched.startMillis, ownerSched.endMillis)
+                                .find { it.phase.id == phaseId }?.let { it.startMs to it.endMs }
+                        } ?: run {
+                            blocked += BlockedEvent(event, "No time left for this phase"); null
+                        } ?: continue
+                    } else ownerSched.startMillis to ownerSched.endMillis
+                    val blockSched = ScheduledEvent(ownerSched.event, window.first, window.second)
                     val slots = blockFreeSlots.getOrPut(duringBlock.blockId) {
-                        mutableListOf(blockSched.startMillis to blockSched.endMillis)
+                        if ('#' in duringBlock.blockId || ownerInst == null) mutableListOf(window)
+                        else unphasedSlots(ownerInst, window.first, window.second)
                     }
                     val blockDuration = blockSched.endMillis - blockSched.startMillis
                     // MID: lower bound at 1/3 of block window; END: last-fit
@@ -1152,8 +1173,18 @@ class EventPlannerRegistry {
 
         return DayPlan(
             date, scheduled.sortedBy { it.startMillis }, blocked,
-            blockBounds = allBlockInstancesFinal.associate { it.block.id to (it.scheduledStartMs to it.estimatedEndMs) }
+            blockBounds = allBlockInstancesFinal.associate { it.block.id to (it.scheduledStartMs to it.estimatedEndMs) },
+            phaseBounds = allBlockInstancesFinal
+                .filter { it.block.phases.isNotEmpty() }
+                .associate { it.block.id to phaseWindows(it.block, it.activeTasks, it.scheduledStartMs, it.estimatedEndMs) }
         )
+    }
+
+    /** A block's window less its phases' windows: where its unphased DURING tasks may go. */
+    private fun unphasedSlots(inst: NamedBlockInstance, startMs: Long, endMs: Long): MutableList<Pair<Long, Long>> {
+        val phases = phaseWindows(inst.block, inst.activeTasks, startMs, endMs).map { it.startMs to it.endMs }
+        return if (phases.isEmpty()) mutableListOf(startMs to endMs)
+        else subtractIntervals(startMs, endMs, phases).toMutableList()
     }
 
     /**

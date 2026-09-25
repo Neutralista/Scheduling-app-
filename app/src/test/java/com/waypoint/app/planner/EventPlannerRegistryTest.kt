@@ -233,4 +233,44 @@ class EventPlannerRegistryTest {
         assertTrue(plan.startOf("__block__gym")!! < ms(day, 18)) // tile wraps the BEFORE task
         assertEquals(ms(day, 18) to ms(day, 19), plan.blockBounds["gym"])
     }
+    @Test
+    fun phases_splitTheBlock_andHoldTheirOwnTasks() {
+        fun during(id: String, minutes: Int, phase: String? = null) =
+            BlockTask(id, "gym", id, minutes, BlockTaskPlacement.DURING, phaseId = phase)
+        val block = NamedBlock(
+            id = "gym", name = "Gym",
+            phases = listOf(BlockPhase("warm", "Warmup", durationMinutes = 15), BlockPhase("work", "Workout"))
+        )
+        val gym = NamedBlockInstance(
+            block, ms(day, 9), ms(day, 10, 30),
+            // "u" is unphased, "ghost" belongs to a phase that no longer exists (so is unphased too).
+            activeTasks = listOf(during("u", 20), during("w", 10, "warm"), during("x", 30, "work"), during("y", 20, "work"), during("ghost", 5, "gone"))
+        )
+        val plan = registry().planForDate(day, namedBlockInstances = listOf(gym))
+        // Warmup 9:00–9:15, Workout 9:15–10:05, unphased time 10:05–10:30.
+        assertEquals(ms(day, 9) to ms(day, 9, 15), plan.phaseBounds["gym"]!![0].let { it.startMs to it.endMs })
+        assertEquals(ms(day, 9, 15) to ms(day, 10, 5), plan.phaseBounds["gym"]!![1].let { it.startMs to it.endMs })
+        assertEquals(ms(day, 9), plan.startOf("w"))
+        // x and y both inside Workout, not overlapping.
+        val x = plan.scheduled.first { it.event.id == "x" }
+        val y = plan.scheduled.first { it.event.id == "y" }
+        listOf(x, y).forEach { assertTrue(it.startMillis >= ms(day, 9, 15) && it.endMillis <= ms(day, 10, 5)) }
+        assertTrue(x.endMillis <= y.startMillis || y.endMillis <= x.startMillis)
+        assertTrue(plan.startOf("u")!! >= ms(day, 10, 5))
+        assertTrue(plan.startOf("ghost")!! >= ms(day, 10, 5))
+    }
+
+    @Test
+    fun blockLength_fromUnphasedTasksPlusPhases() {
+        val block = NamedBlock(
+            id = "gym", name = "Gym", useTotalTaskDuration = true,
+            phases = listOf(BlockPhase("warm", "Warmup", durationMinutes = 15), BlockPhase("work", "Workout"))
+        )
+        val tasks = listOf(
+            BlockTask("w", "gym", "w", 10, BlockTaskPlacement.DURING, phaseId = "warm"),  // phase set longer: 15
+            BlockTask("x", "gym", "x", 40, BlockTaskPlacement.DURING, phaseId = "work"),  // 40
+            BlockTask("u", "gym", "u", 20, BlockTaskPlacement.DURING)                     // 20
+        )
+        assertEquals(75, effectiveDurationMinutes(block, tasks))
+    }
 }

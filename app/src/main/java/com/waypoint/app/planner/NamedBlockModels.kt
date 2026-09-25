@@ -62,8 +62,58 @@ data class NamedBlock(
     /** For a block an external app (Training-app) owns: the days it last sent. Its days are only
      *  applied when they change from this, so a schedule edited in Waypoint isn't reset on every
      *  sync. Null for blocks created in Waypoint. */
-    val externalDays: List<Int>? = null
+    val externalDays: List<Int>? = null,
+    /**
+     * The block's phases, in the order they run (e.g. Gym → Warmup, Workout, Cooldown). One
+     * level only: a phase holds tasks ([BlockTask.phaseId]), never phases. They split the
+     * block's window back to back from its start; time left after the last is unphased.
+     */
+    val phases: List<BlockPhase> = emptyList()
 )
+
+/**
+ * A stretch of a block with its own tasks. Its length is [durationMinutes], or when that's
+ * null (or shorter) the total of its active tasks.
+ */
+@Serializable
+data class BlockPhase(
+    val id: String,
+    val name: String,
+    val durationMinutes: Int? = null,
+    val colorArgb: Int? = null
+)
+
+/** Planner id for a phase's window: DuringBlock(phaseKey(...)) puts a task inside the phase. */
+fun phaseKey(blockId: String, phaseId: String) = "$blockId#$phaseId"
+
+/** A phase of one block occurrence, placed in time. */
+data class PhaseWindow(val phase: BlockPhase, val startMs: Long, val endMs: Long)
+
+/** How long [phase] runs given the block's active tasks: its set length or its tasks' total. */
+fun phaseLengthMinutes(phase: BlockPhase, activeTasks: List<BlockTask>): Int {
+    val taskTotal = activeTasks
+        .filter { it.phaseId == phase.id && it.placement == BlockTaskPlacement.DURING }
+        .sumOf { it.durationMinutes }
+    return maxOf(phase.durationMinutes ?: 0, taskTotal)
+}
+
+/**
+ * [block]'s phases laid back to back from [startMs], each cut off at [endMs]. A phase with no
+ * length (no set duration, no active tasks) or no room left is left out.
+ */
+fun phaseWindows(block: NamedBlock, activeTasks: List<BlockTask>, startMs: Long, endMs: Long): List<PhaseWindow> {
+    var cursor = startMs
+    return block.phases.mapNotNull { phase ->
+        val len = phaseLengthMinutes(phase, activeTasks) * 60_000L
+        if (len <= 0 || cursor >= endMs) return@mapNotNull null
+        val end = minOf(cursor + len, endMs)
+        PhaseWindow(phase, cursor, end).also { cursor = end }
+    }
+}
+
+/** The phase [task] belongs to on [block], or null if it's unphased or its phase was deleted. */
+fun BlockTask.phaseOf(block: NamedBlock): BlockPhase? =
+    phaseId?.let { id -> block.phases.find { it.id == id } }?.takeIf { placement == BlockTaskPlacement.DURING }
 
 /** One entry an external app (e.g. Training-app) sends when syncing a block's task list — see
  *  [NamedBlockStore.upsertExternalBlock]. [externalId] is that app's own stable id for the
@@ -113,7 +163,9 @@ data class BlockTask(
     val triggers: List<TaskTrigger> = emptyList(),
     val isRoutine: Boolean = false,
     val subtasks: List<SubtaskDef> = emptyList(),
-    val colorArgb: Int? = null
+    val colorArgb: Int? = null,
+    /** The [BlockPhase] this DURING task runs in; null = anywhere in the block. */
+    val phaseId: String? = null
 )
 
 /**
@@ -124,7 +176,7 @@ data class BlockTask(
 fun BlockTask.withResolvedSequence(existingSiblings: List<BlockTask>): BlockTask {
     if (sequence != -1) return this
     val maxExisting = existingSiblings
-        .filter { it.id != id && it.placement == placement && it.sequence != null }
+        .filter { it.id != id && it.placement == placement && it.phaseId == phaseId && it.sequence != null }
         .maxOfOrNull { it.sequence!! } ?: -1
     return copy(sequence = maxExisting + 1)
 }
@@ -136,7 +188,8 @@ fun BlockTask.withResolvedSequence(existingSiblings: List<BlockTask>): BlockTask
  */
 fun findAdjacentSequencedSibling(task: BlockTask, siblings: List<BlockTask>, direction: Int): BlockTask? {
     if (task.sequence == null) return null
-    val ordered = siblings.filter { it.placement == task.placement && it.sequence != null }
+    // Chains run per placement and, within DURING, per phase.
+    val ordered = siblings.filter { it.placement == task.placement && it.phaseId == task.phaseId && it.sequence != null }
         .sortedBy { it.sequence!! }
     val idx = ordered.indexOfFirst { it.id == task.id }
     if (idx < 0) return null
@@ -164,9 +217,11 @@ data class BlockTaskActivation(
  */
 fun effectiveDurationMinutes(block: NamedBlock, activeTasks: List<BlockTask>): Int {
     if (!block.useTotalTaskDuration) return block.estimatedMinutes
-    val taskTotal = activeTasks
-        .filter { it.placement == BlockTaskPlacement.DURING }
+    // Unphased DURING tasks, plus each phase's length (a phase can be set longer than its tasks).
+    val unphased = activeTasks
+        .filter { it.placement == BlockTaskPlacement.DURING && it.phaseOf(block) == null }
         .sumOf { it.durationMinutes }
+    val taskTotal = unphased + block.phases.sumOf { phaseLengthMinutes(it, activeTasks) }
     return taskTotal.takeIf { it > 0 } ?: block.estimatedMinutes
 }
 

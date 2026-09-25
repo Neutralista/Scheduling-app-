@@ -168,5 +168,7 @@ data class DayPlan(
     val blocked: List<BlockedEvent>,
     /** Each placed block's own start and end, keyed by block id. A block's tile in [scheduled]
      *  can be stretched to wrap its before/after tasks; this is the block alone. */
-    val blockBounds: Map<String, Pair<Long, Long>> = emptyMap()
+    val blockBounds: Map<String, Pair<Long, Long>> = emptyMap(),
+    /** Each block with phases → its phases placed in its planned window, in order. */
+    val phaseBounds: Map<String, List<PhaseWindow>> = emptyMap()
 )
