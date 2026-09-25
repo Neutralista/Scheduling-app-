@@ -59,6 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.waypoint.app.planner.CalendarPrefsStore
 import java.util.Calendar
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,14 +114,13 @@ fun BlocksTab(
         }
     }
 
-    var showAddBlock by remember { mutableStateOf(false) }
     var editBlock by remember { mutableStateOf<NamedBlock?>(null) }
     var addTaskForBlockId by remember { mutableStateOf<String?>(null) }
     var editBlockTask by remember { mutableStateOf<BlockTask?>(null) }
 
     var taskRefreshKey by remember { mutableIntStateOf(0) }
     val allTasks = remember(taskRefreshKey, externalRefreshKey) { taskManager.getAllTasks() }
-    var showAddTask by remember { mutableStateOf(false) }
+    var showAddAny by remember { mutableStateOf(false) }
     var editTask by remember { mutableStateOf<TaskRequest?>(null) }
 
     LazyColumn(
@@ -143,7 +143,7 @@ fun BlocksTab(
         }
 
         item(key = "blocks_header") {
-            BlocksSectionHeader(title = "Time Blocks", onAdd = { showAddBlock = true })
+            BlocksSectionHeader(title = "Time Blocks", onAdd = { showAddAny = true })
         }
 
         if (allBlocks.isEmpty()) {
@@ -192,7 +192,7 @@ fun BlocksTab(
         }
 
         item(key = "tasks_header") {
-            BlocksSectionHeader(title = "Floating Tasks", onAdd = { showAddTask = true })
+            BlocksSectionHeader(title = "Floating Tasks", onAdd = { showAddAny = true })
         }
 
         if (allTasks.isEmpty()) {
@@ -210,14 +210,28 @@ fun BlocksTab(
         }
     }
 
-    if (showAddBlock || editBlock != null) {
+    if (showAddAny) {
+        AddAnythingSheet(
+            date = LocalDate.now(),
+            taskManager = taskManager,
+            namedBlockStore = namedBlockStore,
+            eventPlanner = eventPlanner,
+            calendarSignals = calendarSignals,
+            calendarPrefs = remember { CalendarPrefsStore(context) },
+            calendarEvents = todayCalEvents,
+            onDismiss = { showAddAny = false },
+            onAdded = { refreshKey++; taskRefreshKey++ }
+        )
+    }
+
+    if (editBlock != null) {
         NamedBlockSheet(
             initial = editBlock,
             store = namedBlockStore,
             availableTasks = allTasks,
             calendarEvents = todayCalEvents,
-            onDismiss = { showAddBlock = false; editBlock = null },
-            onSaved = { refreshKey++; showAddBlock = false; editBlock = null }
+            onDismiss = { editBlock = null },
+            onSaved = { refreshKey++; editBlock = null }
         )
     }
 
@@ -240,18 +254,17 @@ fun BlocksTab(
         )
     }
 
-    if (showAddTask || editTask != null) {
+    if (editTask != null) {
         AddTaskSheet(
             initial = editTask,
             availableTasks = allTasks,
             availableBlocks = allBlocks,
             eventPlanner = eventPlanner,
             namedBlockStore = namedBlockStore,
-            onDismiss = { showAddTask = false; editTask = null },
+            onDismiss = { editTask = null },
             onSave = { req ->
                 taskManager.submitTask(req)
                 taskRefreshKey++
-                showAddTask = false
                 editTask = null
             }
         )

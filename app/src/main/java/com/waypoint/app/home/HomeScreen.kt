@@ -416,24 +416,6 @@ private fun AppHeader(
     }
 }
 
-@Composable
-private fun SlotPillButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = modifier
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
 // ── Plan tab ──────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -510,9 +492,6 @@ private fun PlanTab(
     var planningWindow by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlotFromBlock by remember { mutableStateOf(false) }
-    var freeSlotAddTask by remember { mutableStateOf(false) }
-    var freeSlotAddEvent by remember { mutableStateOf(false) }
-    var freeSlotAddBlock by remember { mutableStateOf(false) }
     // Latest calendar events from the timeline — forwarded to AddTaskSheet for conditions
     var planTabCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
 
@@ -746,107 +725,21 @@ private fun PlanTab(
         }
     }
 
-    // ── Free slot picker sheet ────────────────────────────────────────────────
+    // ── Adding from a free slot: Task, Block or Event (just a task inside a block) ──
     val slot = freeSlot
-    if (slot != null && !freeSlotAddTask && !freeSlotAddEvent && !freeSlotAddBlock) {
-        ModalBottomSheet(
-            onDismissRequest = { freeSlot = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
-            ) {
-                val slotFmt = remember(slot) {
-                    val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                    "${sdf.format(java.util.Date(slot.first))} – ${sdf.format(java.util.Date(slot.second))}"
-                }
-                Text(
-                    text = slotFmt,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SlotPillButton(label = "+ Task", onClick = { freeSlotAddTask = true }, modifier = Modifier.weight(1f))
-                    if (!freeSlotFromBlock) {
-                        SlotPillButton(label = "+ Block", onClick = { freeSlotAddBlock = true }, modifier = Modifier.weight(1f))
-                        SlotPillButton(label = "+ Event", onClick = { freeSlotAddEvent = true }, modifier = Modifier.weight(1f))
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-    }
-
-    // ── Add task from free slot ───────────────────────────────────────────────
-    if (freeSlotAddTask) {
-        val slotBlockId = if (freeSlotFromBlock) activeSession?.blockId ?: planningBlockId else null
-        AddTaskSheet(
-            initial = null,
-            availableTasks = remember { taskManager.getAllTasks() },
-            calendarEvents = planTabCalEvents,
-            availableBlocks = allNamedBlocks.filter { it.id != slotBlockId },
-            forBlock = slotBlockId,
-            blockPhases = slotBlockId?.let { namedBlockStore.loadBlock(it) }?.phases.orEmpty(),
-            eventPlanner = eventPlanner,
-            namedBlockStore = namedBlockStore,
-            onDismiss = { freeSlotAddTask = false; freeSlot = null },
-            onSave = { req ->
-                taskManager.submitTask(req)
-                calRefreshKey++
-                freeSlotAddTask = false
-                freeSlot = null
-            },
-            onSaveBlockTask = if (slotBlockId != null) { task ->
-                namedBlockStore.saveTask(task)
-                calRefreshKey++
-                freeSlotAddTask = false
-                freeSlot = null
-            } else null
-        )
-    }
-
-    // ── Add block from free slot ──────────────────────────────────────────────
-    if (freeSlotAddBlock) {
-        NamedBlockSheet(
-            initial = null,
-            store = namedBlockStore,
-            availableTasks = remember { taskManager.getAllTasks() },
-            calendarEvents = planTabCalEvents,
-            onDismiss = { freeSlotAddBlock = false; freeSlot = null },
-            onSaved = {
-                calRefreshKey++
-                freeSlotAddBlock = false
-                freeSlot = null
-            }
-        )
-    }
-
-    // ── Add calendar event from free slot ─────────────────────────────────────
-    if (freeSlotAddEvent) {
-        AddCalendarEventSheet(
+    if (slot != null) {
+        AddAnythingSheet(
             date = selectedDate,
-            initialStartMs = slot?.first,
-            initialEndMs = slot?.second,
-            onDismiss = { freeSlotAddEvent = false; freeSlot = null },
-            onSave = { title, startMs, endMs, notes, allDay, reservesTime, options ->
-                scope.launch {
-                    val eventId = calendarSignals.createEvent(
-                        title, startMs, endMs, notes, allDay,
-                        rrule = options.rrule, reminderMinutes = options.reminderMinutes
-                    )
-                    if (eventId > 0) calPrefsStore.setReservesTime(eventId, reservesTime)
-                    calRefreshKey++
-                    freeSlotAddEvent = false
-                    freeSlot = null
-                }
-            }
+            taskManager = taskManager,
+            namedBlockStore = namedBlockStore,
+            eventPlanner = eventPlanner,
+            calendarSignals = calendarSignals,
+            calendarPrefs = calPrefsStore,
+            calendarEvents = planTabCalEvents,
+            slot = slot,
+            forBlockId = if (freeSlotFromBlock) activeSession?.blockId ?: planningBlockId else null,
+            onDismiss = { freeSlot = null },
+            onAdded = { calRefreshKey++ }
         )
     }
 

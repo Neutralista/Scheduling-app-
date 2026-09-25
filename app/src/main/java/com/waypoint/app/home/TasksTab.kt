@@ -582,7 +582,7 @@ fun TasksTab(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Tap here to add a task",
+                    "Tap here to add a task, block or event",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -676,7 +676,7 @@ fun TasksTab(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         Text(
-                            "+ Tap to add a task",
+                            "+ Tap to add",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             modifier = Modifier.padding(top = 16.dp)
@@ -688,7 +688,23 @@ fun TasksTab(
         }
     }
 
-    if (showAdd || editTarget != null) {
+    if (showAdd) {
+        AddAnythingSheet(
+            date = today,
+            taskManager = taskManager,
+            namedBlockStore = namedBlockStore,
+            eventPlanner = registry,
+            calendarSignals = calendarSignals,
+            calendarPrefs = planCalPrefs,
+            calendarEvents = todayCalEvents,
+            onDismiss = { showAdd = false },
+            onAdded = {
+                refreshKey++
+                onRefresh()
+            }
+        )
+    }
+    if (editTarget != null) {
         AddTaskSheet(
             initial = editTarget,
             availableTasks = allTasks,
@@ -696,12 +712,11 @@ fun TasksTab(
             availableBlocks = availableBlocks,
             eventPlanner = registry,
             namedBlockStore = namedBlockStore,
-            onDismiss = { showAdd = false; editTarget = null },
+            onDismiss = { editTarget = null },
             onSave = { req ->
                 taskManager.submitTask(req)
                 refreshKey++
                 onRefresh()
-                showAdd = false
                 editTarget = null
             }
         )

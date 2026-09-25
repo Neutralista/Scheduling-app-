@@ -21,6 +21,8 @@ Note: `./gradlew` is broken in this repo's shell — always use `bash gradlew`.
 6 tabs in `HomeScreen.kt` (index order): **Plan · History · Tasks · Blocks · Alarms · Settings**. Modules
 (user scripts, `ScriptsTab`) open full-screen from Settings → Scripts. Notification `openTab` names map in
 `ScriptNotificationActionReceiver.tabNameToIndex`; "scripts"/"modules"/"widgets" open Settings.
+Every "add" entry point (Plan free slots, Tasks tab + Add / free space, Blocks tab section +) opens
+`AddAnythingSheet`: a Task · Block · Event choice, then that item's sheet (just a block task inside a block).
 
 `MainActivity` → `WaypointApplication.env: RealScriptEnvironment` is the single shared dependency container. Everything that needs a store or signal should pull it from `env`, not create its own instance. `blockSessionStore` in particular must always come from `env` — creating a second instance loses the shared `sessionFlow`.
 
