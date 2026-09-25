@@ -96,7 +96,9 @@ data class TaskRequest(
      */
     val completedOn: String? = null,
     /** Notify when the plan says this task starts (TaskReminderScheduler). */
-    val remindAtStart: Boolean = false
+    val remindAtStart: Boolean = false,
+    /** "yyyy-MM-dd" to the start (epoch ms) it's pinned at that day, from dragging it on the timeline. */
+    val pinnedStarts: Map<String, Long> = emptyMap()
 )
 
 /** The date of a one-off task's "oneOff" condition, or null if it isn't a one-off. */

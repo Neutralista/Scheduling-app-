@@ -27,6 +27,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,13 +55,14 @@ sealed interface TimelineDetailItem {
     data class PlannerItem(val scheduled: ScheduledEvent, val task: TaskRequest?) : TimelineDetailItem
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TimelineEventDetailSheet(
     item: TimelineDetailItem,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)? = null,
     onSkip: (() -> Unit)? = null,
+    onUnpin: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onStart: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
@@ -166,16 +169,20 @@ fun TimelineEventDetailSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(12.dp))
 
-            // Secondary actions (close / edit / skip / delete)
-            Row(
+            // Secondary actions (close / edit / unpin / skip / delete); wraps on narrow screens.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 TextButton(onClick = onDismiss) { Text("Close") }
                 if (onEdit != null) {
                     Spacer(Modifier.width(8.dp))
                     OutlinedButton(onClick = onEdit) { Text("Edit") }
+                }
+                if (onUnpin != null) {
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { onUnpin(); onDismiss() }) { Text("Unpin") }
                 }
                 if (onSkip != null) {
                     Spacer(Modifier.width(8.dp))

@@ -418,11 +418,15 @@ fun DayTimelineView(
         localRefreshKey++
     }
 
-    // Commits a floating-task drag. Unlike blocks/calendar events, a task has no per-date
-    // time-pin storage — the scheduler always re-derives its placement from conditions — so a
-    // drag is translated into afterTask/beforeTask constraints against whichever other floating
-    // tasks it was dragged across, inferred from their current placement. A drag that doesn't
-    // cross anything has no durable effect: there's nothing to encode a bare "move" as.
+    // A drag across other tasks on today's timeline, waiting on whether the new order should
+    // also hold every day: (the tasks with their new ordering conditions, the message).
+    var pendingDragOrder by remember { mutableStateOf<Pair<List<TaskRequest>, String>?>(null) }
+
+    // Commits a floating-task drag. On today's timeline it pins the task at the new time for
+    // today (TaskRequest.pinnedStarts), and if it was dragged across other tasks, offers to keep
+    // that order every day too. On other days there's no pin — it's applied only on its own day,
+    // so it'd snap back here — so as before, the drag becomes afterTask/beforeTask constraints
+    // against whichever tasks it crossed, and a drag that crosses nothing has no durable effect.
     fun commitTaskDrag(taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) {
         val tm = taskManager ?: return
         val req = tm.getAllTasks().find { it.id == taskId } ?: return
@@ -440,16 +444,49 @@ fun DayTimelineView(
             else if (wasAfter && nowBeforeOther) nowBefore += other.event.id
         }
         val updates = applyDragOrdering(tm.getAllTasks(), req.id, nowAfter, nowBefore)
-        if (updates.isEmpty()) return
-        updates.forEach { tm.submitTask(it) }
-        // The rule applies every day, not just to this drag — say so instead of saving it silently.
         val titles = others.associate { it.event.id to it.event.title }
         val message = buildList {
             if (nowAfter.isNotEmpty()) add("after ${nowAfter.mapNotNull { titles[it] }.joinToString()}")
             if (nowBefore.isNotEmpty()) add("before ${nowBefore.mapNotNull { titles[it] }.joinToString()}")
         }.joinToString(" and ")
+        if (isToday) {
+            tm.pinForDate(taskId, date, newStartMs)
+            val at = java.time.Instant.ofEpochMilli(newStartMs).atZone(ZoneId.systemDefault()).toLocalTime()
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            if (updates.isNotEmpty()) pendingDragOrder = updates to "${req.title}: always $message?"
+            else android.widget.Toast.makeText(context, "${req.title} pinned at $at today", android.widget.Toast.LENGTH_SHORT).show()
+            localRefreshKey++
+            return
+        }
+        if (updates.isEmpty()) return
+        updates.forEach { tm.submitTask(it) }
+        // The rule applies every day, not just to this drag — say so instead of saving it silently.
         android.widget.Toast.makeText(context, "${req.title} now always goes $message", android.widget.Toast.LENGTH_LONG).show()
         localRefreshKey++
+    }
+
+    pendingDragOrder?.let { (updates, question) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDragOrder = null },
+            title = { Text("Pinned for today") },
+            text = { Text(question) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val tm = taskManager
+                    if (tm != null) {
+                        // Only the ordering: the rest (like today's pin) is re-read, not the
+                        // copies from before the drag.
+                        val current = tm.getAllTasks().associateBy { it.id }
+                        updates.forEach { u -> current[u.id]?.let { tm.submitTask(it.copy(conditions = u.conditions)) } }
+                    }
+                    pendingDragOrder = null
+                    localRefreshKey++
+                }) { Text("Every day") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingDragOrder = null }) { Text("Just today") }
+            }
+        )
     }
 
     // Keyed on localRefreshKey too — otherwise this loop keeps a closure over whatever

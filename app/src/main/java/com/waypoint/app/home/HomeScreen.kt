@@ -883,6 +883,14 @@ private fun PlanTab(
                 } }
                 else -> null
             },
+            // Dragged to a time on today's timeline: let it be planned freely again.
+            onUnpin = if (taskReq != null && taskManager.isPinned(selPlanner.event.id, selectedDate)) {
+                {
+                    taskManager.unpin(selPlanner.event.id, selectedDate)
+                    calRefreshKey++
+                    selectedPlannerEvent = null
+                }
+            } else null,
             onSkip = if ((taskReq != null || isBlockSubTask) && !taskManager.isSkipped(selPlanner.event.id)) {
                 {
                     if (isRunning) taskManager.stopExecution(selPlanner.event.id)

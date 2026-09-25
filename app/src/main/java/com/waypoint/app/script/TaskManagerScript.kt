@@ -65,6 +65,24 @@ class TaskManagerScript(
         syncToRegistry()
     }
 
+    /** Pins [taskId] to start at [startMs] on [date] only; other days it's planned as usual. */
+    fun pinForDate(taskId: String, date: LocalDate, startMs: Long) {
+        val req = store.loadAll().find { it.id == taskId } ?: return
+        val today = LocalDate.now().toString()
+        // Past days' pins are dead weight; ISO dates compare correctly as strings.
+        val kept = req.pinnedStarts.filterKeys { it >= today } + (date.toString() to startMs)
+        submitTask(req.copy(pinnedStarts = kept))
+    }
+
+    fun unpin(taskId: String, date: LocalDate) {
+        val req = store.loadAll().find { it.id == taskId } ?: return
+        if (date.toString() !in req.pinnedStarts) return
+        submitTask(req.copy(pinnedStarts = req.pinnedStarts - date.toString()))
+    }
+
+    fun isPinned(taskId: String, date: LocalDate): Boolean =
+        store.loadAll().find { it.id == taskId }?.pinnedStarts?.containsKey(date.toString()) == true
+
     fun retractBySource(sourceScriptId: String) {
         store.retractBySource(sourceScriptId)
         syncToRegistry()
@@ -167,10 +185,13 @@ class TaskManagerScript(
                 val end = e.endMillis
                 !e.isRunning && end != null && doneAt != null && abs(doneAt - end) <= RUN_MATCH_MS
             }
+            val pinnedToday = req.pinnedStarts[LocalDate.now().toString()]
             val (fixedStart, fixedEnd) = when {
                 exec != null && exec.isRunning -> exec.startMillis to exec.startMillis + effectiveDuration * 60_000L
                 finishedRun != null     -> finishedRun.startMillis to finishedRun.endMillis
                 doneAt != null          -> doneAt - effectiveDuration * 60_000L to doneAt
+                // Dragged to a time for today: held there instead of re-planned.
+                pinnedToday != null     -> pinnedToday to pinnedToday + effectiveDuration * 60_000L
                 else                    -> null to null
             }
 
