@@ -139,7 +139,7 @@ fun HomeScreen(
     externalTabRequest: Int? = null,
     onTabNavigated: () -> Unit = {}
 ) {
-    val pagerState = rememberPagerState(initialPage = initialTab) { 7 }
+    val pagerState = rememberPagerState(initialPage = initialTab) { 6 }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(externalTabRequest) {
@@ -177,7 +177,7 @@ fun HomeScreen(
     val tasksTotal = plannerScheduled.size
     val tasksDone = plannerScheduled.count { it.event.id in plannerDoneIds }
 
-    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Modules", "Alarms", "Settings")
+    val tabLabels = listOf("Plan", "History", "Tasks", "Blocks", "Alarms", "Settings")
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -223,19 +223,23 @@ fun HomeScreen(
                 1 -> HistoryTab(cycleTracker = cycleTracker, taskManager = taskManager, blockSessionLogStore = blockSessionLogStore, namedBlockStore = namedBlockStore)
                 2 -> TasksTab(registry = eventPlanner, taskManager = taskManager, calendarSignals = calendarSignals, blockSessionStore = blockSessionStore, availableBlocks = allNamedBlocks, onRefresh = { headerRefreshKey++ })
                 3 -> BlocksTab(taskManager = taskManager, eventPlanner = eventPlanner, externalRefreshKey = headerRefreshKey, calendarSignals = calendarSignals)
-                4 -> ScriptsTab(
-                    scripts = scripts,
-                    statesById = statesById,
-                    onStateChange = onStateChange,
-                    onAddScript = onAddScript,
-                    onUpdateScript = onUpdateScript,
-                    onRemoveScript = onRemoveScript,
-                    onResetScript = onResetScript
-                )
-                5 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
-                6 -> SettingsTab(
+                4 -> AlarmsTab(alarms = alarms, sleepTimesFlow = sleepTimesFlow)
+                // Modules (user scripts) live in Settings, under Scripts.
+                5 -> SettingsTab(
                     onPermissionGranted = onPermissionGranted,
-                    themeStore = themeStore
+                    themeStore = themeStore,
+                    scriptsCount = scripts.size,
+                    scriptsContent = {
+                        ScriptsTab(
+                            scripts = scripts,
+                            statesById = statesById,
+                            onStateChange = onStateChange,
+                            onAddScript = onAddScript,
+                            onUpdateScript = onUpdateScript,
+                            onRemoveScript = onRemoveScript,
+                            onResetScript = onResetScript
+                        )
+                    }
                 )
                 else -> Box(Modifier.fillMaxSize())
             }

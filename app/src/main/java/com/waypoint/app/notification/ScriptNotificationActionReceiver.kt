@@ -31,7 +31,7 @@ class ScriptNotificationActionReceiver : BroadcastReceiver() {
                 ScriptNotificationScheduler.snooze(context, notifId, minutes * 60_000L)
             }
             ACTION_OPEN_TAB -> {
-                val tab = intent.getStringExtra(EXTRA_TAB) ?: "scripts"
+                val tab = intent.getStringExtra(EXTRA_TAB) ?: "settings"
                 context.startActivity(launchIntent(context, tabNameToIndex(tab)))
             }
             ACTION_TRIGGER_SCRIPT -> {
@@ -60,6 +60,7 @@ private fun tabNameToIndex(tab: String) = when (tab) {
     "tasks"    -> 2
     "blocks"   -> 3
     "alarms"   -> 4
-    "settings" -> 5
+    // Modules (scripts, formerly "widgets") are in Settings now.
+    "settings", "scripts", "modules", "widgets" -> 5
     else       -> 0
 }

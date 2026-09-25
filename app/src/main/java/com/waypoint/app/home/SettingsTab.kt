@@ -46,6 +46,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -96,10 +99,41 @@ import java.util.UUID
 @Composable
 fun SettingsTab(
     onPermissionGranted: () -> Unit,
-    themeStore: ThemeStore? = null
+    themeStore: ThemeStore? = null,
+    scriptsCount: Int = 0,
+    /** The Modules screen (user scripts), opened full-screen from the Scripts section. */
+    scriptsContent: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showLogs by remember { mutableStateOf(false) }
+    var showModules by remember { mutableStateOf(false) }
+
+    if (showModules && scriptsContent != null) {
+        Dialog(
+            onDismissRequest = { showModules = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { showModules = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Settings")
+                        }
+                        Text(
+                            "Modules",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Box(Modifier.fillMaxSize()) { scriptsContent() }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -166,6 +200,46 @@ fun SettingsTab(
             modifier = Modifier.padding(vertical = 12.dp),
             color = MaterialTheme.colorScheme.outlineVariant
         )
+
+        if (scriptsContent != null) {
+            Text(
+                text = "Scripts",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .clickable { showModules = true }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Modules", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        when (scriptsCount) {
+                            0 -> "No scripts installed · add one"
+                            1 -> "1 script installed"
+                            else -> "$scriptsCount scripts installed"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
 
         // Collapsed by default — these are developer diagnostics, not settings most
         // people need day to day, so they shouldn't sit in the default scroll path.
