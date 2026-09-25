@@ -73,6 +73,7 @@ import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.findAdjacentSequencedSibling
+import com.waypoint.app.planner.phaseOf
 import com.waypoint.app.planner.NamedBlock
 import com.waypoint.app.planner.NamedBlockStore
 import com.waypoint.app.planner.SleepAlarmSync
@@ -224,6 +225,7 @@ fun BlocksTab(
         AddTaskSheet(
             forBlock = blockIdForTask,
             initialBlockTask = editBlockTask,
+            blockPhases = allBlocks.find { it.id == blockIdForTask }?.phases.orEmpty(),
             availableTasks = allTasks,
             availableBlocks = allBlocks.filter { it.id != blockIdForTask },
             onDismiss = { addTaskForBlockId = null; editBlockTask = null },
@@ -280,8 +282,14 @@ private fun ExpandableBlockCard(
         )
     }
     val blockTasks = remember(block.id, parentRefreshKey, expanded) {
+        // Within DURING: unphased first, then each phase's tasks in phase order.
         if (expanded) namedBlockStore.loadTasksForBlock(block.id)
-            .sortedWith(compareBy({ it.placement.ordinal }, { it.sequence ?: Int.MAX_VALUE }, { -it.priority }))
+            .sortedWith(compareBy(
+                { it.placement.ordinal },
+                { t -> t.phaseOf(block)?.let { p -> block.phases.indexOf(p) + 1 } ?: 0 },
+                { it.sequence ?: Int.MAX_VALUE },
+                { -it.priority }
+            ))
         else emptyList()
     }
     val accent = block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
@@ -408,6 +416,7 @@ private fun ExpandableBlockCard(
                         blockTasks.forEach { task ->
                             BlockTaskRow(
                                 task = task,
+                                phaseName = task.phaseOf(block)?.name,
                                 accent = accent,
                                 onEdit = { onEditTask(task) },
                                 onDelete = { onDeleteTask(task.id) },
@@ -437,6 +446,7 @@ private fun ExpandableBlockCard(
 @Composable
 private fun BlockTaskRow(
     task: BlockTask,
+    phaseName: String? = null,
     accent: Color,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -454,7 +464,8 @@ private fun BlockTaskRow(
     }
     val placementLabel = when (task.placement) {
         BlockTaskPlacement.BEFORE -> "before"
-        BlockTaskPlacement.DURING -> "during"
+        // A phase's task is labelled with its phase.
+        BlockTaskPlacement.DURING -> phaseName ?: "during"
         BlockTaskPlacement.AFTER  -> "after"
     }
     Row(

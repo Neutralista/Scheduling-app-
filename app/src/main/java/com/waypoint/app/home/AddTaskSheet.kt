@@ -60,6 +60,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.waypoint.app.planner.BlockSubPlacement
+import com.waypoint.app.planner.BlockPhase
 import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.EventPlannerRegistry
@@ -114,6 +115,8 @@ fun AddTaskSheet(
     // Block-task mode: when set, the sheet saves a BlockTask instead of a floating TaskRequest.
     forBlock: String? = null,
     initialBlockTask: BlockTask? = null,
+    // The block's phases, so a DURING task can be put in one.
+    blockPhases: List<BlockPhase> = emptyList(),
     // Optional — when both are provided (floating-task mode only), a live "when will this
     // actually land" preview is shown, computed against a throwaway copy of today's real plan.
     eventPlanner: EventPlannerRegistry? = null,
@@ -255,6 +258,7 @@ fun AddTaskSheet(
     // Real numbering happens where sibling tasks are visible (NamedBlockSheet/BlocksTab save
     // callbacks) — -1 here is a sentinel meaning "new, not yet numbered".
     var blockSequenced  by remember { mutableStateOf(initialBlockTask?.sequence != null) }
+    var blockPhaseId    by remember { mutableStateOf(initialBlockTask?.phaseId?.takeIf { id -> blockPhases.any { it.id == id } }) }
 
     // ── Trigger chain state ──────────────────────────────────────────────────
     val triggers = remember { mutableStateListOf<TaskTrigger>().also {
@@ -391,8 +395,11 @@ fun AddTaskSheet(
                     bufferMinutes       = resolvedBuffer,
                     isAlways            = blockIsAlways,
                     subPlacement        = if (blockPlacement == BlockTaskPlacement.DURING) blockSubPlace else null,
+                    // Moved to another phase: renumbered at the end of that phase's order.
                     sequence            = if (blockPlacement == BlockTaskPlacement.DURING && blockSequenced)
-                                              initialBlockTask?.sequence ?: -1 else null,
+                                              initialBlockTask?.let { t -> t.sequence?.takeIf { blockPhaseId == t.phaseId } } ?: -1
+                                          else null,
+                    phaseId             = if (blockPlacement == BlockTaskPlacement.DURING) blockPhaseId else null,
                     conditions          = blockConditions,
                     useMeasuredDuration = useMeasuredDuration,
                     triggers            = triggers.toList(),
@@ -722,6 +729,39 @@ fun AddTaskSheet(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                                 )
+                                // Phase: only for DURING tasks of a block that has phases.
+                                if (blockPlacement == BlockTaskPlacement.DURING && blockPhases.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        "Phase",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = blockPhaseId == null,
+                                            onClick  = { blockPhaseId = null },
+                                            label    = { Text("None") }
+                                        )
+                                        blockPhases.forEach { phase ->
+                                            FilterChip(
+                                                selected = blockPhaseId == phase.id,
+                                                onClick  = { blockPhaseId = phase.id },
+                                                label    = { Text(phase.name) }
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = if (blockPhaseId == null) "Anywhere in the block outside its phases"
+                                               else "Runs inside this phase",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                    )
+                                }
                                 // Sub-placement position: only shown for DURING tasks
                                 if (blockPlacement == BlockTaskPlacement.DURING) {
                                     Spacer(Modifier.height(8.dp))
@@ -733,7 +773,8 @@ fun AddTaskSheet(
                                         Column(Modifier.weight(1f)) {
                                             Text("Sequenced", style = MaterialTheme.typography.bodyMedium)
                                             Text(
-                                                "Runs in a fixed order relative to other sequenced tasks in this block",
+                                                if (blockPhaseId != null) "Runs in a fixed order relative to other sequenced tasks in this phase"
+                                                else "Runs in a fixed order relative to other sequenced tasks in this block",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                             )

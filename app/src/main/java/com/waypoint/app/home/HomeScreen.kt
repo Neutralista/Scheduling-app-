@@ -756,6 +756,7 @@ private fun PlanTab(
             calendarEvents = planTabCalEvents,
             availableBlocks = allNamedBlocks.filter { it.id != slotBlockId },
             forBlock = slotBlockId,
+            blockPhases = slotBlockId?.let { namedBlockStore.loadBlock(it) }?.phases.orEmpty(),
             eventPlanner = eventPlanner,
             namedBlockStore = namedBlockStore,
             onDismiss = { freeSlotAddTask = false; freeSlot = null },
@@ -983,6 +984,7 @@ private fun PlanTab(
     if (blockTaskBeingEdited != null) {
         AddTaskSheet(
             forBlock = blockTaskBeingEdited.first,
+            blockPhases = namedBlockStore.loadBlock(blockTaskBeingEdited.first)?.phases.orEmpty(),
             initialBlockTask = blockTaskBeingEdited.second,
             availableTasks = remember { taskManager.getAllTasks() },
             calendarEvents = planTabCalEvents,

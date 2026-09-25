@@ -90,6 +90,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
+import com.waypoint.app.planner.BlockPhase
+import com.waypoint.app.planner.effectiveDurationMinutes
+import com.waypoint.app.planner.phaseLengthMinutes
 
 private enum class BlockSchedulingMode { FIXED, AUTO }
 
@@ -267,6 +270,10 @@ fun NamedBlockSheet(
     var showAddTask by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<BlockTask?>(null) }
 
+    // Phases, in running order. editingPhase: the one in the dialog (a new one has a fresh id).
+    val phases = remember { mutableStateListOf<BlockPhase>().also { it.addAll(initial?.phases.orEmpty()) } }
+    var editingPhase by remember { mutableStateOf<BlockPhase?>(null) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
@@ -293,8 +300,11 @@ fun NamedBlockSheet(
                         val dur = when {
                             // Matches effectiveDurationMinutes' canonical DURING-only sum — BEFORE/AFTER
                             // tasks live outside the block's own window and shouldn't count toward it.
-                            useTotalTaskDuration -> tasks.filter { it.placement == BlockTaskPlacement.DURING }
-                                .sumOf { it.durationMinutes }.takeIf { it > 0 } ?: 60
+                            // Phases count at their own length when that's longer than their tasks.
+                            useTotalTaskDuration -> effectiveDurationMinutes(
+                                NamedBlock(id = blockId, name = "", estimatedMinutes = 60, useTotalTaskDuration = true, phases = phases.toList()),
+                                tasks.toList()
+                            )
                             !useTimeRange -> if (selectedDuration > 0) selectedDuration
                                             else customDurationText.toIntOrNull()?.takeIf { it > 0 } ?: 60
                             else -> {
@@ -344,7 +354,8 @@ fun NamedBlockSheet(
                             recurrenceRule = fixedRule,
                             notificationsEnabled = notificationsEnabled,
                             zone = if (schedulingMode == BlockSchedulingMode.AUTO && autoTimeMode == "zone") autoZone else null,
-                            externalDays = initial?.externalDays
+                            externalDays = initial?.externalDays,
+                            phases = phases.toList()
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -875,6 +886,49 @@ fun NamedBlockSheet(
                         }
                     }
 
+                    // Phases section
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Phases", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f))
+                            TextButton(onClick = {
+                                editingPhase = BlockPhase(id = UUID.randomUUID().toString(), name = "")
+                            }) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Add phase")
+                            }
+                        }
+                        if (phases.isEmpty()) {
+                            Text(
+                                "Split the block into parts that run one after another, like Warmup, Workout " +
+                                    "and Cooldown, each with its own tasks.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            phases.forEachIndexed { index, phase ->
+                                PhaseRow(
+                                    index = index,
+                                    phase = phase,
+                                    lengthMinutes = phaseLengthMinutes(phase, tasks),
+                                    taskCount = tasks.count { it.phaseId == phase.id && it.placement == BlockTaskPlacement.DURING },
+                                    onEdit = { editingPhase = phase },
+                                    onDelete = {
+                                        phases.removeAt(index)
+                                        // Its tasks stay in the block, just not in a phase.
+                                        for (i in tasks.indices) {
+                                            if (tasks[i].phaseId == phase.id) tasks[i] = tasks[i].copy(phaseId = null)
+                                        }
+                                    },
+                                    onMoveUp = if (index > 0) { { phases.add(index - 1, phases.removeAt(index)) } } else null,
+                                    onMoveDown = if (index < phases.lastIndex) { { phases.add(index + 1, phases.removeAt(index)) } } else null
+                                )
+                            }
+                        }
+                    }
+
                     // Tasks section
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -894,10 +948,19 @@ fun NamedBlockSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            tasks.sortedWith(compareBy({ it.placement.ordinal }, { it.sequence ?: Int.MAX_VALUE }, { -it.priority }))
+                            // Within DURING: unphased first, then each phase's tasks in phase order.
+                            val phaseIndex = phases.withIndex().associate { (i, p) -> p.id to i }
+                            tasks.sortedWith(compareBy(
+                                { it.placement.ordinal },
+                                { it.phaseId?.let { id -> phaseIndex[id]?.plus(1) } ?: 0 },
+                                { it.sequence ?: Int.MAX_VALUE },
+                                { -it.priority }
+                            ))
                                 .forEach { task ->
                                 BlockTaskRow(
                                     task = task,
+                                    phaseName = task.phaseId?.let { id -> phases.find { it.id == id }?.name }
+                                        ?.takeIf { task.placement == BlockTaskPlacement.DURING },
                                     onEdit = { editingTask = task },
                                     onDelete = {
                                         tasks.remove(task)
@@ -991,16 +1054,30 @@ fun NamedBlockSheet(
         )
     }
 
+    editingPhase?.let { phase ->
+        PhaseDialog(
+            initial = phase,
+            isNew = phases.none { it.id == phase.id },
+            onDismiss = { editingPhase = null },
+            onSave = { saved ->
+                val idx = phases.indexOfFirst { it.id == saved.id }
+                if (idx >= 0) phases[idx] = saved else phases.add(saved)
+                editingPhase = null
+            }
+        )
+    }
+
     // Add / edit task sheet — full wizard in block mode
     if (showAddTask || editingTask != null) {
         AddTaskSheet(
             forBlock = blockId,
             initialBlockTask = editingTask,
+            blockPhases = phases.toList(),
             availableTasks = availableTasks,
             availableBlocks = availableBlocksForTasks,
             onDismiss = { showAddTask = false; editingTask = null },
             onSaveBlockTask = { saved ->
-                val resolved = saved.withResolvedSequence(tasks)
+                val resolved = saved.withResolvedSequence(tasks.filter { it.id != saved.id })
                 val idx = tasks.indexOfFirst { it.id == resolved.id }
                 if (idx >= 0) tasks[idx] = resolved else tasks.add(resolved)
                 showAddTask = false; editingTask = null
@@ -1105,6 +1182,7 @@ private fun moveSequencedTask(tasks: SnapshotStateList<BlockTask>, task: BlockTa
 @Composable
 private fun BlockTaskRow(
     task: BlockTask,
+    phaseName: String? = null,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onMoveUp: (() -> Unit)? = null,
@@ -1171,6 +1249,9 @@ private fun BlockTaskRow(
                 Text(durLabel, style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 PlacementBadge(task.placement, placementColor)
+                if (phaseName != null) {
+                    Text(phaseName, style = MaterialTheme.typography.labelSmall, color = placementColor)
+                }
                 Text(if (task.isAlways) "Always" else "Situational",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1184,6 +1265,108 @@ private fun BlockTaskRow(
                 tint = MaterialTheme.colorScheme.error)
         }
     }
+}
+
+@Composable
+private fun PhaseRow(
+    index: Int,
+    phase: BlockPhase,
+    lengthMinutes: Int,
+    taskCount: Int,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    if (showDeleteDialog) {
+        BlockDeleteDialog(
+            itemLabel = phase.name,
+            onDelete = onDelete,
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(onClick = { onMoveUp?.invoke() }, enabled = onMoveUp != null, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveUp != null) 0.7f else 0.2f))
+            }
+            Text("${index + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            IconButton(onClick = { onMoveDown?.invoke() }, enabled = onMoveDown != null, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (onMoveDown != null) 0.7f else 0.2f))
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(phase.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            val length = when {
+                lengthMinutes <= 0 -> "No length yet: add tasks or set one"
+                phase.durationMinutes != null && phase.durationMinutes >= lengthMinutes -> "$lengthMinutes min"
+                else -> "$lengthMinutes min from its tasks"
+            }
+            Text(
+                "$length · $taskCount ${if (taskCount == 1) "task" else "tasks"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Edit, "Edit phase", modifier = Modifier.size(18.dp))
+        }
+        IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Delete, "Delete phase", modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+/** Name and length of a phase; a blank length means "as long as its tasks". */
+@Composable
+private fun PhaseDialog(initial: BlockPhase, isNew: Boolean, onDismiss: () -> Unit, onSave: (BlockPhase) -> Unit) {
+    var name by remember { mutableStateOf(initial.name) }
+    var minutesText by remember { mutableStateOf(initial.durationMinutes?.toString() ?: "") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isNew) "New phase" else "Edit phase") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = minutesText,
+                    onValueChange = { v -> minutesText = v.filter { it.isDigit() }.take(4) },
+                    label = { Text("Length in minutes (optional)") },
+                    supportingText = { Text("Leave empty to last as long as its tasks") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(initial.copy(name = name.trim(), durationMinutes = minutesText.toIntOrNull()?.takeIf { it > 0 }))
+                },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
