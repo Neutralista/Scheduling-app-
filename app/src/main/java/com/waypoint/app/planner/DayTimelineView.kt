@@ -927,6 +927,8 @@ private fun TimelineBody(
                 blockBounds = plan.blockBounds,
                 defaultColorPair = colorPair,
                 blockSubTasks = subTasks,
+                phases = if (se.event.category == EventCategory.BLOCK)
+                    plan.phaseBounds[se.event.id.removePrefix("__block__")].orEmpty() else emptyList(),
                 isToday = isToday,
                 activeBlockId = activeBlockId,
                 onBlockStart = onBlockStart,
@@ -1166,6 +1168,7 @@ private fun PlannerEventBlock(
     blockBounds: Map<String, Pair<Long, Long>>,
     defaultColorPair: Pair<Color, Color>?,
     blockSubTasks: List<ScheduledEvent> = emptyList(),
+    phases: List<PhaseWindow> = emptyList(),
     isToday: Boolean,
     activeBlockId: String?,
     onBlockStart: ((blockId: String) -> Unit)?,
@@ -1347,17 +1350,32 @@ private fun PlannerEventBlock(
                     color = fg.copy(alpha = 0.65f)
                 )
             }
-            if (isBlock && blockSubTasks.isNotEmpty() && eventH >= 56.dp) {
-                blockSubTasks.sortedBy { it.startMillis }.forEach { task ->
-                    val durMin = ((task.endMillis - task.startMillis) / 60_000L).toInt()
-                    val durLabel = if (durMin < 60) "${durMin}m"
-                        else "${durMin / 60}h${if (durMin % 60 > 0) " ${durMin % 60}m" else ""}"
-                    Text(
-                        "· ${fmtMs(task.startMillis)}  ${task.event.title}  $durLabel",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = fg.copy(alpha = 0.75f),
-                        maxLines = 1
-                    )
+            if (isBlock && (blockSubTasks.isNotEmpty() || phases.isNotEmpty()) && eventH >= 56.dp) {
+                // Phases head the tasks that run in them, all in time order.
+                val lines: List<Pair<Long, Any>> = (phases.map { it.startMs to it } + blockSubTasks.map { it.startMillis to it })
+                    .sortedWith(compareBy({ it.first }, { if (it.second is PhaseWindow) 0 else 1 }))
+                lines.forEach { (_, item) ->
+                    when (item) {
+                        is PhaseWindow -> Text(
+                            "${item.phase.name}  ${fmtMs(item.startMs)}–${fmtMs(item.endMs)}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = fg.copy(alpha = 0.9f),
+                            maxLines = 1
+                        )
+                        is ScheduledEvent -> {
+                            val task = item
+                            val durMin = ((task.endMillis - task.startMillis) / 60_000L).toInt()
+                            val durLabel = if (durMin < 60) "${durMin}m"
+                                else "${durMin / 60}h${if (durMin % 60 > 0) " ${durMin % 60}m" else ""}"
+                            Text(
+                                "· ${fmtMs(task.startMillis)}  ${task.event.title}  $durLabel",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = fg.copy(alpha = 0.75f),
+                                maxLines = 1
+                            )
+                        }
+                        else -> Unit
+                    }
                 }
             }
             }

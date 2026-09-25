@@ -17,7 +17,9 @@ data class ActiveBlockSession(
     val colorArgb: Int?,
     val startedAtMs: Long,
     val scheduledEndMs: Long,
-    val date: String  // "yyyy-MM-dd"
+    val date: String,  // "yyyy-MM-dd"
+    /** Phase id → when Next phase started it; empty while it's left to the plan. */
+    val phaseStarts: Map<String, Long> = emptyMap()
 )
 
 class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null) {
@@ -74,6 +76,16 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
         sessionFlow.value = null
         BlockNotificationHelper.cancelSessionLiveNotification(appContext)
         if (current != null) {
+            val endedAt = endedAtMs
+            val phaseTimings = runCatching {
+                val store = NamedBlockStore(appContext)
+                store.loadBlock(current.blockId)?.takeIf { it.phases.isNotEmpty() }?.let { block ->
+                    sessionPhaseTimings(
+                        block, store.resolveActiveTasks(block.id, LocalDate.parse(current.date)),
+                        current.startedAtMs, endedAt, current.phaseStarts
+                    )
+                }
+            }.getOrNull().orEmpty()
             logStore.addEntry(BlockSessionLog(
                 blockId = current.blockId,
                 blockName = current.blockName,
@@ -83,7 +95,8 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
                 endedAtMs = endedAtMs,
                 tasksCompleted = tasksCompleted,
                 tasksTotal = tasksTotal,
-                taskMeasurements = taskMeasurements
+                taskMeasurements = taskMeasurements,
+                phaseTimings = phaseTimings
             ))
         }
         AppLogger.i(TAG, "endSession: measurements=${taskMeasurements.size}")
@@ -101,6 +114,15 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
         val updated = current.copy(colorArgb = colorArgb)
         prefs.edit().putString("active", json.encodeToString(updated)).apply()
         sessionFlow.value = updated
+    }
+
+    /** Next phase: marks [phaseId] as started now. */
+    fun startPhase(phaseId: String, atMs: Long = System.currentTimeMillis()) {
+        val current = loadFromPrefs() ?: return
+        val updated = current.copy(phaseStarts = current.phaseStarts + (phaseId to atMs))
+        prefs.edit().putString("active", json.encodeToString(updated)).apply()
+        sessionFlow.value = updated
+        AppLogger.i(TAG, "startPhase: $phaseId")
     }
 
     fun extendSession(extraMs: Long) {

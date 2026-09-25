@@ -627,6 +627,14 @@ private fun BlockSessionRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
+            // How long each phase took, e.g. "Warmup 12m · Workout 41m · Cooldown 8m".
+            if (session.phaseTimings.isNotEmpty()) {
+                Text(
+                    text = session.phaseTimings.joinToString(" · ") { "${it.name} ${it.minutes}m" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(text = durText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

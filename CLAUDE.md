@@ -227,7 +227,12 @@ Named blocks and routine tasks are the same concept at different levels of sched
 ### Nesting — one level deep, no deeper
 Full inception-style nesting (blocks all the way down) is architecturally possible but the mental model collapses for the user beyond 2 levels, and scheduling recursive containers is hard.
 
-**Decision: support one level of nesting with explicit phase semantics.**
+**Decision: support one level of nesting with explicit phase semantics.** Built:
+`NamedBlock.phases: List<BlockPhase>` (ordered) + `BlockTask.phaseId`. Phases run back to back from
+the block's start (`phaseWindows`); a phase lasts its `durationMinutes` or its tasks' total, whichever is
+longer. Planner: a phase task gets `DuringBlock(phaseKey(blockId, phaseId))` ("blockId#phaseId"), placed
+in that phase's window; unphased DURING tasks get the block window minus the phases; `DayPlan.phaseBounds`.
+Sessions: `ActiveBlockSession.phaseStarts` (Next phase), `BlockSessionLog.phaseTimings`.
 - A block can contain sub-blocks (phases).
 - A phase can contain tasks.
 - Phases cannot contain phases.

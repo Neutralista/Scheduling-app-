@@ -111,6 +111,49 @@ fun phaseWindows(block: NamedBlock, activeTasks: List<BlockTask>, startMs: Long,
     }
 }
 
+/**
+ * The phase a session of [block] is in at [nowMs]: the last one started with Next phase
+ * ([phaseStarts]), or when none was, the one the plan has running now (phases back to back
+ * from the session's start).
+ */
+fun currentPhase(
+    block: NamedBlock,
+    activeTasks: List<BlockTask>,
+    startedAtMs: Long,
+    endMs: Long,
+    phaseStarts: Map<String, Long>,
+    nowMs: Long
+): BlockPhase? {
+    val started = block.phases.filter { it.id in phaseStarts }
+    if (started.isNotEmpty()) return started.maxByOrNull { phaseStarts.getValue(it.id) }
+    return phaseWindows(block, activeTasks, startedAtMs, endMs)
+        .firstOrNull { nowMs >= it.startMs && nowMs < it.endMs }?.phase
+}
+
+/**
+ * How a finished session's phases went. With phases started by hand, each runs from its start
+ * to the next one's (the last to [endedAtMs]); otherwise they're the planned windows from the
+ * session's start, cut off at its end.
+ */
+fun sessionPhaseTimings(
+    block: NamedBlock,
+    activeTasks: List<BlockTask>,
+    startedAtMs: Long,
+    endedAtMs: Long,
+    phaseStarts: Map<String, Long>
+): List<PhaseTiming> {
+    if (phaseStarts.isEmpty()) {
+        return phaseWindows(block, activeTasks, startedAtMs, endedAtMs)
+            .map { PhaseTiming(it.phase.id, it.phase.name, it.startMs, it.endMs) }
+    }
+    val started = block.phases.filter { it.id in phaseStarts }.sortedBy { phaseStarts.getValue(it.id) }
+    return started.mapIndexed { i, phase ->
+        val start = phaseStarts.getValue(phase.id)
+        val end = started.getOrNull(i + 1)?.let { phaseStarts.getValue(it.id) } ?: endedAtMs
+        PhaseTiming(phase.id, phase.name, start, maxOf(start, end))
+    }
+}
+
 /** The phase [task] belongs to on [block], or null if it's unphased or its phase was deleted. */
 fun BlockTask.phaseOf(block: NamedBlock): BlockPhase? =
     phaseId?.let { id -> block.phases.find { it.id == id } }?.takeIf { placement == BlockTaskPlacement.DURING }

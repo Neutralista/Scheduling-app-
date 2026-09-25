@@ -16,8 +16,15 @@ data class BlockSessionLog(
     val endedAtMs: Long,
     val tasksCompleted: Int,
     val tasksTotal: Int,
-    val taskMeasurements: List<BlockTaskMeasurement> = emptyList()
+    val taskMeasurements: List<BlockTaskMeasurement> = emptyList(),
+    /** How the block's phases actually went, in order; empty for a block without phases. */
+    val phaseTimings: List<PhaseTiming> = emptyList()
 )
+
+@Serializable
+data class PhaseTiming(val phaseId: String, val name: String, val startMs: Long, val endMs: Long) {
+    val minutes: Int get() = ((endMs - startMs) / 60_000L).toInt()
+}
 
 class BlockSessionLogStore(context: Context) {
 

@@ -74,6 +74,12 @@ import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
 import com.waypoint.app.planner.BlockTaskMeasurement
 import com.waypoint.app.planner.BlockTaskPlacement
+import com.waypoint.app.planner.phaseWindows
+import com.waypoint.app.planner.phaseOf
+import com.waypoint.app.planner.phaseLengthMinutes
+import com.waypoint.app.planner.currentPhase
+import com.waypoint.app.planner.BlockPhase
+import com.waypoint.app.planner.BlockTask
 import com.waypoint.app.planner.BlockedEvent
 import com.waypoint.app.planner.EventPlannerRegistry
 import com.waypoint.app.planner.NamedBlock
@@ -518,6 +524,9 @@ private fun BlockStartCard(
 
 // ── Block session card (active session) ───────────────────────────────────────
 
+/** A heading in the session checklist and its tasks; [isCurrent] marks the phase that's on. */
+private data class TaskGroup(val label: String, val tasks: List<BlockTask>, val isCurrent: Boolean = false)
+
 @Composable
 private fun BlockSessionCard(
     session: ActiveBlockSession,
@@ -566,6 +575,60 @@ private fun BlockSessionCard(
             delay(60_000L)
             remainingMs = session.scheduledEndMs - System.currentTimeMillis()
         }
+    }
+
+    // ── Phases ──────────────────────────────────────────────────────────────
+    val sessionBlock = remember(session.blockId) { namedBlockStore.loadBlock(session.blockId) }
+    var nowForPhase by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(session) {
+        while (true) {
+            nowForPhase = System.currentTimeMillis()
+            delay(30_000L)
+        }
+    }
+    val currentPhase = sessionBlock?.let {
+        currentPhase(it, activeTasks, session.startedAtMs, session.scheduledEndMs, session.phaseStarts, nowForPhase)
+    }
+    // Next phase after the current one; with none current, the first not yet started.
+    val nextPhase = sessionBlock?.phases?.let { phases ->
+        if (currentPhase != null) phases.getOrNull(phases.indexOf(currentPhase) + 1)
+        else phases.firstOrNull { it.id !in session.phaseStarts }
+    }
+    // When the current phase ends: its planned window, or from when Next phase started it.
+    val currentPhaseEndMs = currentPhase?.let { phase ->
+        session.phaseStarts[phase.id]?.let { it + phaseLengthMinutes(phase, activeTasks) * 60_000L }
+            ?: sessionBlock?.let { b ->
+                phaseWindows(b, activeTasks, session.startedAtMs, session.scheduledEndMs)
+                    .find { it.phase.id == phase.id }?.endMs
+            }
+    }
+    fun goToPhase(target: BlockPhase) {
+        val block = sessionBlock ?: return
+        val now = System.currentTimeMillis()
+        // First manual step: keep the phases the plan already ran, at their planned starts.
+        if (session.phaseStarts.isEmpty()) {
+            phaseWindows(block, activeTasks, session.startedAtMs, session.scheduledEndMs)
+                .takeWhile { it.phase.id != target.id }
+                .forEach { blockSessionStore.startPhase(it.phase.id, minOf(it.startMs, now)) }
+        }
+        blockSessionStore.startPhase(target.id, now)
+    }
+    // Checklist groups: before, during (unphased, then each phase in order), after.
+    val taskGroups = buildList {
+        val byPlacement = activeTasks.groupBy { it.placement }
+        byPlacement[BlockTaskPlacement.BEFORE]?.let { add(TaskGroup("Before block", it)) }
+        val during = byPlacement[BlockTaskPlacement.DURING].orEmpty()
+        val block = sessionBlock
+        if (block == null || block.phases.isEmpty()) {
+            if (during.isNotEmpty()) add(TaskGroup("During block", during))
+        } else {
+            during.filter { it.phaseOf(block) == null }.takeIf { it.isNotEmpty() }?.let { add(TaskGroup("During block", it)) }
+            block.phases.forEach { phase ->
+                val inPhase = during.filter { it.phaseOf(block)?.id == phase.id }
+                if (inPhase.isNotEmpty()) add(TaskGroup(phase.name, inPhase, isCurrent = phase.id == currentPhase?.id))
+            }
+        }
+        byPlacement[BlockTaskPlacement.AFTER]?.let { add(TaskGroup("After block", it)) }
     }
 
     // Task timer state for useMeasuredDuration tasks
@@ -670,6 +733,42 @@ private fun BlockSessionCard(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
         )
 
+        // Phase bar: which phase is on, how long it has left, and Next.
+        if (!completionMode && sessionBlock != null && sessionBlock.phases.isNotEmpty() &&
+            (currentPhase != null || nextPhase != null)) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val phaseText = when {
+                    currentPhase != null -> {
+                        val left = currentPhaseEndMs?.let { ((it - nowForPhase) / 60_000L).toInt() }
+                        currentPhase.name + when {
+                            left == null -> ""
+                            left > 0 -> " · ${left}m left"
+                            else -> " · over time"
+                        }
+                    }
+                    else -> "No phase running"
+                }
+                Text(
+                    phaseText,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = accentColor,
+                    modifier = Modifier.weight(1f)
+                )
+                if (nextPhase != null) {
+                    TextButton(onClick = { goToPhase(nextPhase) }) {
+                        Text(
+                            if (currentPhase == null) "Start ${nextPhase.name}" else "Next: ${nextPhase.name}",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+        }
+
         if (!completionMode) {
             // Active mode: show today's tasks as informational checklist
             val sectionLabel = "Set tasks for today"
@@ -687,20 +786,16 @@ private fun BlockSessionCard(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
             } else {
-                BlockTaskPlacement.entries.forEach { placement ->
-                    val tasksForPlacement = activeTasks
-                        .filter { it.placement == placement && !taskManager.completions.isSkipped(it.id) }
+                taskGroups.forEach { group ->
+                    val tasksForPlacement = group.tasks
+                        .filter { !taskManager.completions.isSkipped(it.id) }
                         .sortedBy { it.sequence ?: Int.MAX_VALUE }
                     if (tasksForPlacement.isEmpty()) return@forEach
-                    val placementLabel = when (placement) {
-                        BlockTaskPlacement.BEFORE -> "Before block"
-                        BlockTaskPlacement.DURING -> "During block"
-                        BlockTaskPlacement.AFTER  -> "After block"
-                    }
                     Text(
-                        text = placementLabel,
+                        text = if (group.isCurrent) "${group.label} · now" else group.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = accentColor.copy(alpha = 0.55f),
+                        fontWeight = if (group.isCurrent) FontWeight.SemiBold else null,
+                        color = accentColor.copy(alpha = if (group.isCurrent) 1f else 0.55f),
                         modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp)
                     )
                     tasksForPlacement.forEach { task ->
