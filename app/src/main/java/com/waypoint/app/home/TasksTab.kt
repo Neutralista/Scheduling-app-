@@ -508,7 +508,14 @@ fun TasksTab(
                     )
                 }
                 when {
-                    session != null -> Unit
+                    // Started by mistake: drop the session unlogged, back to planned.
+                    session != null && blockSessionStore != null -> TextButton(onClick = {
+                        blockSessionStore.cancelSession()
+                        refreshKey++
+                        onRefresh()
+                    }) {
+                        Text("Undo start", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                    }
                     ran != null -> TextButton(onClick = { resetBlockToday(id) }) {
                         Text("Reset", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
                     }

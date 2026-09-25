@@ -102,6 +102,18 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
         AppLogger.i(TAG, "endSession: measurements=${taskMeasurements.size}")
     }
 
+    /**
+     * Undo start: throws the running session away without logging it, for a block started by
+     * mistake, so it's back to planned instead of held at a minute-long run.
+     */
+    fun cancelSession() {
+        val current = loadFromPrefs() ?: return
+        prefs.edit().remove("active").apply()
+        sessionFlow.value = null
+        BlockNotificationHelper.cancelSessionLiveNotification(appContext)
+        AppLogger.i(TAG, "cancelSession: blockId=${current.blockId}, not logged")
+    }
+
     /** Ends the running session if it's [blockId]'s, counting its ticked-off tasks. */
     fun endIfBlock(blockId: String) {
         val session = loadFromPrefs()?.takeIf { it.blockId == blockId } ?: return
