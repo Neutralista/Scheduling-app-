@@ -157,6 +157,7 @@ fun BlocksTab(
             items(allBlocks, key = { "block_${it.id}" }) { block ->
                 ExpandableBlockCard(
                     block = block,
+                    onEnabledChange = { on -> namedBlockStore.setEnabled(block.id, on); refreshKey++ },
                     namedBlockStore = namedBlockStore,
                     parentRefreshKey = refreshKey,
                     onEdit = { editBlock = block },
@@ -270,7 +271,8 @@ private fun ExpandableBlockCard(
     onEditTask: (BlockTask) -> Unit,
     onDeleteTask: (String) -> Unit,
     onTaskIsAlwaysToggled: (BlockTask) -> Unit,
-    onMoveTask: (BlockTask, Int) -> Unit
+    onMoveTask: (BlockTask, Int) -> Unit,
+    onEnabledChange: (Boolean) -> Unit
 ) {
     var expanded by remember(block.id) { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -365,11 +367,17 @@ private fun ExpandableBlockCard(
                         }
                     }
                     Text(
-                        text = "$durLabel · $scheduleLabel",
+                        text = if (block.enabled) "$durLabel · $scheduleLabel" else "Off · $durLabel · $scheduleLabel",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
+                // On/off for the whole block, like sleep's: off pauses it without losing anything.
+                Switch(
+                    checked = block.enabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

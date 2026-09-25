@@ -185,6 +185,11 @@ Two scheduling modes:
 
 `NamedBlockStore.resolveForDate(date)` → `List<Pair<NamedBlock, NamedBlockSchedule>>` (fixed blocks only — floating blocks are resolved by the planner).
 
+`NamedBlock.enabled` (Blocks tab switch, `NamedBlockStore.setEnabled`) pauses a whole block: `resolveForDate`,
+`resolveFloatingInstancesForDate` and every floating-block filter skip it, so it isn't planned, alerted or offered.
+Tasks tab "Reset" on a block done or skipped today deletes today's `BlockSessionLog`s, unticks its tasks and
+`unskipForDate`s it.
+
 `EventPlannerRegistry.planForDate(...)` accepts `namedBlockInstances` (fixed) and `floatingBlocks` separately. It:
 1. Places floating blocks first (greedy first-fit, priority order) into `remaining` free slots.
 2. Injects each block's `activeTasks` into `allSchedulable` as `PlannerEvent` entries with synthesised `EventCondition.BeforeBlock` / `DuringBlock` / `AfterBlock` conditions and `sourceWidgetId = "__block__${blockId}"`.

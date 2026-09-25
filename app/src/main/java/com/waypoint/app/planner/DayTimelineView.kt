@@ -189,7 +189,7 @@ fun DayTimelineView(
     // A floating block that's running or already done today is pinned at its real times and
     // treated like a fixed block; only the rest are left for the planner to place.
     val floatingSplit = remember(date, refreshKey, localRefreshKey, activeSession) {
-        (namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }?.map { block ->
+        (namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && it.enabled && !namedBlockStore.isSkippedForDate(it.id, date) }?.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         } ?: emptyList()).pinnedBySessions(date, activeSession, blockLogStore)
@@ -246,7 +246,7 @@ fun DayTimelineView(
     }
     val nextDayFloatingInstances = remember(date, refreshKey) {
         val nextDate = date.plusDays(1)
-        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, nextDate) }?.map { block ->
+        namedBlockStore?.loadAllBlocks()?.filter { it.isFloating && it.enabled && !namedBlockStore.isSkippedForDate(it.id, nextDate) }?.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, nextDate).withMeasuredDurations(blockLogStore))
         } ?: emptyList()

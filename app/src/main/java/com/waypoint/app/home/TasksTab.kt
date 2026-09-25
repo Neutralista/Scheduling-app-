@@ -72,6 +72,7 @@ import com.waypoint.app.integration.openTrainingAppWorkout
 import com.waypoint.app.integration.trainingAppWorkoutId
 import com.waypoint.app.planner.ActiveBlockSession
 import com.waypoint.app.planner.BlockSessionStore
+import com.waypoint.app.planner.BlockSessionLogStore
 import com.waypoint.app.planner.BlockTaskMeasurement
 import com.waypoint.app.planner.BlockTaskPlacement
 import com.waypoint.app.planner.phaseWindows
@@ -210,6 +211,36 @@ fun TasksTab(
     val doneItems = todoItems.filter { it.event.id in doneIds }
     var showDone by remember { mutableStateOf(false) }
 
+    val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
+    val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
+
+    // ── Blocks already run or skipped today, and Reset ──
+    val blockLogStore = remember { BlockSessionLogStore(context) }
+    // Re-read when a session ends, too: it's just been logged.
+    val blockLogsToday = remember(refreshKey, activeSession) {
+        blockLogStore.loadAll().filter { it.date == today.toString() }.groupBy { it.blockId }
+    }
+    val skippedBlocksToday = remember(refreshKey) {
+        namedBlockStore.loadAllBlocks().filter { it.enabled && namedBlockStore.isSkippedForDate(it.id, today) }
+    }
+    /**
+     * Like sleep's Reset: forgets today's run of a block — its logged session(s), the ticks on
+     * its tasks — and a skip, so it's back to planned for today.
+     */
+    fun resetBlockToday(blockId: String) {
+        blockLogStore.loadAll()
+            .filter { it.blockId == blockId && it.date == today.toString() }
+            .forEach { blockLogStore.deleteEntry(blockId, it.startedAtMs) }
+        namedBlockStore.resolveActiveTasks(blockId, today).forEach { task ->
+            if (taskManager.isDone(task.id)) taskManager.unmarkDone(task.id)
+            if (taskManager.isSkipped(task.id)) taskManager.unskipTask(task.id)
+        }
+        namedBlockStore.unskipForDate(blockId, today)
+        doneIds = taskManager.completions.getDoneIds()
+        refreshKey++
+        onRefresh()
+    }
+
     // ── Row actions ──
     fun isPlain(se: ScheduledEvent) = se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID
     fun toggle(se: ScheduledEvent) {
@@ -262,8 +293,6 @@ fun TasksTab(
         onRefresh()
     }
 
-    val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
-    val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         // ── Header: what's left today, and Add ────────────────────────────
@@ -321,16 +350,44 @@ fun TasksTab(
                     onRefresh = onRefresh
                 )
             } else {
+                // A block already done today shows when it ran, with Reset; one not yet, Start.
                 (todayFixedBlocks + todayScheduledFloatingBlocks).forEach { inst ->
+                    val ran = blockLogsToday[inst.block.id]
+                    if (ran != null) {
+                        BlockStartCard(
+                            blockName = inst.block.name,
+                            colorArgb = inst.block.colorArgb,
+                            startMs = ran.minOf { it.startedAtMs },
+                            endMs = ran.maxOf { it.endedAtMs },
+                            statusPrefix = "Done ",
+                            actionLabel = "Reset",
+                            actionIsReset = true,
+                            onStart = { resetBlockToday(inst.block.id) }
+                        )
+                    } else {
+                        BlockStartCard(
+                            blockName = inst.block.name,
+                            colorArgb = inst.block.colorArgb,
+                            startMs = inst.scheduledStartMs,
+                            endMs = inst.estimatedEndMs,
+                            onStart = {
+                                val now = System.currentTimeMillis()
+                                blockSessionStore.startSession(inst.block, now + namedBlockStore.plannedDurationMs(inst.block, today), today, now)
+                            }
+                        )
+                    }
+                }
+                // Skipped today: Reset puts it back.
+                skippedBlocksToday.forEach { block ->
                     BlockStartCard(
-                        blockName = inst.block.name,
-                        colorArgb = inst.block.colorArgb,
-                        startMs = inst.scheduledStartMs,
-                        endMs = inst.estimatedEndMs,
-                        onStart = {
-                            val now = System.currentTimeMillis()
-                            blockSessionStore.startSession(inst.block, now + namedBlockStore.plannedDurationMs(inst.block, today), today, now)
-                        }
+                        blockName = block.name,
+                        colorArgb = block.colorArgb,
+                        startMs = null,
+                        endMs = null,
+                        statusPrefix = "Skipped today",
+                        actionLabel = "Reset",
+                        actionIsReset = true,
+                        onStart = { resetBlockToday(block.id) }
                     )
                 }
             }
@@ -342,8 +399,9 @@ fun TasksTab(
         val skippedTasks = remember(refreshKey, allTasks) { allTasks.filter { taskManager.isSkipped(it.id) } }
         val hasAny = todoItems.isNotEmpty() || blockedTasks.isNotEmpty() || skippedTasks.isNotEmpty()
         if (!hasAny) {
+            // Tapping anywhere in the empty list adds a task.
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().clickable { showAdd = true },
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -354,7 +412,7 @@ fun TasksTab(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Tap + Add to create a task",
+                    "Tap here to add a task",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -454,6 +512,24 @@ fun TasksTab(
                         )
                     }
                 }
+                // The free space under the list: tapping it adds a task.
+                item(key = "add_space") {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillParentMaxHeight(0.5f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showAdd = true },
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Text(
+                            "+ Tap to add a task",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -484,18 +560,32 @@ fun TasksTab(
 private fun BlockStartCard(
     blockName: String,
     colorArgb: Int?,
-    startMs: Long,
-    endMs: Long,
-    onStart: () -> Unit
+    startMs: Long?,
+    endMs: Long?,
+    onStart: () -> Unit,
+    /** Before the times ("Done "), or the whole status when there are none ("Skipped today"). */
+    statusPrefix: String = "",
+    actionLabel: String = "▶ Start",
+    actionIsReset: Boolean = false
 ) {
     val accentColor = colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
-    val timeFmt = "%02d:%02d".format(
-        Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.HOUR_OF_DAY),
-        Calendar.getInstance().apply { timeInMillis = startMs }.get(Calendar.MINUTE)
-    ) + " – " + "%02d:%02d".format(
-        Calendar.getInstance().apply { timeInMillis = endMs }.get(Calendar.HOUR_OF_DAY),
-        Calendar.getInstance().apply { timeInMillis = endMs }.get(Calendar.MINUTE)
-    )
+    val timeFmt = statusPrefix + if (startMs != null && endMs != null) {
+        formatShiftTime(startMs) + " – " + formatShiftTime(endMs)
+    } else ""
+    var confirmReset by remember { mutableStateOf(false) }
+    if (confirmReset) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset $blockName for today?") },
+            text = { Text("Its logged session, ticked tasks and any skip today are cleared, so it's back to planned.") },
+            confirmButton = {
+                TextButton(onClick = { confirmReset = false; onStart() }) {
+                    Text("Reset", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } }
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -523,7 +613,13 @@ private fun BlockStartCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
         )
         Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onStart) { Text("▶ Start") }
+        if (actionIsReset) {
+            TextButton(onClick = { confirmReset = true }) {
+                Text(actionLabel, color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+            }
+        } else {
+            TextButton(onClick = onStart) { Text(actionLabel) }
+        }
     }
 }
 
@@ -1087,7 +1183,7 @@ private fun writeDaySchedule(
 @Composable
 private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey: Int) {
     var localRefreshKey by remember { mutableIntStateOf(0) }
-    val fixedBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks().filter { !it.isFloating } }
+    val fixedBlocks = remember(refreshKey) { namedBlockStore.loadAllBlocks().filter { !it.isFloating && it.enabled } }
     if (fixedBlocks.isEmpty()) return
 
     var expanded by remember { mutableStateOf(false) }

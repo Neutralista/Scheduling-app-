@@ -146,12 +146,28 @@ class NamedBlockStore(private val context: Context) {
     fun isSkippedForDate(blockId: String, date: LocalDate): Boolean =
         getSchedule(blockId, date)?.enabled == false
 
+    /** Undoes [skipForDate]: the block is back on for [date] (any time change that day stays). */
+    fun unskipForDate(blockId: String, date: LocalDate) {
+        val existing = getSchedule(blockId, date) ?: return
+        if (existing.enabled) return
+        setSchedule(existing.copy(enabled = true))
+    }
+
+    /** Switches the whole block on or off; see [NamedBlock.enabled]. */
+    fun setEnabled(blockId: String, enabled: Boolean) {
+        val block = loadBlock(blockId) ?: return
+        if (block.enabled == enabled) return
+        if (!enabled) BlockSessionStore(context).endIfBlock(blockId)
+        saveBlock(block.copy(enabled = enabled))
+    }
+
     /** Returns all block instances that are active on [date], with their resolved start times. */
     fun resolveForDate(date: LocalDate): List<Pair<NamedBlock, NamedBlockSchedule>> {
         val dateStr = date.format(dateFmt)
         val dayOfWeek = date.dayOfWeek.value  // 1=Mon..7=Sun
         return loadAllBlocks().mapNotNull { block ->
             if (block.isFloating) return@mapNotNull null  // floating blocks are placed by the planner
+            if (!block.enabled) return@mapNotNull null    // switched off
             // Per-date override takes precedence
             val override = schedules.getString("${block.id}|$dateStr", null)?.let {
                 try { json.decodeFromString<NamedBlockSchedule>(it) } catch (_: Exception) { null }
@@ -179,6 +195,7 @@ class NamedBlockStore(private val context: Context) {
      * whether a floating block is actually scheduled on a given day.
      */
     fun isFloatingBlockPossibleOn(block: NamedBlock, date: LocalDate): Boolean {
+        if (!block.enabled) return false
         val dayOfWeek = date.dayOfWeek.value
         return block.floatingConditions.none { spec ->
             spec.type == "daysOfWeek" && spec.days?.let { dayOfWeek !in it } == true
@@ -312,7 +329,7 @@ class NamedBlockStore(private val context: Context) {
      *  skipped for this date (see [skipForDate]) — floating blocks have no schedule record to
      *  disable, so this is the only place their skip actually takes effect. */
     fun resolveFloatingInstancesForDate(date: LocalDate): List<NamedBlockInstance> =
-        loadAllBlocks().filter { it.isFloating && !isSkippedForDate(it.id, date) }.map { block ->
+        loadAllBlocks().filter { it.isFloating && it.enabled && !isSkippedForDate(it.id, date) }.map { block ->
             NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date))
         }
 }

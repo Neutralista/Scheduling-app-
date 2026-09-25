@@ -127,7 +127,7 @@ fun BlockScopeView(
 
     // A floating block that's running or already done today is pinned at its real times.
     val floatingSplit = remember(date, refreshKey, session) {
-        namedBlockStore.loadAllBlocks().filter { it.isFloating && !namedBlockStore.isSkippedForDate(it.id, date) }.map { block ->
+        namedBlockStore.loadAllBlocks().filter { it.isFloating && it.enabled && !namedBlockStore.isSkippedForDate(it.id, date) }.map { block ->
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }.pinnedBySessions(date, session, blockLogStore)

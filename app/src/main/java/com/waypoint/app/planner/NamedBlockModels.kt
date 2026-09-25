@@ -68,7 +68,12 @@ data class NamedBlock(
      * level only: a phase holds tasks ([BlockTask.phaseId]), never phases. They split the
      * block's window back to back from its start; time left after the last is unphased.
      */
-    val phases: List<BlockPhase> = emptyList()
+    val phases: List<BlockPhase> = emptyList(),
+    /**
+     * Off: the whole block is paused — not planned, no start alert, not offered to start — until
+     * switched back on. Its tasks, schedule and history are kept.
+     */
+    val enabled: Boolean = true
 )
 
 /**
