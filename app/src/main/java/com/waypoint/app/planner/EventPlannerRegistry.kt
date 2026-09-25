@@ -235,9 +235,10 @@ class EventPlannerRegistry {
         val remainingFloatingIds = earlyFloating.map { it.block.id }.toMutableSet()
 
         fun floatingBlockingDependency(inst: NamedBlockInstance): String? {
-            val beforeRef = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }?.blockId
-            val afterRef  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }?.blockId
-            return listOfNotNull(beforeRef, afterRef).firstOrNull { it in remainingFloatingIds }
+            return inst.block.floatingConditions
+                .filter { it.type == "beforeBlock" || it.type == "afterBlock" }
+                .mapNotNull { it.blockId }
+                .firstOrNull { it in remainingFloatingIds }
         }
 
         while (remainingFloatingIds.isNotEmpty()) {
@@ -261,34 +262,38 @@ class EventPlannerRegistry {
             val tw = inst.block.floatingConditions.firstOrNull { it.type == "timeWindow" }
             val aroundCond = floatingEventConditions.filterIsInstance<EventCondition.AroundTime>().firstOrNull()
             val duringCalCond = floatingEventConditions.filterIsInstance<EventCondition.DuringCalEvent>().firstOrNull()
-            val afterCalCond = floatingEventConditions.filterIsInstance<EventCondition.AfterCalEvent>().firstOrNull()
-            val beforeCalCond = floatingEventConditions.filterIsInstance<EventCondition.BeforeCalEvent>().firstOrNull()
+            val afterCalConds = floatingEventConditions.filterIsInstance<EventCondition.AfterCalEvent>()
+            val beforeCalConds = floatingEventConditions.filterIsInstance<EventCondition.BeforeCalEvent>()
             val afterTaskCond = floatingEventConditions.filterIsInstance<EventCondition.AfterTask>().firstOrNull()
             val beforeTaskCond = floatingEventConditions.filterIsInstance<EventCondition.BeforeTask>().firstOrNull()
-            val beforeBlockCond = inst.block.floatingConditions.firstOrNull { it.type == "beforeBlock" }
-            val afterBlockCond  = inst.block.floatingConditions.firstOrNull { it.type == "afterBlock" }
+            // Every block / event tag counts, not just the first of each.
+            val beforeBlockConds = inst.block.floatingConditions.filter { it.type == "beforeBlock" }
+            val afterBlockConds  = inst.block.floatingConditions.filter { it.type == "afterBlock" }
+            fun placedBlock(refId: String?) = (namedBlockInstances + floatingResolved).find { it.block.id == refId }
 
             // Sleep/calendar-event/other-block bounds — everything a floating block can
             // reference that's knowable before floating tasks are placed. Task-relative bounds
             // (afterTask/beforeTask against a real task, sameDayAs/notSameDayAs) are handled by
             // Round 2's full generic machinery instead, via isTaskDependentBlock's classification.
-            val floatLowerBound = listOfNotNull(
-                afterBlockCond?.blockId?.let { refId -> (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.estimatedEndMs },
-                afterCalCond?.let { calendarEventBlocks[it.eventId]?.second },
+            val floatLowerBound = (
+                afterBlockConds.mapNotNull { placedBlock(it.blockId)?.estimatedEndMs } +
+                afterCalConds.mapNotNull { calendarEventBlocks[it.eventId]?.second } +
+                listOfNotNull(
                 afterTaskCond?.taskIds?.takeIf { TASK_REF_SLEEP in it }?.let { sleepEndBound }
-            ).maxOrNull()
+            )).maxOrNull()
             val floatEarliestStart = listOfNotNull(
                 floatLowerBound,
                 parseClockTime(tw?.start, 0, 0)?.let { (h, m) -> toMs(h, m) },
                 aroundCond?.let { toMs(it.anchorHour, it.anchorMinute) },
                 duringCalCond?.let { calendarEventBlocks[it.eventId]?.first }
             ).maxOrNull()
-            val floatUpperBound = listOfNotNull(
-                beforeBlockCond?.blockId?.let { refId -> (namedBlockInstances + floatingResolved).find { it.block.id == refId }?.scheduledStartMs },
-                beforeCalCond?.let { calendarEventBlocks[it.eventId]?.first },
+            val floatUpperBound = (
+                beforeBlockConds.mapNotNull { placedBlock(it.blockId)?.scheduledStartMs } +
+                beforeCalConds.mapNotNull { calendarEventBlocks[it.eventId]?.first } +
+                listOfNotNull(
                 beforeTaskCond?.taskIds?.takeIf { TASK_REF_SLEEP in it }?.let { sleepStartBound },
                 bedCapFor(inst.block.priority, floatEarliestStart)
-            ).minOrNull()
+            )).minOrNull()
 
             var placed = false
             if (duringCalCond != null) {
@@ -656,20 +661,20 @@ class EventPlannerRegistry {
                     .mapNotNull { calendarEventBlocks[it.eventId]?.first }.minOrNull()
                 val calMustStartAfter = event.conditions.filterIsInstance<EventCondition.AfterCalEvent>()
                     .mapNotNull { calendarEventBlocks[it.eventId]?.second }.maxOrNull()
-                val beforeBlock = event.conditions.filterIsInstance<EventCondition.BeforeBlock>().firstOrNull()
-                val afterBlock  = event.conditions.filterIsInstance<EventCondition.AfterBlock>().firstOrNull()
-                val blockMustEndBefore = beforeBlock?.let { cond ->
+                // Every block tag counts; one whose block isn't on today holds the event back.
+                val beforeBlocks = event.conditions.filterIsInstance<EventCondition.BeforeBlock>()
+                val afterBlocks  = event.conditions.filterIsInstance<EventCondition.AfterBlock>()
+                val beforeBlockStarts = beforeBlocks.map { cond ->
                     scheduled.find { it.event.id == "$blockEventPrefix${cond.blockId}" }?.startMillis
                 }
-                val blockMustStartAfter = afterBlock?.let { cond ->
+                val afterBlockEnds = afterBlocks.map { cond ->
                     scheduled.find { it.event.id == "$blockEventPrefix${cond.blockId}" }?.endMillis
                 }
-                if (beforeBlock != null && blockMustEndBefore == null) {
+                if (null in beforeBlockStarts || null in afterBlockEnds) {
                     blocked += BlockedEvent(event, "Named block not scheduled today"); continue
                 }
-                if (afterBlock != null && blockMustStartAfter == null) {
-                    blocked += BlockedEvent(event, "Named block not scheduled today"); continue
-                }
+                val blockMustEndBefore = beforeBlockStarts.filterNotNull().minOrNull()
+                val blockMustStartAfter = afterBlockEnds.filterNotNull().maxOrNull()
                 val effectiveMustEndBefore = listOfNotNull(
                     mustEndBefore, calMustEndBefore, blockMustEndBefore
                 ).minOrNull()

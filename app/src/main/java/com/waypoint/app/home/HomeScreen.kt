@@ -1,5 +1,7 @@
 package com.waypoint.app.home
 
+import com.waypoint.app.planner.TagNames
+import com.waypoint.app.planner.conditionTagViews
 import android.content.Context
 import android.provider.CalendarContract
 import androidx.compose.foundation.Canvas
@@ -779,8 +781,23 @@ private fun PlanTab(
         val isBlockSubTask = subTaskBlockId != null
         val isRunning = taskManager.getRunningExecution()?.taskId == selPlanner.event.id
         val isDone = taskManager.completions.isDone(selPlanner.event.id)
+        val plannerTags = remember(selPlanner, taskReq) {
+            val conditions = when {
+                taskReq != null -> taskReq.conditions
+                isBlockTile && blockTileId != null ->
+                    namedBlockStore.loadBlock(blockTileId)?.takeIf { it.isFloating }?.floatingConditions.orEmpty()
+                isBlockSubTask -> namedBlockStore.loadTask(selPlanner.event.id)?.conditions.orEmpty()
+                else -> emptyList()
+            }
+            val tasks = taskManager.getAllTasks()
+            conditionTagViews(conditions, TagNames(
+                task = { id -> tasks.find { it.id == id }?.title },
+                block = { id -> allNamedBlocks.find { it.id == id }?.name }
+            ))
+        }
         TimelineEventDetailSheet(
             item = TimelineDetailItem.PlannerItem(selPlanner, taskReq),
+            tags = plannerTags,
             onDismiss = { selectedPlannerEvent = null },
             onEdit = when {
                 taskReq != null -> { { editingTask = taskReq; selectedPlannerEvent = null } }

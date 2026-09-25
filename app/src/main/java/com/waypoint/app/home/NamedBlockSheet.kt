@@ -82,8 +82,9 @@ import com.waypoint.app.planner.occursOn
 import com.waypoint.app.planner.withResolvedSequence
 import com.waypoint.app.signal.CalendarEvent
 import com.waypoint.app.ui.components.RecurrencePicker
-import com.waypoint.app.ui.components.RELATIVE_CONDITION_TYPES
-import com.waypoint.app.ui.components.RelativeConstraintsPicker
+import com.waypoint.app.ui.components.ConstraintTagBar
+import com.waypoint.app.ui.components.TimePickerChip
+import com.waypoint.app.planner.ConstraintTags
 import com.waypoint.app.ui.components.toOpaqueColor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -196,26 +197,9 @@ fun NamedBlockSheet(
         mutableStateOf(if (initial?.isFloating == true) BlockSchedulingMode.AUTO else BlockSchedulingMode.FIXED)
     }
 
-    // Repeats on a schedule (optional) — the full recurrence vocabulary (days of week, every N
-    // days/weeks/months, N times per period, one-off) that fixed blocks and tasks already have,
-    // not just a bare days-of-week set. Off (null) by default so "any day" stays the simple path.
-    var autoRecurrenceRule by remember {
-        mutableStateOf<RecurrenceRule?>(
-            initial?.floatingConditions
-                ?.firstOrNull { it.type in setOf("daysOfWeek", "oneOff", "everyNDays", "everyNWeeks", "everyNMonths", "nTimesPerPeriod") }
-                ?.toEventCondition()?.let { cond ->
-                    when (cond) {
-                        is EventCondition.DaysOfWeek      -> RecurrenceRule.DaysOfWeek(cond.days.toList())
-                        is EventCondition.OneOff          -> RecurrenceRule.OneOff(cond.date)
-                        is EventCondition.EveryNDays      -> RecurrenceRule.EveryNDays(cond.n, cond.anchorDate)
-                        is EventCondition.EveryNWeeks     -> RecurrenceRule.EveryNWeeks(cond.n, cond.anchorDate)
-                        is EventCondition.EveryNMonths    -> RecurrenceRule.EveryNMonths(cond.n, cond.anchorDate)
-                        is EventCondition.NTimesPerPeriod -> RecurrenceRule.NTimesPerPeriod(cond.count, cond.periodDays, cond.anchorDate)
-                        else -> null
-                    }
-                }
-        )
-    }
+    // Auto-place tags (days, repeats, after/before, same day, not with, during): the same
+    // tag bar and model as tasks.
+    var autoTags by remember { mutableStateOf(ConstraintTags.fromSpecs(initial?.floatingConditions.orEmpty())) }
 
     // Time of day (optional) — mirrors AddTaskSheet's unified Any/Zone/Around/Between control:
     // "zone" is a loose Morning (first-fit, the scheduler's default anyway)/Evening (last-fit)
@@ -253,13 +237,6 @@ fun NamedBlockSheet(
     }
     var showAutoAfterPicker by remember { mutableStateOf(false) }
     var showAutoBeforePicker by remember { mutableStateOf(false) }
-
-    // Relative constraints (auto-place mode) — After/Before (sleep, tasks, calendar events,
-    // blocks), Same day as / Not with, During event: the same vocabulary AddTaskSheet's
-    // Constraints section already offers tasks, via the shared RelativeConstraintsPicker.
-    var autoRelativeConditions by remember {
-        mutableStateOf(initial?.floatingConditions?.filter { it.type in RELATIVE_CONDITION_TYPES } ?: emptyList())
-    }
 
     // Tasks
     val tasks = remember {
@@ -315,15 +292,6 @@ fun NamedBlockSheet(
                             }
                         }
                         val autoConditions: List<TaskConditionSpec> = if (schedulingMode == BlockSchedulingMode.AUTO) buildList {
-                            when (val r = autoRecurrenceRule) {
-                                is RecurrenceRule.DaysOfWeek      -> if (r.days.isNotEmpty()) add(TaskConditionSpec("daysOfWeek", days = r.days.sorted()))
-                                is RecurrenceRule.OneOff          -> add(TaskConditionSpec("oneOff", oneOffDate = r.date))
-                                is RecurrenceRule.EveryNDays      -> add(TaskConditionSpec("everyNDays", intervalN = r.n, anchorDate = r.anchorDate))
-                                is RecurrenceRule.EveryNWeeks     -> add(TaskConditionSpec("everyNWeeks", intervalN = r.n, anchorDate = r.anchorDate))
-                                is RecurrenceRule.EveryNMonths    -> add(TaskConditionSpec("everyNMonths", intervalN = r.n, anchorDate = r.anchorDate))
-                                is RecurrenceRule.NTimesPerPeriod -> add(TaskConditionSpec("nTimesPerPeriod", occurrenceCount = r.count, intervalN = r.periodDays, anchorDate = r.anchorDate))
-                                null -> Unit
-                            }
                             if (autoTimeMode == "around" && autoAroundTime != null) {
                                 add(TaskConditionSpec("aroundTime", start = autoAroundTime, flexMinutes = autoAroundFlexMinutes))
                             } else if (autoTimeMode == "window" && (autoAfterEnabled || autoBeforeEnabled)) {
@@ -333,7 +301,7 @@ fun NamedBlockSheet(
                                     end   = if (autoBeforeEnabled) "%02d:%02d".format(autoBeforeHour, autoBeforeMinute) else null
                                 ))
                             }
-                            addAll(autoRelativeConditions)
+                            addAll(autoTags.toSpecs())
                         } else emptyList()
                         val fixedRule = if (schedulingMode == BlockSchedulingMode.FIXED) recurrenceRule else null
                         val block = NamedBlock(
@@ -725,26 +693,6 @@ fun NamedBlockSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
-                                // Repeats on a schedule (optional) — off by default (any day
-                                // whenever there's room); switching it on reveals the full
-                                // recurrence picker (days of week, every N days/weeks/months,
-                                // N times per period, one-off) shared with fixed blocks and tasks.
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Switch(
-                                            checked = autoRecurrenceRule != null,
-                                            onCheckedChange = { on ->
-                                                autoRecurrenceRule = if (on) RecurrenceRule.DaysOfWeek(emptyList()) else null
-                                            }
-                                        )
-                                        Text("Repeat on a schedule (optional)", style = MaterialTheme.typography.bodyMedium)
-                                    }
-                                    autoRecurrenceRule?.let { rule ->
-                                        RecurrencePicker(value = rule, onChange = { autoRecurrenceRule = it })
-                                    }
-                                }
-
                                 // Time of day (optional) — Any / Morning / Evening / Around a time / Between two times
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Time of day (optional)", style = MaterialTheme.typography.labelSmall,
@@ -845,40 +793,47 @@ fun NamedBlockSheet(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
-                                        Row(verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Switch(checked = autoAfterEnabled, onCheckedChange = { autoAfterEnabled = it })
-                                            Text("After", style = MaterialTheme.typography.bodyMedium)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
                                             if (autoAfterEnabled) {
-                                                TextButton(onClick = { showAutoAfterPicker = true }) {
-                                                    Text("%02d:%02d".format(autoAfterHour, autoAfterMinute))
-                                                }
+                                                TimePickerChip(
+                                                    value = "%02d:%02d".format(autoAfterHour, autoAfterMinute),
+                                                    onValueChange = { v ->
+                                                        v.split(":").let { autoAfterHour = it[0].toInt(); autoAfterMinute = it[1].toInt() }
+                                                    }
+                                                )
+                                            } else {
+                                                FilterChip(selected = false, onClick = { showAutoAfterPicker = true }, label = { Text("+ From") })
                                             }
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Switch(checked = autoBeforeEnabled, onCheckedChange = { autoBeforeEnabled = it })
-                                            Text("Before", style = MaterialTheme.typography.bodyMedium)
+                                            Text("to", style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             if (autoBeforeEnabled) {
-                                                TextButton(onClick = { showAutoBeforePicker = true }) {
-                                                    Text("%02d:%02d".format(autoBeforeHour, autoBeforeMinute))
-                                                }
+                                                TimePickerChip(
+                                                    value = "%02d:%02d".format(autoBeforeHour, autoBeforeMinute),
+                                                    onValueChange = { v ->
+                                                        v.split(":").let { autoBeforeHour = it[0].toInt(); autoBeforeMinute = it[1].toInt() }
+                                                    }
+                                                )
+                                            } else {
+                                                FilterChip(selected = false, onClick = { showAutoBeforePicker = true }, label = { Text("+ To") })
                                             }
                                         }
                                     }
                                 }
 
-                                // Relative constraints (optional) — same vocabulary as the Tasks
-                                // wizard: after/before sleep, tasks, calendar events, or another
-                                // block (fixed or auto-placed); same-day-as / not-with; during event.
+                                // Tags — the same tag bar as tasks: days, repeats, after/before
+                                // (sleep, tasks, blocks, calendar events), same day as, not with,
+                                // during an event.
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Relative to (optional)", style = MaterialTheme.typography.labelSmall,
+                                    Text("Tags (optional)", style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    RelativeConstraintsPicker(
-                                        conditions = autoRelativeConditions,
-                                        onConditionsChange = { autoRelativeConditions = it },
-                                        availableTasks = availableTasks,
-                                        availableBlocks = availableBlocksForTasks,
+                                    ConstraintTagBar(
+                                        tags = autoTags,
+                                        onChange = { autoTags = it },
+                                        tasks = availableTasks,
+                                        blocks = availableBlocksForTasks,
                                         calendarEvents = calendarEvents
                                     )
                                 }
@@ -1013,7 +968,7 @@ fun NamedBlockSheet(
             initialHour = autoAfterHour,
             initialMinute = autoAfterMinute,
             onDismiss = { showAutoAfterPicker = false },
-            onConfirm = { h, m -> autoAfterHour = h; autoAfterMinute = m; showAutoAfterPicker = false }
+            onConfirm = { h, m -> autoAfterHour = h; autoAfterMinute = m; autoAfterEnabled = true; showAutoAfterPicker = false }
         )
     }
 
@@ -1023,7 +978,7 @@ fun NamedBlockSheet(
             initialHour = autoBeforeHour,
             initialMinute = autoBeforeMinute,
             onDismiss = { showAutoBeforePicker = false },
-            onConfirm = { h, m -> autoBeforeHour = h; autoBeforeMinute = m; showAutoBeforePicker = false }
+            onConfirm = { h, m -> autoBeforeHour = h; autoBeforeMinute = m; autoBeforeEnabled = true; showAutoBeforePicker = false }
         )
     }
 

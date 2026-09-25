@@ -1,5 +1,7 @@
 package com.waypoint.app.home
 
+import com.waypoint.app.planner.TagView
+import com.waypoint.app.ui.components.TagSummary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +73,8 @@ fun TimelineEventDetailSheet(
     onPlan: (() -> Unit)? = null,
     onSleepMode: (() -> Unit)? = null,
     isSleepModeActive: Boolean = false,
+    /** Its tags (time of day, days, repeats, after/before, …), shown under its details. */
+    tags: List<TagView> = emptyList(),
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val deleteTitle = when (item) {
@@ -99,6 +103,10 @@ fun TimelineEventDetailSheet(
                     CalEventContent(item.event)
                 is TimelineDetailItem.PlannerItem ->
                     PlannerContent(item.scheduled, item.task)
+            }
+            if (tags.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                TagSummary(tags)
             }
 
             // Primary action buttons (start / complete / start block / sleep mode)

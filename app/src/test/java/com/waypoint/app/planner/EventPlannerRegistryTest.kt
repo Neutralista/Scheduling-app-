@@ -288,4 +288,35 @@ class EventPlannerRegistryTest {
         val a = plan.scheduled.first { it.event.id == "a" }
         assertTrue(a.endMillis <= ms(day, 9, 5) || a.startMillis >= ms(day, 9, 25))
     }
+
+    @Test
+    fun floatingBlock_honoursEveryEventTag_notJustTheFirst() {
+        val walk = NamedBlockInstance(
+            NamedBlock(
+                id = "walk", name = "Walk", estimatedMinutes = 60, isFloating = true,
+                floatingConditions = listOf(
+                    TaskConditionSpec("afterCalEvent", calendarEventId = 1L),
+                    TaskConditionSpec("afterCalEvent", calendarEventId = 2L)
+                )
+            ),
+            0L, 0L
+        )
+        val plan = registry().planForDate(
+            day,
+            calendarEventBlocks = mapOf(1L to (ms(day, 10) to ms(day, 11)), 2L to (ms(day, 14) to ms(day, 15))),
+            floatingBlocks = listOf(walk)
+        )
+        assertEquals(ms(day, 15), plan.startOf("__block__walk"))
+    }
+
+    @Test
+    fun task_afterTwoBlocks_startsAfterTheLaterOne() {
+        val a = NamedBlockInstance(NamedBlock(id = "a", name = "A"), ms(day, 9), ms(day, 10))
+        val b = NamedBlockInstance(NamedBlock(id = "b", name = "B"), ms(day, 12), ms(day, 13))
+        val r = registry().apply {
+            register(task("t", 30, 9, EventCondition.AfterBlock("a"), EventCondition.AfterBlock("b")))
+        }
+        val plan = r.planForDate(day, namedBlockInstances = listOf(a, b))
+        assertEquals(ms(day, 13), plan.startOf("t"))
+    }
 }

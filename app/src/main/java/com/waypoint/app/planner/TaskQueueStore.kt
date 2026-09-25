@@ -32,7 +32,9 @@ data class TaskConditionSpec(
     val anchorDate: String? = null,
     val oneOffDate: String? = null,
     val occurrenceCount: Int? = null,
-    val flexMinutes: Int? = null
+    val flexMinutes: Int? = null,
+    /** What the tag referred to when it was made (a calendar event's title), for its label. */
+    val label: String? = null
 ) {
     fun toEventCondition(): EventCondition? = when (type) {
         "timeWindow"     -> {

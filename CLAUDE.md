@@ -213,6 +213,16 @@ Block events in `plan.scheduled` use `EventCategory.BLOCK` and `id = "__block__$
 **Notification / alarm flow for blocks:**
 `BlockAlarmScheduler` → `AlarmManager.setExactAndAllowWhileIdle` → fires `BlockStartReceiver` (`ACTION_BLOCK_START`) → posts "starts now" notification via `BlockNotificationHelper` → user taps "Proceed" → `BlockStartReceiver` (`ACTION_PROCEED_BLOCK`) → `startSession()`.
 
+## Tags (constraints)
+
+Tasks, block tasks and auto-placed blocks share one tag model and editor: `planner/ConstraintTags`
+(`fromSpecs` / `toSpecs` over `TaskConditionSpec`; days, repeats, after/before task·sleep·block·event,
+same day as, not with, during event) and `ui/components/ConstraintTagBar`. Time of day stays each
+sheet's own section. Calendar-event tags offer the next 14 days of events and store the event's title in
+`TaskConditionSpec.label`. `conditionTagViews` labels saved conditions; `TagSummary` shows them under
+items (Tasks tab, Blocks tab, timeline detail sheet). The planner honours every block and event tag
+(not only the first).
+
 ## Plan tab zoom levels
 
 `PlanZoomLevel` DAY → WEEK → MONTH → YEAR (`planner/PlanOverview.kt`). The Plan tab's `selectedDate`

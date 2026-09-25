@@ -121,6 +121,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import com.waypoint.app.planner.liveBlockInstances
 import com.waypoint.app.planner.planLiveDay
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.planner.TagNames
+import com.waypoint.app.planner.TagView
+import com.waypoint.app.planner.conditionTagViews
+import com.waypoint.app.ui.components.TagSummary
 import java.util.Calendar
 import java.util.Locale
 
@@ -187,6 +191,12 @@ fun TasksTab(
     }
     var doneIds by remember(refreshKey) { mutableStateOf(taskManager.completions.getDoneIds()) }
     val allTasks = remember(refreshKey) { taskManager.getAllTasks() }
+    val tagNames = remember(allTasks, availableBlocks) {
+        TagNames(
+            task = { id -> allTasks.find { it.id == id }?.title },
+            block = { id -> availableBlocks.find { it.id == id }?.name }
+        )
+    }
     // Tasks that are the target of at least one chain trigger from another task
     val chainTargetIds = remember(allTasks) {
         allTasks.flatMap { it.triggers }.map { it.chainTaskId }.toSet()
@@ -392,8 +402,15 @@ fun TasksTab(
             val plain = isPlain(se)
             val taskReq = if (plain) allTasks.find { it.id == se.event.id } else null
             val running = runningExecution?.taskId == se.event.id
+            // What it's tagged with (a block's task: its own tags, not its block placement).
+            val tags = remember(se.event.id, refreshKey) {
+                val conditions = taskReq?.conditions
+                    ?: if (!plain) namedBlockStore.loadTask(se.event.id)?.conditions.orEmpty() else emptyList()
+                conditionTagViews(conditions, tagNames)
+            }
             TodoRow(
                 se = se,
+                tags = tags,
                 blockName = chip,
                 blockColor = se.event.sourceWidgetId?.let { blockColors[it] }?.toOpaqueColor(),
                 done = se.event.id in doneIds,
@@ -2093,7 +2110,8 @@ private fun TodoRow(
     onSkip: () -> Unit,
     onDelete: (() -> Unit)?,
     onMarkDoneAt: (Long) -> Unit,
-    onLogPastExecution: (startMs: Long, endMs: Long) -> Unit
+    onLogPastExecution: (startMs: Long, endMs: Long) -> Unit,
+    tags: List<TagView> = emptyList()
 ) {
     val running = runningSinceMs != null
     var menuOpen by remember { mutableStateOf(false) }
@@ -2177,6 +2195,7 @@ private fun TodoRow(
                     )
                 }
             }
+            TagSummary(tags, Modifier.padding(top = 4.dp))
         }
         // Countdown (or the running timer, which stops when tapped); nothing once it's done.
         if (!done) {

@@ -60,6 +60,10 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.planner.TagNames
+import com.waypoint.app.planner.TagView
+import com.waypoint.app.planner.conditionTagViews
+import com.waypoint.app.ui.components.TagSummary
 import java.util.Calendar
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,6 +125,12 @@ fun BlocksTab(
     var taskRefreshKey by remember { mutableIntStateOf(0) }
     val allTasks = remember(taskRefreshKey, externalRefreshKey) { taskManager.getAllTasks() }
     var showAddAny by remember { mutableStateOf(false) }
+    val tagNames = remember(allTasks, allBlocks) {
+        TagNames(
+            task = { id -> allTasks.find { it.id == id }?.title },
+            block = { id -> allBlocks.find { it.id == id }?.name }
+        )
+    }
     var editTask by remember { mutableStateOf<TaskRequest?>(null) }
 
     LazyColumn(
@@ -157,6 +167,7 @@ fun BlocksTab(
             items(allBlocks, key = { "block_${it.id}" }) { block ->
                 ExpandableBlockCard(
                     block = block,
+                    tags = if (block.isFloating) conditionTagViews(block.floatingConditions, tagNames) else emptyList(),
                     onEnabledChange = { on -> namedBlockStore.setEnabled(block.id, on); refreshKey++ },
                     namedBlockStore = namedBlockStore,
                     parentRefreshKey = refreshKey,
@@ -203,6 +214,7 @@ fun BlocksTab(
             items(allTasks, key = { "ftask_${it.id}" }) { task ->
                 FloatingTaskRow(
                     task = task,
+                    tags = conditionTagViews(task.conditions, tagNames),
                     onEdit = { editTask = task },
                     onDelete = { taskManager.retractTask(task.id); taskRefreshKey++ }
                 )
@@ -285,7 +297,9 @@ private fun ExpandableBlockCard(
     onDeleteTask: (String) -> Unit,
     onTaskIsAlwaysToggled: (BlockTask) -> Unit,
     onMoveTask: (BlockTask, Int) -> Unit,
-    onEnabledChange: (Boolean) -> Unit
+    onEnabledChange: (Boolean) -> Unit,
+    /** An auto-placed block's tags, shown under its name. */
+    tags: List<TagView> = emptyList()
 ) {
     var expanded by remember(block.id) { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -310,12 +324,7 @@ private fun ExpandableBlockCard(
     val accent = block.colorArgb?.toOpaqueColor() ?: MaterialTheme.colorScheme.primary
 
     val scheduleLabel = when {
-        block.isFloating -> buildString {
-            append("Auto-place")
-            val conds = block.floatingConditions
-            val tw = conds.firstOrNull { it.type == "timeWindow" }
-            if (tw?.start != null || tw?.end != null) append(" · ${tw?.start ?: "–"}–${tw?.end ?: "–"}")
-        }
+        block.isFloating -> "Auto-place"
         block.recurringDays.isEmpty() -> "No schedule"
         else -> {
             val dayStr = block.recurringDays.sorted()
@@ -384,6 +393,7 @@ private fun ExpandableBlockCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
+                    TagSummary(tags, Modifier.padding(top = 4.dp))
                 }
                 // On/off for the whole block, like sleep's: off pauses it without losing anything.
                 Switch(
@@ -573,6 +583,7 @@ private fun BlockTaskRow(
 @Composable
 private fun FloatingTaskRow(
     task: TaskRequest,
+    tags: List<TagView>,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -590,13 +601,6 @@ private fun FloatingTaskRow(
         task.priority >= 4 -> MaterialTheme.colorScheme.secondary
         else               -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val conditionSummary = buildString {
-        if (task.conditions.any { it.type == "beforeShift" }) append("before shift · ")
-        if (task.conditions.any { it.type == "duringShift" }) append("during shift · ")
-        if (task.conditions.any { it.type == "afterShift" }) append("after shift · ")
-        val dow = task.conditions.firstOrNull { it.type == "daysOfWeek" }?.days
-        if (dow != null) append(dow.sorted().mapNotNull { BLOCKS_DAY_ABBREVS[it] }.joinToString("") + " · ")
-    }.trimEnd(' ', '·')
 
     Row(
         modifier = Modifier
@@ -620,13 +624,7 @@ private fun FloatingTaskRow(
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (conditionSummary.isNotEmpty()) {
-                Text(
-                    text = conditionSummary,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
+            TagSummary(tags, Modifier.padding(top = 4.dp))
         }
         Text(
             text = durationLabel(task.durationMinutes),
