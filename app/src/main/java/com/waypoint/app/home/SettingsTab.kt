@@ -111,7 +111,10 @@ fun SettingsTab(
     if (showModules && scriptsContent != null) {
         Dialog(
             onDismissRequest = { showModules = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            // Edge to edge, so the window covers the status and navigation bars and gets their
+            // sizes: without it the bars' insets read as zero in here, the + button (which pads
+            // for the navigation bar) sat under it, and the app showed through above and below.
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().statusBarsPadding()) {
