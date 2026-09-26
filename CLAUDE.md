@@ -22,7 +22,7 @@ Note: `./gradlew` is broken in this repo's shell — always use `bash gradlew`.
 (user scripts, `ScriptsTab`) open full-screen from Settings → Scripts. Notification `openTab` names map in
 `ScriptNotificationActionReceiver.tabNameToIndex`; "scripts"/"modules"/"widgets" open Settings.
 Every "add" entry point (Plan free slots, Tasks tab + Add / free space, Blocks tab section +) opens
-`AddAnythingSheet`: a Task · Block · Event choice, then that item's sheet (just a block task inside a block).
+`AddAnythingSheet`: a Task · Block · Event · Reminder choice, then that item's sheet (just a block task inside a block).
 
 `MainActivity` → `WaypointApplication.env: RealScriptEnvironment` is the single shared dependency container. Everything that needs a store or signal should pull it from `env`, not create its own instance. `blockSessionStore` in particular must always come from `env` — creating a second instance loses the shared `sessionFlow`.
 
@@ -226,6 +226,17 @@ The task sheet's "Happens: Once · Repeats" sets a floating task's one-off date 
 new tasks default to Once on `AddTaskSheet(defaultDate)` (the add chooser's day) or today. In Once mode the
 tag bar hides Days / Repeats; `TaskManagerScript.settleOneOffs` carries missed one-offs over and clears
 done ones the next day.
+
+## Reminders
+
+`planner/Reminders.kt`: `Reminder` (times a day, `rule` = `RecurrenceRule` — `OneOff` for once, null = every
+day — and `nagMinutes`), `ReminderStore` (`wp_reminders`, per-occurrence Done/Skipped in `wp_reminder_log`, key
+`"date|id|HH:MM"`). Not planned into the day. `notification/ReminderNotifications.kt`: `ReminderAlarms` arms
+one exact alarm per reminder (its next time), posts an ongoing high-importance notification (channel
+`waypoint_reminders`, sound + vibration) with Done / Skip; its delete intent re-posts it, and a nag alarm
+re-rings every `nagMinutes` until settled. `rescheduleAll` runs on launch, boot and after edits. Shown on the
+Tasks tab's to-do list (`ReminderRow`) and managed in the Blocks tab's Reminders section. (The older
+`notification/ReminderScheduler` only cancels a retired WorkManager job.)
 
 ## Plan tab zoom levels
 

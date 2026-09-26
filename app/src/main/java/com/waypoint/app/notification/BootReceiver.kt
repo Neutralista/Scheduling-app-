@@ -50,6 +50,8 @@ class BootReceiver : BroadcastReceiver() {
                     .onFailure { AppLogger.e(TAG, "onReceive: UserAlarmScheduler.scheduleAll failed", it) }
                 runCatching { app.scheduleBlockAlarms(context) }
                     .onFailure { AppLogger.e(TAG, "onReceive: scheduleBlockAlarms failed", it) }
+                runCatching { ReminderAlarms.rescheduleAll(context) }
+                    .onFailure { AppLogger.e(TAG, "onReceive: ReminderAlarms.rescheduleAll failed", it) }
                 // Alarms don't survive a reboot — without this, sleep mode armed before the
                 // restart would sit in MONITORING/SLEEPING with nothing checking it.
                 runCatching {

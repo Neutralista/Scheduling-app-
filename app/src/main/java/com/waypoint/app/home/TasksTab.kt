@@ -110,6 +110,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.text.style.TextOverflow
@@ -121,6 +122,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import com.waypoint.app.planner.liveBlockInstances
 import com.waypoint.app.planner.planLiveDay
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.notification.ReminderAlarms
+import com.waypoint.app.planner.Reminder
+import com.waypoint.app.planner.ReminderOccurrence
+import com.waypoint.app.planner.ReminderStatus
+import com.waypoint.app.planner.ReminderStore
+import com.waypoint.app.planner.remindersForDay
 import com.waypoint.app.planner.TagNames
 import com.waypoint.app.planner.TagView
 import com.waypoint.app.planner.conditionTagViews
@@ -237,6 +244,21 @@ fun TasksTab(
     }
     val openItems = todoItems.filter { it.event.id !in doneIds }
     val doneItems = todoItems.filter { it.event.id in doneIds }
+
+    // Reminders due today (and one-offs from before never done): open, done and skipped.
+    // Re-read every tick too, since Done / Skip can come from the notification.
+    val reminderStore = remember { ReminderStore(context) }
+    val reminderOccs = remember(refreshKey, tickMs / 15_000L) {
+        remindersForDay(reminderStore.loadAll(), today) { reminderStore.isSettled(it) }
+    }
+    val remindersOpen = reminderOccs.filter { reminderStore.status(it.key) == null }
+    val remindersDone = reminderOccs.filter { reminderStore.status(it.key) == ReminderStatus.DONE }
+    val remindersSkipped = reminderOccs.filter { reminderStore.status(it.key) == ReminderStatus.SKIPPED }
+    var editReminder by remember { mutableStateOf<Reminder?>(null) }
+    fun settleReminder(occ: ReminderOccurrence, status: ReminderStatus?) {
+        if (status == null) ReminderAlarms.undo(context, occ) else ReminderAlarms.settle(context, occ, status)
+        refreshKey++
+    }
     var showDone by remember { mutableStateOf(false) }
 
 
@@ -335,7 +357,7 @@ fun TasksTab(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "$headerDay · ${openItems.size} left · ${doneItems.size} done",
+                    text = "$headerDay · ${openItems.size + remindersOpen.size} left · ${doneItems.size + remindersDone.size} done",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -580,11 +602,13 @@ fun TasksTab(
         val blocksOpen = todayBlocks.filter { blockLogsToday[it.block.id] == null || activeSession?.blockId == it.block.id }
         val blocksDone = todayBlocks - blocksOpen.toSet()
         val openEntries: List<Pair<Long, Any>> =
-            (plainOpen.map { it.startMillis to it } + blocksOpen.map { it.startMs to it }).sortedBy { it.first }
+            (plainOpen.map { it.startMillis to it } + blocksOpen.map { it.startMs to it } +
+                remindersOpen.map { it.atMs to it }).sortedBy { it.first }
         val doneEntries: List<Pair<Long, Any>> =
-            (plainDone.map { it.startMillis to it } + blocksDone.map { it.startMs to it }).sortedBy { it.first }
+            (plainDone.map { it.startMillis to it } + blocksDone.map { it.startMs to it } +
+                remindersDone.map { it.atMs to it }).sortedBy { it.first }
         val hasAny = openEntries.isNotEmpty() || doneEntries.isNotEmpty() || blockedTasks.isNotEmpty() ||
-            skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty()
+            skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty() || remindersSkipped.isNotEmpty()
         if (!hasAny) {
             // Tapping anywhere in the empty list adds a task.
             Column(
@@ -599,7 +623,7 @@ fun TasksTab(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Tap here to add a task, block or event",
+                    "Tap here to add a task, block, event or reminder",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -610,11 +634,22 @@ fun TasksTab(
                 when (entry) {
                     is ScheduledEvent -> TodoItem(entry)
                     is TodayBlock -> BlockItem(entry)
+                    is ReminderOccurrence -> ReminderRow(
+                        occ = entry,
+                        done = reminderStore.status(entry.key) == ReminderStatus.DONE,
+                        nowMs = tickMs,
+                        onToggle = {
+                            settleReminder(entry, if (reminderStore.status(entry.key) == ReminderStatus.DONE) null else ReminderStatus.DONE)
+                        },
+                        onSkip = { settleReminder(entry, ReminderStatus.SKIPPED) },
+                        onEdit = { editReminder = entry.reminder }
+                    )
                 }
             }
             fun entryKey(prefix: String, entry: Any) = prefix + when (entry) {
                 is ScheduledEvent -> "t_${entry.event.id}"
                 is TodayBlock -> "b_${entry.block.id}"
+                is ReminderOccurrence -> "r_${entry.key}"
                 else -> entry.hashCode().toString()
             }
             LazyColumn(
@@ -664,9 +699,15 @@ fun TasksTab(
                         )
                     }
                 }
-                if (skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty()) {
+                if (skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty() || remindersSkipped.isNotEmpty()) {
                     item(key = "skipped_header") {
-                        TodoSectionHeader(title = "Skipped (${skippedTasks.size + skippedBlocksToday.size})")
+                        TodoSectionHeader(title = "Skipped (${skippedTasks.size + skippedBlocksToday.size + remindersSkipped.size})")
+                    }
+                    items(remindersSkipped, key = { "kr_${it.key}" }) { occ ->
+                        SkippedTaskRow(
+                            title = "${occ.reminder.title} · ${occ.time}",
+                            onUnskip = { settleReminder(occ, null) }
+                        )
                     }
                     items(skippedBlocksToday, key = { "kb_${it.id}" }) { block ->
                         BlockItem(TodayBlock(block, 0L, 0L), skipped = true)
@@ -704,6 +745,13 @@ fun TasksTab(
         }
     }
 
+    editReminder?.let { r ->
+        ReminderSheet(
+            initial = r,
+            onDismiss = { editReminder = null },
+            onSaved = { editReminder = null; refreshKey++ }
+        )
+    }
     if (showAdd) {
         AddAnythingSheet(
             date = today,
@@ -2402,4 +2450,78 @@ private fun clockNow(): String {
 private fun formatShiftTime(millis: Long): String {
     val c = Calendar.getInstance().apply { timeInMillis = millis }
     return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+}
+
+/**
+ * A reminder on the to-do list: a tick for Done (tap again to undo), what it is and when it's
+ * due, a countdown, and Skip / Edit.
+ */
+@Composable
+private fun ReminderRow(
+    occ: ReminderOccurrence,
+    done: Boolean,
+    nowMs: Long,
+    onToggle: () -> Unit,
+    onSkip: () -> Unit,
+    onEdit: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val accent = MaterialTheme.colorScheme.tertiary
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (done) 0.25f else 0.5f))
+            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RoundCheckbox(checked = done, onClick = onToggle, size = 26.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.NotificationsActive,
+                    contentDescription = "Reminder",
+                    tint = if (done) accent.copy(alpha = 0.5f) else accent,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    occ.reminder.title,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    color = if (done) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val day = if (occ.date == LocalDate.now()) "" else occ.date.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())) + " "
+            Text(
+                "$day${occ.time} · reminder" + if (occ.reminder.note.isNotBlank()) " · ${occ.reminder.note}" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (!done) {
+            Spacer(Modifier.width(8.dp))
+            val c = todoCountdown(nowMs, occ.atMs, occ.atMs)
+            CountdownPill(
+                if (c.state == CountdownState.UPCOMING) c.label else "due",
+                if (c.state == CountdownState.UPCOMING) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+            )
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Default.MoreVert, "More for ${occ.reminder.title}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (!done) DropdownMenuItem(text = { Text("Skip") }, onClick = { menuOpen = false; onSkip() })
+                DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
+            }
+        }
+    }
 }

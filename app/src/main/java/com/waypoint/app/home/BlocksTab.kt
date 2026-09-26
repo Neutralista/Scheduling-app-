@@ -60,6 +60,10 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.notification.ReminderAlarms
+import com.waypoint.app.planner.Reminder
+import com.waypoint.app.planner.ReminderStore
+import com.waypoint.app.planner.recurrenceLabel
 import com.waypoint.app.planner.TagNames
 import com.waypoint.app.planner.TagView
 import com.waypoint.app.planner.conditionTagViews
@@ -125,6 +129,10 @@ fun BlocksTab(
     var taskRefreshKey by remember { mutableIntStateOf(0) }
     val allTasks = remember(taskRefreshKey, externalRefreshKey) { taskManager.getAllTasks() }
     var showAddAny by remember { mutableStateOf(false) }
+    val reminderStore = remember { ReminderStore(context) }
+    var reminderKey by remember { mutableIntStateOf(0) }
+    val reminders = remember(reminderKey, externalRefreshKey) { reminderStore.loadAll() }
+    var editReminder by remember { mutableStateOf<Reminder?>(null) }
     val tagNames = remember(allTasks, allBlocks) {
         TagNames(
             task = { id -> allTasks.find { it.id == id }?.title },
@@ -220,6 +228,39 @@ fun BlocksTab(
                 )
             }
         }
+
+        item(key = "reminders_divider") {
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+        }
+        item(key = "reminders_header") {
+            BlocksSectionHeader(title = "Reminders", onAdd = { showAddAny = true })
+        }
+        if (reminders.isEmpty()) {
+            item(key = "reminders_empty") {
+                BlocksEmptyHint("No reminders yet. Add one for medicine or anything else that needs a nudge at a set time.")
+            }
+        } else {
+            items(reminders, key = { "rem_${it.id}" }) { r ->
+                ReminderListRow(
+                    reminder = r,
+                    onClick = { editReminder = r },
+                    onEnabledChange = { on ->
+                        if (!on) ReminderAlarms.clear(context, r.id)
+                        reminderStore.save(r.copy(enabled = on))
+                        ReminderAlarms.rescheduleAll(context)
+                        reminderKey++
+                    }
+                )
+            }
+        }
+    }
+
+    editReminder?.let { r ->
+        ReminderSheet(
+            initial = r,
+            onDismiss = { editReminder = null },
+            onSaved = { editReminder = null; reminderKey++ }
+        )
     }
 
     if (showAddAny) {
@@ -232,7 +273,7 @@ fun BlocksTab(
             calendarPrefs = remember { CalendarPrefsStore(context) },
             calendarEvents = todayCalEvents,
             onDismiss = { showAddAny = false },
-            onAdded = { refreshKey++; taskRefreshKey++ }
+            onAdded = { refreshKey++; taskRefreshKey++; reminderKey++ }
         )
     }
 
@@ -1168,4 +1209,33 @@ private fun durationLabel(minutes: Int): String = when {
     minutes < 60          -> "${minutes}m"
     minutes % 60 == 0     -> "${minutes / 60}h"
     else                  -> "${minutes / 60}h ${minutes % 60}m"
+}
+
+/** A reminder in the Blocks tab's list: its name, times and how often, and an on/off switch. */
+@Composable
+private fun ReminderListRow(reminder: Reminder, onClick: () -> Unit, onEnabledChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                reminder.title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                reminder.times.joinToString(", ") + " · " + (reminder.rule?.let { recurrenceLabel(it) } ?: "Every day"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        Switch(checked = reminder.enabled, onCheckedChange = onEnabledChange)
+    }
 }

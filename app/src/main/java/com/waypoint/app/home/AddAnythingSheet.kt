@@ -43,7 +43,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** What the add chooser can make. */
-enum class AddKind { TASK, BLOCK, EVENT }
+enum class AddKind { TASK, BLOCK, EVENT, REMINDER }
 
 /**
  * The one "add" flow used everywhere something can be added: first a choice of Task, Block or
@@ -102,9 +102,16 @@ fun AddAnythingSheet(
                 ) {
                     AddKindButton("+ Task", { kind = AddKind.TASK }, Modifier.weight(1f))
                     AddKindButton("+ Block", { kind = AddKind.BLOCK }, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (calendarSignals != null) {
                         AddKindButton("+ Event", { kind = AddKind.EVENT }, Modifier.weight(1f))
                     }
+                    AddKindButton("+ Reminder", { kind = AddKind.REMINDER }, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -131,6 +138,16 @@ fun AddAnythingSheet(
                 onAdded()
                 onDismiss()
             } else null
+        )
+
+        AddKind.REMINDER -> ReminderSheet(
+            defaultDate = date,
+            defaultTime = slot?.first?.let { java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date(it)) },
+            onDismiss = onDismiss,
+            onSaved = {
+                onAdded()
+                onDismiss()
+            }
         )
 
         AddKind.BLOCK -> NamedBlockSheet(

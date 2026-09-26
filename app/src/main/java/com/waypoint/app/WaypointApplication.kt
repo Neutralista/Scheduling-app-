@@ -169,6 +169,9 @@ class WaypointApplication : Application() {
             SleepNotificationHelper.createChannels(this)
             BlockNotificationHelper.createChannel(this)
             com.waypoint.app.notification.TaskReminderScheduler.createChannel(this)
+            com.waypoint.app.notification.ReminderAlarms.createChannel(this)
+            runCatching { com.waypoint.app.notification.ReminderAlarms.rescheduleAll(this) }
+                .onFailure { AppLogger.e("App", "reminders re-arm failed", it) }
             ReminderScheduler.cancel(this)
             ScriptTickWorker.schedule(this)
             CalendarSyncWorker.schedule(this)
