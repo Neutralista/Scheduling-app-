@@ -47,6 +47,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -494,6 +495,8 @@ private fun PlanTab(
     var planningWindow by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlot by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var freeSlotFromBlock by remember { mutableStateOf(false) }
+    var selectedReminder by remember { mutableStateOf<com.waypoint.app.planner.ReminderOccurrence?>(null) }
+    var editingReminder by remember { mutableStateOf<com.waypoint.app.planner.Reminder?>(null) }
     // Latest calendar events from the timeline — forwarded to AddTaskSheet for conditions
     var planTabCalEvents by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
 
@@ -722,7 +725,8 @@ private fun PlanTab(
                 onPlannerEventClick = { selectedPlannerEvent = it },
                 onCalEventsChanged = { planTabCalEvents = it },
                 onFreeSlotClick = { startMs, endMs -> freeSlot = startMs to endMs; freeSlotFromBlock = false },
-                onZoomOut = { zoomLevel = PlanZoomLevel.WEEK }
+                onZoomOut = { zoomLevel = PlanZoomLevel.WEEK },
+                onReminderClick = { selectedReminder = it }
             )
         }
     }
@@ -742,6 +746,50 @@ private fun PlanTab(
             forBlockId = if (freeSlotFromBlock) activeSession?.blockId ?: planningBlockId else null,
             onDismiss = { freeSlot = null },
             onAdded = { calRefreshKey++ }
+        )
+    }
+
+    // ── A reminder tapped on the timeline: Done / Skip (or Undo) / Edit ───────
+    selectedReminder?.let { occ ->
+        val store = remember(occ) { com.waypoint.app.planner.ReminderStore(context) }
+        val status = remember(occ) { store.status(occ.key) }
+        fun settle(to: com.waypoint.app.planner.ReminderStatus?) {
+            if (to == null) com.waypoint.app.notification.ReminderAlarms.undo(context, occ)
+            else com.waypoint.app.notification.ReminderAlarms.settle(context, occ, to)
+            selectedReminder = null
+            calRefreshKey++
+        }
+        AlertDialog(
+            onDismissRequest = { selectedReminder = null },
+            title = { Text(occ.reminder.title) },
+            text = {
+                Text(
+                    "Due ${occ.time}" + (if (occ.reminder.note.isNotBlank()) " · ${occ.reminder.note}" else "") + " · " +
+                        when (status) {
+                            com.waypoint.app.planner.ReminderStatus.DONE -> "done"
+                            com.waypoint.app.planner.ReminderStatus.SKIPPED -> "skipped"
+                            null -> if (occ.atMs > System.currentTimeMillis()) "upcoming" else "not done yet"
+                        }
+                )
+            },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { editingReminder = occ.reminder; selectedReminder = null }) { Text("Edit") }
+                    if (status == null) {
+                        TextButton(onClick = { settle(com.waypoint.app.planner.ReminderStatus.SKIPPED) }) { Text("Skip") }
+                        TextButton(onClick = { settle(com.waypoint.app.planner.ReminderStatus.DONE) }) { Text("Done") }
+                    } else {
+                        TextButton(onClick = { settle(null) }) { Text("Undo") }
+                    }
+                }
+            }
+        )
+    }
+    editingReminder?.let { r ->
+        ReminderSheet(
+            initial = r,
+            onDismiss = { editingReminder = null },
+            onSaved = { editingReminder = null; calRefreshKey++ }
         )
     }
 

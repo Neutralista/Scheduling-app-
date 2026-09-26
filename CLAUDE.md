@@ -239,7 +239,8 @@ one exact alarm per reminder (its next time), posts an ongoing high-importance n
 re-rings if still pending) and the pinned notification is posted silently; Done / Skip stop the ringing. An alarm
 reminder carries the alarm clock's own settings (`soundUri`, `volume`, `vibrate`, `snoozeMinutes`,
 `maxVolumeOverride`), passed to the ring service. `rescheduleAll` runs on launch, boot and after edits. Shown on the
-Tasks tab's to-do list (`ReminderRow`) and managed in the Blocks tab's Reminders section. (The older
+Tasks tab's to-do list (`ReminderRow`), as markers on the Plan tab's day timeline (`ReminderMarkersSection`;
+tapping one gives Done / Skip / Undo / Edit) and managed in the Blocks tab's Reminders section. (The older
 `notification/ReminderScheduler` only cancels a retired WorkManager job.)
 
 ## Plan tab zoom levels

@@ -32,6 +32,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -174,7 +176,9 @@ fun DayTimelineView(
     onCalEventsChanged: ((List<CalendarEvent>) -> Unit)? = null,
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)? = null,
     /** Pinching out at the widest zoom: leave the day for the week view. */
-    onZoomOut: (() -> Unit)? = null
+    onZoomOut: (() -> Unit)? = null,
+    /** A reminder's marker tapped. */
+    onReminderClick: ((ReminderOccurrence) -> Unit)? = null
 ) {
     val isToday = date == LocalDate.now()
     val latestOnZoomOut = rememberUpdatedState(onZoomOut)
@@ -272,6 +276,16 @@ fun DayTimelineView(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("waypoint_timeline", android.content.Context.MODE_PRIVATE) }
+    // Reminders due in view (this day and the night into the next), with what was done with
+    // each; re-read every 30 s since Done / Skip can come from their notifications.
+    var reminderTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(30_000L); reminderTick++ } }
+    val reminderMarkers = remember(date, refreshKey, localRefreshKey, reminderTick) {
+        val store = ReminderStore(context)
+        val all = store.loadAll()
+        (all.flatMap { it.occurrencesOn(date) } + all.flatMap { it.occurrencesOn(date.plusDays(1)) })
+            .map { it to store.status(it.key) }
+    }
     // Task reminders follow today's live plan: re-armed at each task's current start.
     LaunchedEffect(plan, isToday) {
         val tm = taskManager
@@ -651,7 +665,9 @@ fun DayTimelineView(
                     onCalendarEventDrag = if (calendarSignals?.hasWritePermission() == true)
                         ::commitCalendarEventDrag else null,
                     onBlockDrag = if (namedBlockStore != null) ::commitBlockDrag else null,
-                    onTaskDrag = if (taskManager != null) ::commitTaskDrag else null
+                    onTaskDrag = if (taskManager != null) ::commitTaskDrag else null,
+                    reminderMarkers = reminderMarkers,
+                    onReminderClick = onReminderClick
                 )
             }
         }
@@ -777,7 +793,9 @@ private fun TimelineBody(
     onFreeSlotClick: ((startMs: Long, endMs: Long) -> Unit)?,
     onCalendarEventDrag: ((evt: CalendarEvent, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
     onBlockDrag: ((blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) -> Unit)? = null,
-    onTaskDrag: ((taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null
+    onTaskDrag: ((taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) -> Unit)? = null,
+    reminderMarkers: List<Pair<ReminderOccurrence, ReminderStatus?>> = emptyList(),
+    onReminderClick: ((ReminderOccurrence) -> Unit)? = null
 ) {
     val viewTotalMin = totalMinutes
 
@@ -960,6 +978,8 @@ private fun TimelineBody(
             blockInstances = blockInstances,
             nextDayBlockInstances = nextDayBlockInstances
         )
+
+        ReminderMarkersSection(reminderMarkers, viewStartMs, totalMinutes, hourHeight, onReminderClick)
 
         // Current-time indicator
         if (isNowVisible) {
@@ -1557,6 +1577,74 @@ private fun BoxScope.ResizeHandle(
                 .clip(RoundedCornerShape(2.dp))
                 .background(accent.copy(alpha = 0.7f))
         )
+    }
+}
+
+/**
+ * Reminders on the timeline: a dashed line at each one's time and a pill with its name and time
+ * (struck through when done, faded when skipped). They take no time, so they sit over the tiles.
+ */
+@Composable
+private fun ReminderMarkersSection(
+    markers: List<Pair<ReminderOccurrence, ReminderStatus?>>,
+    viewStartMs: Long,
+    totalMinutes: Int,
+    hourHeight: Dp,
+    onClick: ((ReminderOccurrence) -> Unit)?
+) {
+    if (markers.isEmpty()) return
+    val accent = MaterialTheme.colorScheme.tertiary
+    markers.forEach { (occ, status) ->
+        val min = msToMin(occ.atMs, viewStartMs)
+        if (min !in 0..totalMinutes) return@forEach
+        val y = minToY(min, hourHeight)
+        val settled = status != null
+        val alpha = if (settled) 0.45f else 1f
+        Canvas(Modifier.yOffset(y - 3.dp).fillMaxWidth().height(6.dp)) {
+            val cy = size.height / 2f
+            drawCircle(accent.copy(alpha = 0.9f * alpha), 2.6.dp.toPx(), Offset(0f, cy))
+            drawLine(
+                color = accent.copy(alpha = 0.45f * alpha),
+                start = Offset(7.dp.toPx(), cy),
+                end = Offset(size.width, cy),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))
+            )
+        }
+        Row(Modifier.yOffset(y - 10.dp).fillMaxWidth().padding(start = 10.dp)) {
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = if (settled) 0.5f else 0.95f))
+                    .then(if (onClick != null) Modifier.clickable { onClick(occ) } else Modifier)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    if (occ.reminder.alarm) Icons.Default.Alarm else Icons.Default.NotificationsActive,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = alpha),
+                    modifier = Modifier.size(11.dp)
+                )
+                Text(
+                    occ.reminder.title + if (status == ReminderStatus.SKIPPED) " · skipped" else "",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textDecoration = if (status == ReminderStatus.DONE)
+                            androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                    ),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = alpha),
+                    maxLines = 1
+                )
+                Text(
+                    occ.time,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f * alpha)
+                )
+            }
+        }
     }
 }
 
