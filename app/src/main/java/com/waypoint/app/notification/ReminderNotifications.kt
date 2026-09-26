@@ -104,6 +104,51 @@ object ReminderAlarms {
         setAlarm(context, next.atMs, broadcast(context, fire))
     }
 
+    const val EXTRA_RING_DATE = "reminder_date"
+    const val EXTRA_RING_TIME = "reminder_time"
+
+    /** Rings [occ] like the alarm clock: the full-screen ring screen, Dismiss / Snooze. */
+    internal fun ringAlarm(context: Context, occ: ReminderOccurrence) {
+        runCatching {
+            context.startForegroundService(
+                Intent(context, AlarmRingService::class.java).apply {
+                    action = AlarmRingService.ACTION_RING
+                    putExtra(AlarmRingService.EXTRA_VOLUME, 1.0f)
+                    putExtra(AlarmRingService.EXTRA_CHANNEL, SleepNotificationHelper.CH_WAKE_FULL)
+                    putExtra(AlarmRingService.EXTRA_TITLE, occ.reminder.title.ifBlank { "Reminder" })
+                    putExtra(AlarmRingService.EXTRA_FULL_SCREEN, true)
+                    putExtra(AlarmRingService.EXTRA_SOURCE, AlarmRingService.SOURCE_REMINDER)
+                    putExtra(AlarmRingService.EXTRA_ALARM_ID, occ.reminder.id)
+                    putExtra(EXTRA_RING_DATE, occ.date.toString())
+                    putExtra(EXTRA_RING_TIME, occ.time)
+                    putExtra(AlarmRingService.EXTRA_SNOOZE_MINUTES, 10)
+                    putExtra(AlarmRingService.EXTRA_VIBRATE, true)
+                }
+            )
+        }.onFailure { AppLogger.e(TAG, "ringAlarm failed; notification only", it) }
+    }
+
+    /** Snoozed on the ring screen: rings again at [atMs] unless it's done or skipped by then. */
+    fun scheduleSnooze(context: Context, reminderId: String, date: String, time: String, atMs: Long) {
+        val reminder = ReminderStore(context).load(reminderId) ?: return
+        val day = runCatching { LocalDate.parse(date) }.getOrNull() ?: return
+        val occ = ReminderOccurrence(reminder, day, time)
+        setAlarm(context, atMs, broadcast(context, intent(context, ReminderReceiver.ACTION_SNOOZED, "snooze", occ, reminderId)))
+    }
+
+    /** Done or Skip while its alarm is ringing: stop the ringing too. */
+    private fun stopRinging(context: Context, occ: ReminderOccurrence) {
+        if (!occ.reminder.alarm) return
+        context.getSystemService(AlarmManager::class.java)
+            .cancel(broadcast(context, intent(context, ReminderReceiver.ACTION_SNOOZED, "snooze", occ, occ.reminder.id)))
+        runCatching {
+            context.startService(Intent(context, AlarmRingService::class.java).apply {
+                action = AlarmRingService.ACTION_DISMISS
+                putExtra(AlarmRingService.EXTRA_SOURCE, AlarmRingService.SOURCE_REMINDER)
+            })
+        }
+    }
+
     /** Cancels a ring-again alarm left from before reminders rang only once. */
     private fun cancelNag(context: Context, occ: ReminderOccurrence) {
         context.getSystemService(AlarmManager::class.java)
@@ -133,6 +178,7 @@ object ReminderAlarms {
         ReminderStore(context).setStatus(occ.key, status)
         context.getSystemService(NotificationManager::class.java).cancel(TAG_PREFIX + occ.key, NOTIF_ID)
         cancelNag(context, occ)
+        stopRinging(context, occ)
         arm(context, occ.reminder)
         AppLogger.i(TAG, "${status.name.lowercase()}: ${occ.key}")
     }
@@ -221,6 +267,7 @@ class ReminderReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_FIRE = "com.waypoint.app.REMINDER_FIRE"
         const val ACTION_NAG = "com.waypoint.app.REMINDER_NAG"
+        const val ACTION_SNOOZED = "com.waypoint.app.REMINDER_SNOOZED"
         const val ACTION_DONE = "com.waypoint.app.REMINDER_DONE"
         const val ACTION_SKIP = "com.waypoint.app.REMINDER_SKIP"
         const val ACTION_DISMISSED = "com.waypoint.app.REMINDER_DISMISSED"
@@ -245,11 +292,16 @@ class ReminderReceiver : BroadcastReceiver() {
         val pending = reminder.enabled && !store.isSettled(occ.key)
         when (intent.action) {
             ACTION_FIRE -> {
-                if (pending) ReminderAlarms.post(context, occ, alert = true)
+                if (pending) {
+                    // An alarm reminder rings the ring screen; its pinned notification stays silent.
+                    if (reminder.alarm) ReminderAlarms.ringAlarm(context, occ)
+                    ReminderAlarms.post(context, occ, alert = !reminder.alarm)
+                }
                 ReminderAlarms.arm(context, reminder, maxOf(System.currentTimeMillis(), occ.atMs))
             }
             // Reminders ring once now; an alarm left from when they rang again does nothing.
             ACTION_NAG -> Unit
+            ACTION_SNOOZED -> if (pending) ReminderAlarms.ringAlarm(context, occ)
             // Swiped away without Done or Skip: it comes back.
             ACTION_DISMISSED -> if (pending) ReminderAlarms.post(context, occ, alert = false)
             ACTION_DONE -> ReminderAlarms.settle(context, occ, ReminderStatus.DONE)

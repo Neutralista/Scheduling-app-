@@ -94,6 +94,7 @@ fun ReminderSheet(
     var repeatRule by remember {
         mutableStateOf(initial?.rule?.takeIf { it !is RecurrenceRule.OneOff } ?: RecurrenceRule.EveryNDays(1, today.toString()))
     }
+    var alarm by remember { mutableStateOf(initial?.alarm ?: false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddTime by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -108,6 +109,7 @@ fun ReminderSheet(
             times = times.distinct().sortedBy { parseReminderTime(it) ?: LocalTime.MAX },
             rule = if (once) RecurrenceRule.OneOff(onceDate.toString()) else repeatRule,
             enabled = initial?.enabled ?: true,
+            alarm = alarm,
             nagMinutes = 0
         )
         // Times or days may have changed: clear what's showing, then re-arm from the new version.
@@ -232,12 +234,22 @@ fun ReminderSheet(
                         }
                     }
 
-                    Text(
-                        "At each time you get a notification with sound and vibration. It stays pinned until " +
-                            "you tap Done or Skip; swiped away, it comes back.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
+                    Section("Alert") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = !alarm, onClick = { alarm = false }, label = { Text("Notification") })
+                            FilterChip(selected = alarm, onClick = { alarm = true }, label = { Text("Alarm") })
+                        }
+                        Text(
+                            if (alarm)
+                                "Rings like an alarm clock, full screen, until you dismiss or snooze it (10 min). " +
+                                    "Its reminder stays pinned until you tap Done or Skip."
+                            else
+                                "A notification with sound and vibration. It stays pinned until you tap Done or " +
+                                    "Skip; swiped away, it comes back.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
 
                     if (initial != null) {
                         TextButton(onClick = { confirmDelete = true }) {

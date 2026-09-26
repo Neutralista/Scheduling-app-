@@ -1231,7 +1231,8 @@ private fun ReminderListRow(reminder: Reminder, onClick: () -> Unit, onEnabledCh
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                reminder.times.joinToString(", ") + " · " + (reminder.rule?.let { recurrenceLabel(it) } ?: "Every day"),
+                reminder.times.joinToString(", ") + " · " + (reminder.rule?.let { recurrenceLabel(it) } ?: "Every day") +
+                    if (reminder.alarm) " · alarm" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )

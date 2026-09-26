@@ -22,6 +22,8 @@ data class Reminder(
     val times: List<String> = listOf("09:00"),
     val rule: RecurrenceRule? = null,
     val enabled: Boolean = true,
+    /** Rings like the alarm clock (full screen, until dismissed or snoozed) instead of a notification. */
+    val alarm: Boolean = false,
     /** Unused: reminders ring once, at their time (kept so older saved reminders still load). */
     val nagMinutes: Int = 0
 )

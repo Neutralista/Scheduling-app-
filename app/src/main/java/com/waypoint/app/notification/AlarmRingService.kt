@@ -78,7 +78,14 @@ class AlarmRingService : Service() {
         val snoozeMs = System.currentTimeMillis() + snoozeMinutes * 60_000L
         AppLogger.i(TAG, "snooze: source=$source alarmId=$alarmId minutes=$snoozeMinutes rescheduling to $snoozeMs")
         stopSoundAndVibration()
-        if (source == SOURCE_USER && alarmId != null) {
+        if (source == SOURCE_REMINDER && alarmId != null) {
+            ReminderAlarms.scheduleSnooze(
+                this, alarmId,
+                intent?.getStringExtra(ReminderAlarms.EXTRA_RING_DATE).orEmpty(),
+                intent?.getStringExtra(ReminderAlarms.EXTRA_RING_TIME).orEmpty(),
+                snoozeMs
+            )
+        } else if (source == SOURCE_USER && alarmId != null) {
             UserAlarmScheduler.scheduleSnooze(this, alarmId, label, snoozeMs)
         } else {
             WakeAlarmScheduler.scheduleRingAlarm(this, snoozeMs)
@@ -267,6 +274,8 @@ class AlarmRingService : Service() {
         const val EXTRA_VIBRATE        = "vibrate"
         const val SOURCE_USER  = "user"
         const val SOURCE_SLEEP = "sleep"
+        /** A reminder set to ring as an alarm; Snooze rings it again if it's still not done. */
+        const val SOURCE_REMINDER = "reminder"
         private const val NOTIF_ID  = 112
         private const val DEFAULT_SNOOZE_MINUTES = 10
         private const val TAG       = "AlarmRingService"

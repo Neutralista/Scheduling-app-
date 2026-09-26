@@ -234,7 +234,9 @@ day; `nagMinutes` is unused), `ReminderStore` (`wp_reminders`, per-occurrence Do
 `"date|id|HH:MM"`). Not planned into the day. `notification/ReminderNotifications.kt`: `ReminderAlarms` arms
 one exact alarm per reminder (its next time), posts an ongoing high-importance notification (channel
 `waypoint_reminders`, sound + vibration) with Done / Skip; it rings once, and its delete intent re-posts it
-(silently) until settled. `rescheduleAll` runs on launch, boot and after edits. Shown on the
+(silently) until settled. `Reminder.alarm` = ring like the alarm clock instead: `ringAlarm` starts
+`AlarmRingService` with `SOURCE_REMINDER` (its Snooze → `ReminderAlarms.scheduleSnooze` → `ACTION_SNOOZED`
+re-rings if still pending) and the pinned notification is posted silently; Done / Skip stop the ringing. `rescheduleAll` runs on launch, boot and after edits. Shown on the
 Tasks tab's to-do list (`ReminderRow`) and managed in the Blocks tab's Reminders section. (The older
 `notification/ReminderScheduler` only cancels a retired WorkManager job.)
 

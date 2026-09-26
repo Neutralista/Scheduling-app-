@@ -111,6 +111,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.text.style.TextOverflow
@@ -2480,8 +2481,8 @@ private fun ReminderRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Default.NotificationsActive,
-                    contentDescription = "Reminder",
+                    if (occ.reminder.alarm) Icons.Default.Alarm else Icons.Default.NotificationsActive,
+                    contentDescription = if (occ.reminder.alarm) "Alarm reminder" else "Reminder",
                     tint = if (done) accent.copy(alpha = 0.5f) else accent,
                     modifier = Modifier.size(16.dp)
                 )
