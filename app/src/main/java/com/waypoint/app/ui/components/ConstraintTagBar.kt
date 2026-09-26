@@ -165,7 +165,12 @@ fun ConstraintTagBar(
     onTimesChange: ((after: String?, before: String?) -> Unit)? = null,
     /** A task that can't be picked for After (it would make an impossible window). */
     afterConflicts: (String) -> Boolean = { false },
-    beforeConflicts: (String) -> Boolean = { false }
+    beforeConflicts: (String) -> Boolean = { false },
+    /** False when the sheet has its own Once · Repeats choice and this is a one-off: no
+     *  Days / Repeats tags then. */
+    repeatTags: Boolean = true,
+    /** Whether Repeats offers "Once" (not where Once is its own choice). */
+    offerOnce: Boolean = true
 ) {
     val events = rememberTaggableEvents(calendarEvents)
     val names = remember(tasks, blocks, events) {
@@ -190,7 +195,10 @@ fun ConstraintTagBar(
                 afterTime?.let { TagChip(TagKind.TIME, "After $it", onRemove = { onTimesChange(null, beforeTime) }) }
                 beforeTime?.let { TagChip(TagKind.TIME, "Before $it", onRemove = { onTimesChange(afterTime, null) }) }
             }
-            tags.views(names).forEach { view ->
+            tags.views(names)
+                .filter { repeatTags || (it.kind != TagKind.DAYS && it.kind != TagKind.REPEAT) }
+                .filter { offerOnce || !(it.kind == TagKind.REPEAT && tags.recurrence is com.waypoint.app.planner.RecurrenceRule.OneOff) }
+                .forEach { view ->
                 TagChip(view.kind, view.label, onRemove = { onChange(view.remove(tags)) })
             }
             if (picker == null) {
@@ -239,8 +247,10 @@ fun ConstraintTagBar(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            CategoryChip(TagKind.DAYS, "Days") { picker = "days" }
-                            CategoryChip(TagKind.REPEAT, "Repeats") { picker = "repeat" }
+                            if (repeatTags) {
+                                CategoryChip(TagKind.DAYS, "Days") { picker = "days" }
+                                CategoryChip(TagKind.REPEAT, "Repeats") { picker = "repeat" }
+                            }
                             CategoryChip(TagKind.TIME, "After") { picker = "after" }
                             CategoryChip(TagKind.TIME, "Before") { picker = "before" }
                             if (tasks.isNotEmpty()) {
@@ -264,7 +274,8 @@ fun ConstraintTagBar(
                         "repeat" -> RecurrencePicker(
                             value = tags.recurrence,
                             onChange = { onChange(tags.copy(recurrence = it)) },
-                            includeDaysOfWeek = false
+                            includeDaysOfWeek = false,
+                            includeOnce = offerOnce
                         )
 
                         "after", "before" -> {

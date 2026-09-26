@@ -222,6 +222,10 @@ sheet's own section. Calendar-event tags offer the next 14 days of events and st
 `TaskConditionSpec.label`. `conditionTagViews` labels saved conditions; `TagSummary` shows them under
 items (Tasks tab, Blocks tab, timeline detail sheet). The planner honours every block and event tag
 (not only the first).
+The task sheet's "Happens: Once · Repeats" sets a floating task's one-off date (a `oneOff` condition);
+new tasks default to Once on `AddTaskSheet(defaultDate)` (the add chooser's day) or today. In Once mode the
+tag bar hides Days / Repeats; `TaskManagerScript.settleOneOffs` carries missed one-offs over and clears
+done ones the next day.
 
 ## Plan tab zoom levels
 

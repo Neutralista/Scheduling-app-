@@ -112,6 +112,7 @@ fun AddAnythingSheet(
 
         AddKind.TASK -> AddTaskSheet(
             initial = null,
+            defaultDate = date,
             availableTasks = allTasks,
             calendarEvents = calendarEvents,
             availableBlocks = allBlocks.filter { it.id != forBlockId },

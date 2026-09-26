@@ -83,6 +83,8 @@ import com.waypoint.app.planner.ConstraintTags
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.Calendar
 import java.util.UUID
 import kotlinx.coroutines.delay
@@ -105,10 +107,12 @@ private val DAY_NAMES = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 private val CHAIN_DEADLINE_PRESETS  = listOf(0, 5, 15, 30, 60)
 private val CHAIN_DEADLINE_LABELS   = listOf("No deadline", "5m", "15m", "30m", "1h")
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun AddTaskSheet(
     initial: TaskRequest? = null,
+    /** The day a new task is for (a free slot's day); a new task happens once, on it. */
+    defaultDate: LocalDate? = null,
     availableTasks: List<TaskRequest> = emptyList(),
     calendarEvents: List<CalendarEvent> = emptyList(),
     availableBlocks: List<NamedBlock> = emptyList(),
@@ -146,6 +150,14 @@ fun AddTaskSheet(
 
     // Every tag but time of day (days, repeats, after/before, same day, not with, during).
     var tags by remember { mutableStateOf(ConstraintTags.fromSpecs(initConditions)) }
+
+    // Once · Repeats (floating tasks): a new task happens once, on [defaultDate] or today; an
+    // existing one keeps what it was. Repeats means every day unless Days/Repeats tags say otherwise.
+    val initOneOff = (tags.recurrence as? RecurrenceRule.OneOff)?.date
+        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    var once by remember { mutableStateOf(initial == null || initOneOff != null) }
+    var onceDate by remember { mutableStateOf(initOneOff ?: defaultDate ?: LocalDate.now()) }
+    var showOnceDatePicker by remember { mutableStateOf(false) }
 
     var afterTime by remember { mutableStateOf<String?>(initTw?.start?.takeIf { it != "00:00" }) }
     var beforeTime by remember { mutableStateOf<String?>(initTw?.end?.takeIf { it != "23:59" }) }
@@ -258,7 +270,13 @@ fun AddTaskSheet(
         } else if (afterTime != null || beforeTime != null) {
             add(TaskConditionSpec("timeWindow", start = afterTime ?: "00:00", end = beforeTime ?: "23:59"))
         }
-        addAll(tags.toSpecs())
+        val t = when {
+            isBlockMode -> tags
+            once -> tags.copy(days = emptySet(), recurrence = RecurrenceRule.OneOff(onceDate.toString()))
+            tags.recurrence is RecurrenceRule.OneOff -> tags.copy(recurrence = null)
+            else -> tags
+        }
+        addAll(t.toSpecs())
     }
 
     // ── Save logic ───────────────────────────────────────────────────────────
@@ -444,6 +462,69 @@ fun AddTaskSheet(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+                    }
+
+                    // Once · Repeats — most quick tasks happen once, so that's the default.
+                    if (!isBlockMode) FormSection(title = "Happens") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = once, onClick = { once = true }, label = { Text("Once") })
+                                FilterChip(selected = !once, onClick = { once = false }, label = { Text("Repeats") })
+                            }
+                            if (once) {
+                                val today = LocalDate.now()
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    FilterChip(selected = onceDate == today, onClick = { onceDate = today }, label = { Text("Today") })
+                                    FilterChip(
+                                        selected = onceDate == today.plusDays(1),
+                                        onClick = { onceDate = today.plusDays(1) },
+                                        label = { Text("Tomorrow") }
+                                    )
+                                    val other = onceDate != today && onceDate != today.plusDays(1)
+                                    FilterChip(
+                                        selected = other,
+                                        onClick = { showOnceDatePicker = true },
+                                        label = {
+                                            Text(
+                                                if (other) onceDate.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))
+                                                else "Pick a date"
+                                            )
+                                        }
+                                    )
+                                }
+                                Text(
+                                    "Not done by then, it carries over each day until it is; once done, it's cleared the next day.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            } else {
+                                Text(
+                                    "Every day, unless you add a Days or Repeats tag below.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                    if (showOnceDatePicker) {
+                        val dpState = androidx.compose.material3.rememberDatePickerState(
+                            initialSelectedDateMillis = onceDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+                        )
+                        androidx.compose.material3.DatePickerDialog(
+                            onDismissRequest = { showOnceDatePicker = false },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    dpState.selectedDateMillis?.let { ms ->
+                                        onceDate = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                                    }
+                                    showOnceDatePicker = false
+                                }) { Text("OK") }
+                            },
+                            dismissButton = { TextButton(onClick = { showOnceDatePicker = false }) { Text("Cancel") } }
+                        ) { androidx.compose.material3.DatePicker(state = dpState) }
                     }
 
                     // Color
@@ -904,7 +985,9 @@ fun AddTaskSheet(
                                     if (after != null || before != null) aroundTime = null
                                 } else null,
                                 afterConflicts = { isAfterConflicting(it) },
-                                beforeConflicts = { isBeforeConflicting(it) }
+                                beforeConflicts = { isBeforeConflicting(it) },
+                                repeatTags = isBlockMode || !once,
+                                offerOnce = isBlockMode
                             )
                             // Time of day's From / To.
                             if (showAfterTimePicker) {

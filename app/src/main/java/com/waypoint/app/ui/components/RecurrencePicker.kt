@@ -47,7 +47,9 @@ private val _DATE_FMT   = DateTimeFormatter.ofPattern("MMM d, yyyy")
 fun RecurrencePicker(
     value: RecurrenceRule?,
     onChange: (RecurrenceRule) -> Unit,
-    includeDaysOfWeek: Boolean = true
+    includeDaysOfWeek: Boolean = true,
+    /** False where "Once" is its own choice (the task sheet's Once · Repeats). */
+    includeOnce: Boolean = true
 ) {
     val today = remember { LocalDate.now() }
 
@@ -126,7 +128,7 @@ fun RecurrencePicker(
             add(RecurrenceMode.EVERY_N_WEEKS     to "Every N weeks")
             add(RecurrenceMode.EVERY_N_MONTHS    to "Every N months")
             add(RecurrenceMode.N_TIMES_PER_PERIOD to "N times/period")
-            add(RecurrenceMode.ONCE              to "Once")
+            if (includeOnce) add(RecurrenceMode.ONCE to "Once")
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
