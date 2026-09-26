@@ -31,7 +31,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,11 +58,9 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 
-private val NAG_CHOICES = listOf(0 to "Off", 5 to "5 min", 10 to "10 min", 15 to "15 min", 30 to "30 min", 60 to "1 hour")
-
 /**
  * New or edit a reminder: its name, a note, the times a day it's due, whether it happens once
- * or repeats, and how often it rings again until it's done or skipped. Saving (or deleting)
+ * or repeats. Saving (or deleting)
  * re-arms its notifications.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -97,7 +94,6 @@ fun ReminderSheet(
     var repeatRule by remember {
         mutableStateOf(initial?.rule?.takeIf { it !is RecurrenceRule.OneOff } ?: RecurrenceRule.EveryNDays(1, today.toString()))
     }
-    var nagMinutes by remember { mutableIntStateOf(initial?.nagMinutes ?: 15) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddTime by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -112,7 +108,7 @@ fun ReminderSheet(
             times = times.distinct().sortedBy { parseReminderTime(it) ?: LocalTime.MAX },
             rule = if (once) RecurrenceRule.OneOff(onceDate.toString()) else repeatRule,
             enabled = initial?.enabled ?: true,
-            nagMinutes = nagMinutes
+            nagMinutes = 0
         )
         // Times or days may have changed: clear what's showing, then re-arm from the new version.
         initial?.let { ReminderAlarms.clear(context, it.id) }
@@ -236,18 +232,12 @@ fun ReminderSheet(
                         }
                     }
 
-                    Section("Until done, ring again every") {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            NAG_CHOICES.forEach { (minutes, label) ->
-                                FilterChip(selected = nagMinutes == minutes, onClick = { nagMinutes = minutes }, label = { Text(label) })
-                            }
-                        }
-                        Text(
-                            "The notification stays pinned until you tap Done or Skip; swiped away, it comes back.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
+                    Text(
+                        "At each time you get a notification with sound and vibration. It stays pinned until " +
+                            "you tap Done or Skip; swiped away, it comes back.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
 
                     if (initial != null) {
                         TextButton(onClick = { confirmDelete = true }) {

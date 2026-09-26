@@ -230,11 +230,11 @@ done ones the next day.
 ## Reminders
 
 `planner/Reminders.kt`: `Reminder` (times a day, `rule` = `RecurrenceRule` — `OneOff` for once, null = every
-day — and `nagMinutes`), `ReminderStore` (`wp_reminders`, per-occurrence Done/Skipped in `wp_reminder_log`, key
+day; `nagMinutes` is unused), `ReminderStore` (`wp_reminders`, per-occurrence Done/Skipped in `wp_reminder_log`, key
 `"date|id|HH:MM"`). Not planned into the day. `notification/ReminderNotifications.kt`: `ReminderAlarms` arms
 one exact alarm per reminder (its next time), posts an ongoing high-importance notification (channel
-`waypoint_reminders`, sound + vibration) with Done / Skip; its delete intent re-posts it, and a nag alarm
-re-rings every `nagMinutes` until settled. `rescheduleAll` runs on launch, boot and after edits. Shown on the
+`waypoint_reminders`, sound + vibration) with Done / Skip; it rings once, and its delete intent re-posts it
+(silently) until settled. `rescheduleAll` runs on launch, boot and after edits. Shown on the
 Tasks tab's to-do list (`ReminderRow`) and managed in the Blocks tab's Reminders section. (The older
 `notification/ReminderScheduler` only cancels a retired WorkManager job.)
 

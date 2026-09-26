@@ -10,7 +10,7 @@ import java.time.ZoneId
 
 /**
  * A reminder — take medicine, water the plants: no length and not planned into the day, just a
- * time (or several) that rings a pinned notification until it's marked done or skipped. It
+ * time (or several) that posts a pinned notification, there until it's marked done or skipped. It
  * happens once ([rule] is [RecurrenceRule.OneOff]) or repeats ([rule], every day when null).
  */
 @Serializable
@@ -22,8 +22,8 @@ data class Reminder(
     val times: List<String> = listOf("09:00"),
     val rule: RecurrenceRule? = null,
     val enabled: Boolean = true,
-    /** Rings again this often (minutes) until done or skipped; 0 = only once. */
-    val nagMinutes: Int = 15
+    /** Unused: reminders ring once, at their time (kept so older saved reminders still load). */
+    val nagMinutes: Int = 0
 )
 
 enum class ReminderStatus { DONE, SKIPPED }

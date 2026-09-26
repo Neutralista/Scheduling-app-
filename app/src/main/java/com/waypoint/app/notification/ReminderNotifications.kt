@@ -28,8 +28,8 @@ import java.util.Locale
 /**
  * Reminders' notifications. Each reminder has one alarm, for its next time due; when it goes off
  * the reminder's notification is posted — pinned, with sound and vibration, Done and Skip — and
- * the next time is armed. Until Done or Skip: swiping it away brings it straight back (silently),
- * and it rings again every [Reminder.nagMinutes].
+ * the next time is armed. Until Done or Skip it stays pinned: swiping it away brings it straight
+ * back (silently). It rings once, at its time.
  */
 object ReminderAlarms {
 
@@ -104,16 +104,7 @@ object ReminderAlarms {
         setAlarm(context, next.atMs, broadcast(context, fire))
     }
 
-    internal fun scheduleNag(context: Context, occ: ReminderOccurrence) {
-        val minutes = occ.reminder.nagMinutes
-        if (minutes <= 0) return
-        setAlarm(
-            context,
-            System.currentTimeMillis() + minutes * 60_000L,
-            broadcast(context, intent(context, ReminderReceiver.ACTION_NAG, "nag", occ, occ.reminder.id))
-        )
-    }
-
+    /** Cancels a ring-again alarm left from before reminders rang only once. */
     private fun cancelNag(context: Context, occ: ReminderOccurrence) {
         context.getSystemService(AlarmManager::class.java)
             .cancel(broadcast(context, intent(context, ReminderReceiver.ACTION_NAG, "nag", occ, occ.reminder.id)))
@@ -133,10 +124,7 @@ object ReminderAlarms {
         val now = System.currentTimeMillis()
         remindersForDay(reminders, LocalDate.now()) { store.isSettled(it) }
             .filter { it.atMs <= now && it.key !in showing }
-            .forEach { occ ->
-                post(context, occ, alert = true)
-                scheduleNag(context, occ)
-            }
+            .forEach { occ -> post(context, occ, alert = true) }
     }
 
     // ── Done / Skip / Undo ───────────────────────────────────────────────────
@@ -152,10 +140,7 @@ object ReminderAlarms {
     /** Back to not done: its notification returns if it's already due. */
     fun undo(context: Context, occ: ReminderOccurrence) {
         ReminderStore(context).clearStatus(occ.key)
-        if (occ.atMs <= System.currentTimeMillis()) {
-            post(context, occ, alert = false)
-            scheduleNag(context, occ)
-        }
+        if (occ.atMs <= System.currentTimeMillis()) post(context, occ, alert = false)
         arm(context, occ.reminder)
     }
 
@@ -260,16 +245,11 @@ class ReminderReceiver : BroadcastReceiver() {
         val pending = reminder.enabled && !store.isSettled(occ.key)
         when (intent.action) {
             ACTION_FIRE -> {
-                if (pending) {
-                    ReminderAlarms.post(context, occ, alert = true)
-                    ReminderAlarms.scheduleNag(context, occ)
-                }
+                if (pending) ReminderAlarms.post(context, occ, alert = true)
                 ReminderAlarms.arm(context, reminder, maxOf(System.currentTimeMillis(), occ.atMs))
             }
-            ACTION_NAG -> if (pending) {
-                ReminderAlarms.post(context, occ, alert = true)
-                ReminderAlarms.scheduleNag(context, occ)
-            }
+            // Reminders ring once now; an alarm left from when they rang again does nothing.
+            ACTION_NAG -> Unit
             // Swiped away without Done or Skip: it comes back.
             ACTION_DISMISSED -> if (pending) ReminderAlarms.post(context, occ, alert = false)
             ACTION_DONE -> ReminderAlarms.settle(context, occ, ReminderStatus.DONE)
