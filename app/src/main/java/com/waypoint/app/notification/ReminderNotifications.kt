@@ -113,7 +113,7 @@ object ReminderAlarms {
             context.startForegroundService(
                 Intent(context, AlarmRingService::class.java).apply {
                     action = AlarmRingService.ACTION_RING
-                    putExtra(AlarmRingService.EXTRA_VOLUME, 1.0f)
+                    putExtra(AlarmRingService.EXTRA_VOLUME, occ.reminder.volume)
                     putExtra(AlarmRingService.EXTRA_CHANNEL, SleepNotificationHelper.CH_WAKE_FULL)
                     putExtra(AlarmRingService.EXTRA_TITLE, occ.reminder.title.ifBlank { "Reminder" })
                     putExtra(AlarmRingService.EXTRA_FULL_SCREEN, true)
@@ -121,8 +121,10 @@ object ReminderAlarms {
                     putExtra(AlarmRingService.EXTRA_ALARM_ID, occ.reminder.id)
                     putExtra(EXTRA_RING_DATE, occ.date.toString())
                     putExtra(EXTRA_RING_TIME, occ.time)
-                    putExtra(AlarmRingService.EXTRA_SNOOZE_MINUTES, 10)
-                    putExtra(AlarmRingService.EXTRA_VIBRATE, true)
+                    putExtra(AlarmRingService.EXTRA_SNOOZE_MINUTES, occ.reminder.snoozeMinutes)
+                    putExtra(AlarmRingService.EXTRA_VIBRATE, occ.reminder.vibrate)
+                    putExtra(AlarmRingService.EXTRA_MAX_VOLUME, occ.reminder.maxVolumeOverride)
+                    occ.reminder.soundUri?.let { putExtra(AlarmRingService.EXTRA_SOUND_URI, it) }
                 }
             )
         }.onFailure { AppLogger.e(TAG, "ringAlarm failed; notification only", it) }

@@ -1,5 +1,11 @@
 package com.waypoint.app.home
 
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -25,13 +31,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +61,7 @@ import com.waypoint.app.planner.parseReminderTime
 import com.waypoint.app.ui.components.RecurrencePicker
 import com.waypoint.app.ui.components.TimePickerChip
 import com.waypoint.app.ui.components.TimePickerDialog
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -95,6 +107,24 @@ fun ReminderSheet(
         mutableStateOf(initial?.rule?.takeIf { it !is RecurrenceRule.OneOff } ?: RecurrenceRule.EveryNDays(1, today.toString()))
     }
     var alarm by remember { mutableStateOf(initial?.alarm ?: false) }
+    // Alarm settings, as on an alarm clock alarm.
+    var soundUri by remember { mutableStateOf(initial?.soundUri) }
+    var volume by remember { mutableFloatStateOf(initial?.volume ?: 1.0f) }
+    var vibrate by remember { mutableStateOf(initial?.vibrate ?: true) }
+    var snoozeMinutes by remember { mutableIntStateOf(initial?.snoozeMinutes ?: 10) }
+    var maxVolumeOverride by remember { mutableStateOf(initial?.maxVolumeOverride ?: false) }
+    var isTesting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val soundLabel = remember(soundUri) {
+        soundUri?.let { raw ->
+            runCatching { RingtoneManager.getRingtone(context, Uri.parse(raw)).getTitle(context) }.getOrNull() ?: "Custom"
+        } ?: "Default"
+    }
+    val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        @Suppress("DEPRECATION")
+        val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        if (result.resultCode == android.app.Activity.RESULT_OK) soundUri = uri?.toString()
+    }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddTime by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -110,6 +140,11 @@ fun ReminderSheet(
             rule = if (once) RecurrenceRule.OneOff(onceDate.toString()) else repeatRule,
             enabled = initial?.enabled ?: true,
             alarm = alarm,
+            soundUri = soundUri,
+            volume = volume,
+            vibrate = vibrate,
+            snoozeMinutes = snoozeMinutes,
+            maxVolumeOverride = maxVolumeOverride,
             nagMinutes = 0
         )
         // Times or days may have changed: clear what's showing, then re-arm from the new version.
@@ -241,7 +276,7 @@ fun ReminderSheet(
                         }
                         Text(
                             if (alarm)
-                                "Rings like an alarm clock, full screen, until you dismiss or snooze it (10 min). " +
+                                "Rings like an alarm clock, full screen, until you dismiss or snooze it. " +
                                     "Its reminder stays pinned until you tap Done or Skip."
                             else
                                 "A notification with sound and vibration. It stays pinned until you tap Done or " +
@@ -249,6 +284,54 @@ fun ReminderSheet(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
+                        if (alarm) {
+                            // The alarm clock's own settings.
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val existing = soundUri?.let { Uri.parse(it) }
+                                            ?: RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
+                                        soundPicker.launch(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existing)
+                                        })
+                                    }
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Sound", style = MaterialTheme.typography.bodyMedium)
+                                Text(soundLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Column {
+                                Text("Volume", style = MaterialTheme.typography.bodyMedium)
+                                Slider(value = volume, onValueChange = { volume = it }, valueRange = 0.1f..1.0f)
+                            }
+                            TextButton(
+                                onClick = {
+                                    if (!isTesting) {
+                                        isTesting = true
+                                        scope.launch { playTestSound(context, soundUri, volume); isTesting = false }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text(if (isTesting) "Playing…" else "Test sound") }
+                            SettingSwitch("Vibrate", null, vibrate) { vibrate = it }
+                            Text("Snooze", style = MaterialTheme.typography.bodyMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5, 10, 15, 20).forEach { mins ->
+                                    FilterChip(selected = snoozeMinutes == mins, onClick = { snoozeMinutes = mins }, label = { Text("${mins}m") })
+                                }
+                            }
+                            SettingSwitch(
+                                "Force max volume",
+                                "Overrides the device's alarm volume when it rings",
+                                maxVolumeOverride
+                            ) { maxVolumeOverride = it }
+                        }
                     }
 
                     if (initial != null) {
@@ -296,5 +379,22 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         content()
+    }
+}
+
+@Composable
+private fun SettingSwitch(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

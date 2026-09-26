@@ -24,6 +24,15 @@ data class Reminder(
     val enabled: Boolean = true,
     /** Rings like the alarm clock (full screen, until dismissed or snoozed) instead of a notification. */
     val alarm: Boolean = false,
+    // As an alarm: the same settings as an alarm clock alarm.
+    /** Alarm sound, as a URI string. Null = the system's default alarm sound. */
+    val soundUri: String? = null,
+    /** Playback volume, 0.1–1.0. */
+    val volume: Float = 1.0f,
+    val vibrate: Boolean = true,
+    val snoozeMinutes: Int = 10,
+    /** Forces the device's alarm volume to max right before it rings. */
+    val maxVolumeOverride: Boolean = false,
     /** Unused: reminders ring once, at their time (kept so older saved reminders still load). */
     val nagMinutes: Int = 0
 )

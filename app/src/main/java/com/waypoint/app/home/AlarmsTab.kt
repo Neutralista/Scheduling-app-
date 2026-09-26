@@ -484,7 +484,7 @@ private fun formatRelative(ms: Long): String {
 private fun fmtHHmm(ms: Long): String =
     java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
 
-private suspend fun playTestSound(context: android.content.Context, soundUri: String?, volume: Float) {
+internal suspend fun playTestSound(context: android.content.Context, soundUri: String?, volume: Float) {
     withContext(Dispatchers.IO) {
         var player: MediaPlayer? = null
         try {
