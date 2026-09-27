@@ -222,7 +222,13 @@ fun BlocksTab(
             items(allTasks, key = { "ftask_${it.id}" }) { task ->
                 FloatingTaskRow(
                     task = task,
-                    tags = conditionTagViews(task.conditions, tagNames),
+                    tags = listOfNotNull(
+                        task.timesOfDay.takeIf { it.size > 1 }?.let {
+                            TagView(com.waypoint.app.planner.TagKind.TIME, "${it.size}× a day · ${it.joinToString(", ")}")
+                        }
+                    ) + conditionTagViews(task.conditions.filterNot {
+                        task.timesOfDay.size > 1 && (it.type == "timeWindow" || it.type == "aroundTime")
+                    }, tagNames),
                     onEdit = { editTask = task },
                     onDelete = { taskManager.retractTask(task.id); taskRefreshKey++ }
                 )

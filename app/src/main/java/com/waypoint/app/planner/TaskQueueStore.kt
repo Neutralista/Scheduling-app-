@@ -99,9 +99,45 @@ data class TaskRequest(
     val completedOn: String? = null,
     /** Notify when the plan says this task starts (TaskReminderScheduler). */
     val remindAtStart: Boolean = false,
-    /** "yyyy-MM-dd" to the start (epoch ms) it's pinned at that day, from dragging it on the timeline. */
-    val pinnedStarts: Map<String, Long> = emptyMap()
+    /** "yyyy-MM-dd" to the start (epoch ms) it's pinned at that day, from dragging it on the timeline.
+     *  A later time of the day's key carries its suffix ("yyyy-MM-dd~2"). */
+    val pinnedStarts: Map<String, Long> = emptyMap(),
+    /**
+     * Several times a day: "HH:MM" for each, each its own to-do placed around that time. Empty (or
+     * one) = once a day, placed by its time of day as usual.
+     */
+    val timesOfDay: List<String> = emptyList()
 )
+
+/** Separates a task's id from which of its times a day a planner entry is ("abc~2"). */
+const val OCCURRENCE_SEP = "~"
+
+/** The task a planner entry belongs to: its id without the time-of-day suffix. */
+fun taskBaseId(eventId: String): String = eventId.substringBefore(OCCURRENCE_SEP)
+
+/** The suffix a planner entry adds to its task's id ("~2"), or "" for the first time. */
+fun occurrenceSuffix(eventId: String): String =
+    eventId.substringAfter(OCCURRENCE_SEP, "").let { if (it.isEmpty()) "" else OCCURRENCE_SEP + it }
+
+/** Whether it happens more than once a day. */
+val TaskRequest.isMultiTime: Boolean get() = timesOfDay.size > 1
+
+/**
+ * Its planner entries' ids with their times: once a day, just its id (no time); several times,
+ * its id for the first and "id~2", "id~3", … for the rest, so the first keeps the task's own id.
+ */
+fun TaskRequest.occurrences(): List<Pair<String, String?>> =
+    if (!isMultiTime) listOf(id to null)
+    else timesOfDay.mapIndexed { i, t -> (if (i == 0) id else "$id$OCCURRENCE_SEP${i + 1}") to t }
+
+/** [n] times spread evenly from 08:00 to 20:00, on the half hour. */
+fun defaultTimesOfDay(n: Int): List<String> = when {
+    n <= 1 -> listOf("09:00")
+    else -> (0 until n).map { i ->
+        val minutes = 8 * 60 + ((12 * 60.0 * i / (n - 1)) / 30).toInt() * 30
+        "%02d:%02d".format(minutes / 60, minutes % 60)
+    }
+}
 
 /** The date of a one-off task's "oneOff" condition, or null if it isn't a one-off. */
 fun List<TaskConditionSpec>.oneOffDate(): String? = firstOrNull { it.type == "oneOff" }?.oneOffDate

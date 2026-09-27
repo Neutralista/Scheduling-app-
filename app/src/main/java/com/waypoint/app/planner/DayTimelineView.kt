@@ -451,9 +451,10 @@ fun DayTimelineView(
     // against whichever tasks it crossed, and a drag that crosses nothing has no durable effect.
     fun commitTaskDrag(taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) {
         val tm = taskManager ?: return
-        val req = tm.getAllTasks().find { it.id == taskId } ?: return
+        val req = tm.getAllTasks().find { it.id == taskBaseId(taskId) } ?: return
+        // Its own other times a day aren't something to order it against.
         val others = plan.scheduled.filter {
-            it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID && it.event.id != taskId
+            it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID && taskBaseId(it.event.id) != req.id
         }
         val nowAfter = mutableSetOf<String>()
         val nowBefore = mutableSetOf<String>()
@@ -462,11 +463,11 @@ fun DayTimelineView(
             val wasAfter  = originalStartMs >= other.endMillis
             val nowBeforeOther = newEndMs <= other.startMillis
             val nowAfterOther  = newStartMs >= other.endMillis
-            if (wasBefore && nowAfterOther) nowAfter += other.event.id
-            else if (wasAfter && nowBeforeOther) nowBefore += other.event.id
+            if (wasBefore && nowAfterOther) nowAfter += taskBaseId(other.event.id)
+            else if (wasAfter && nowBeforeOther) nowBefore += taskBaseId(other.event.id)
         }
         val updates = applyDragOrdering(tm.getAllTasks(), req.id, nowAfter, nowBefore)
-        val titles = others.associate { it.event.id to it.event.title }
+        val titles = others.associate { taskBaseId(it.event.id) to it.event.title }
         val message = buildList {
             if (nowAfter.isNotEmpty()) add("after ${nowAfter.mapNotNull { titles[it] }.joinToString()}")
             if (nowBefore.isNotEmpty()) add("before ${nowBefore.mapNotNull { titles[it] }.joinToString()}")

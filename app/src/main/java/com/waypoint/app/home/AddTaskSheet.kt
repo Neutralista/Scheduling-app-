@@ -73,6 +73,8 @@ import com.waypoint.app.planner.TASK_REF_SLEEP
 import com.waypoint.app.planner.TaskConditionSpec
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.oneOffDate
+import com.waypoint.app.planner.defaultTimesOfDay
+import com.waypoint.app.planner.parseClockTime
 import com.waypoint.app.planner.TaskTrigger
 import com.waypoint.app.planner.TriggerEvent
 import com.waypoint.app.signal.CalendarEvent
@@ -158,6 +160,8 @@ fun AddTaskSheet(
     var once by remember { mutableStateOf(initial == null || initOneOff != null) }
     var onceDate by remember { mutableStateOf(initOneOff ?: defaultDate ?: LocalDate.now()) }
     var showOnceDatePicker by remember { mutableStateOf(false) }
+    // Several times a day (floating tasks): a time for each; one = once a day, by Time of day.
+    val timesOfDay = remember { mutableStateListOf<String>().apply { addAll(initial?.timesOfDay.orEmpty()) } }
 
     var afterTime by remember { mutableStateOf<String?>(initTw?.start?.takeIf { it != "00:00" }) }
     var beforeTime by remember { mutableStateOf<String?>(initTw?.end?.takeIf { it != "23:59" }) }
@@ -327,6 +331,9 @@ fun AddTaskSheet(
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
                 remindAtStart       = remindAtStart,
+                timesOfDay          = if (timesOfDay.size > 1)
+                                          timesOfDay.distinct().sortedBy { parseClockTime(it, 9, 0)?.let { (h, m) -> h * 60 + m } ?: 0 }
+                                      else emptyList(),
                 triggers            = triggers.toList(),
                 scheduleLate        = aroundMode == "zone" && zone == PlannerZone.EVENING,
                 zone                = if (aroundMode == "zone") zone else null,
@@ -509,6 +516,43 @@ fun AddTaskSheet(
                             }
                         }
                     }
+                    // Times a day — each its own to-do, placed around its time.
+                    if (!isBlockMode) FormSection(title = "Times a day") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                (1..6).forEach { n ->
+                                    val count = if (timesOfDay.size > 1) timesOfDay.size else 1
+                                    FilterChip(
+                                        selected = count == n,
+                                        onClick = {
+                                            if (n == 1) timesOfDay.clear()
+                                            else if (timesOfDay.size != n) {
+                                                timesOfDay.clear()
+                                                timesOfDay.addAll(defaultTimesOfDay(n))
+                                            }
+                                        },
+                                        label = { Text("$n") }
+                                    )
+                                }
+                            }
+                            if (timesOfDay.size > 1) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    timesOfDay.forEachIndexed { i, t ->
+                                        TimePickerChip(value = t, onValueChange = { timesOfDay[i] = it })
+                                    }
+                                }
+                                Text(
+                                    "Each time is its own to-do with its own tick, placed within an hour of its time.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+
                     if (showOnceDatePicker) {
                         val dpState = androidx.compose.material3.rememberDatePickerState(
                             initialSelectedDateMillis = onceDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
@@ -831,7 +875,8 @@ fun AddTaskSheet(
                     // two-sided window. Available in both modes — the scheduler already honors
                     // AroundTime/TimeWindow for block tasks via the same Before/During/AfterBlock
                     // placement paths used for floating tasks.
-                    FormSection(title = "Time of day") {
+                    // Several times a day: each has its own time instead.
+                    if (timesOfDay.size <= 1) FormSection(title = "Time of day") {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),

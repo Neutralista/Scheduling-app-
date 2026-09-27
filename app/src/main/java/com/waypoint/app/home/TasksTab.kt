@@ -123,6 +123,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import com.waypoint.app.planner.liveBlockInstances
 import com.waypoint.app.planner.planLiveDay
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.planner.occurrences
+import com.waypoint.app.planner.taskBaseId
 import com.waypoint.app.notification.ReminderAlarms
 import com.waypoint.app.planner.Reminder
 import com.waypoint.app.planner.ReminderOccurrence
@@ -335,9 +337,10 @@ fun TasksTab(
         refreshKey++
         onRefresh()
     }
+    // Deletes the task, all of its times a day.
     fun delete(se: ScheduledEvent) {
         stopIfRunning(se)
-        taskManager.retractTask(se.event.id)
+        taskManager.retractTask(taskBaseId(se.event.id))
         refreshKey++
         onRefresh()
     }
@@ -423,7 +426,7 @@ fun TasksTab(
         @Composable
         fun TodoItem(se: ScheduledEvent, chip: String? = null) {
             val plain = isPlain(se)
-            val taskReq = if (plain) allTasks.find { it.id == se.event.id } else null
+            val taskReq = if (plain) allTasks.find { it.id == taskBaseId(se.event.id) } else null
             val running = runningExecution?.taskId == se.event.id
             // What it's tagged with (a block's task: its own tags, not its block placement).
             val tags = remember(se.event.id, refreshKey) {
@@ -596,7 +599,13 @@ fun TasksTab(
         ScheduledBlocksDropdown(namedBlockStore = namedBlockStore, refreshKey = refreshKey)
 
         // Skipped tasks leave the plan, so they're listed from the queue to be un-skipped.
-        val skippedTasks = remember(refreshKey, allTasks) { allTasks.filter { taskManager.isSkipped(it.id) } }
+        // Skipped today: (planner id, title), one per time a day skipped.
+        val skippedTasks = remember(refreshKey, allTasks) {
+            allTasks.flatMap { t ->
+                t.occurrences().filter { (id, _) -> taskManager.isSkipped(id) }
+                    .map { (id, time) -> id to (if (time != null) "${t.title} · $time" else t.title) }
+            }
+        }
         // The list: loose tasks and blocks (whose own tasks are inside them), in time order.
         val plainOpen = openItems.filter { isPlain(it) }
         val plainDone = doneItems.filter { isPlain(it) }
@@ -684,16 +693,16 @@ fun TasksTab(
                     items(blockedTasks, key = { "b_${it.event.id}" }) { be ->
                         BlockedTaskRow(
                             be = be,
-                            taskTitle = allTasks.find { it.id == be.event.id }?.title ?: be.event.title,
-                            hasChainTriggers = allTasks.find { it.id == be.event.id }?.triggers?.isNotEmpty() == true,
-                            onEdit = { editTarget = allTasks.find { it.id == be.event.id } },
+                            taskTitle = allTasks.find { it.id == taskBaseId(be.event.id) }?.title ?: be.event.title,
+                            hasChainTriggers = allTasks.find { it.id == taskBaseId(be.event.id) }?.triggers?.isNotEmpty() == true,
+                            onEdit = { editTarget = allTasks.find { it.id == taskBaseId(be.event.id) } },
                             onSkip = {
                                 taskManager.skipTask(be.event.id)
                                 refreshKey++
                                 onRefresh()
                             },
                             onDelete = {
-                                taskManager.retractTask(be.event.id)
+                                taskManager.retractTask(taskBaseId(be.event.id))
                                 refreshKey++
                                 onRefresh()
                             }
@@ -713,11 +722,11 @@ fun TasksTab(
                     items(skippedBlocksToday, key = { "kb_${it.id}" }) { block ->
                         BlockItem(TodayBlock(block, 0L, 0L), skipped = true)
                     }
-                    items(skippedTasks, key = { "k_${it.id}" }) { task ->
+                    items(skippedTasks, key = { "k_${it.first}" }) { (id, title) ->
                         SkippedTaskRow(
-                            title = task.title,
+                            title = title,
                             onUnskip = {
-                                taskManager.unskipTask(task.id)
+                                taskManager.unskipTask(id)
                                 refreshKey++
                                 onRefresh()
                             }
@@ -2421,7 +2430,7 @@ private fun applyTriggers(
     allTasks: List<TaskRequest>,
     taskManager: TaskManagerScript
 ) {
-    val source = allTasks.find { it.id == sourceTaskId } ?: return
+    val source = allTasks.find { it.id == taskBaseId(sourceTaskId) } ?: return
     val now = System.currentTimeMillis()
     source.triggers
         .filter { it.event == event }

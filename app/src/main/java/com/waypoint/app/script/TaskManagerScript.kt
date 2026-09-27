@@ -11,6 +11,10 @@ import com.waypoint.app.planner.TaskExecutionStore
 import com.waypoint.app.planner.TaskQueueStore
 import com.waypoint.app.planner.TaskRequest
 import com.waypoint.app.planner.oneOffDate
+import com.waypoint.app.planner.occurrenceSuffix
+import com.waypoint.app.planner.occurrences
+import com.waypoint.app.planner.parseClockTime
+import com.waypoint.app.planner.taskBaseId
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -30,6 +34,8 @@ class TaskManagerScript(
     companion object {
         private const val TAG = "TaskManagerScript"
         const val WIDGET_ID = "task_manager"
+        /** How far each of several times a day may move from its time to fit. */
+        const val MULTI_TIME_FLEX_MINUTES = 60
         /** How close a run's end and the done mark must be for the run to be what was marked done. */
         private const val RUN_MATCH_MS = 5 * 60_000L
     }
@@ -66,22 +72,25 @@ class TaskManagerScript(
     }
 
     /** Pins [taskId] to start at [startMs] on [date] only; other days it's planned as usual. */
+    // [taskId] may be one of a task's times a day ("id~2"): its pin is keyed "date~2".
     fun pinForDate(taskId: String, date: LocalDate, startMs: Long) {
-        val req = store.loadAll().find { it.id == taskId } ?: return
+        val req = store.loadAll().find { it.id == taskBaseId(taskId) } ?: return
         val today = LocalDate.now().toString()
         // Past days' pins are dead weight; ISO dates compare correctly as strings.
-        val kept = req.pinnedStarts.filterKeys { it >= today } + (date.toString() to startMs)
+        val kept = req.pinnedStarts.filterKeys { it >= today } + ("$date${occurrenceSuffix(taskId)}" to startMs)
         submitTask(req.copy(pinnedStarts = kept))
     }
 
     fun unpin(taskId: String, date: LocalDate) {
-        val req = store.loadAll().find { it.id == taskId } ?: return
-        if (date.toString() !in req.pinnedStarts) return
-        submitTask(req.copy(pinnedStarts = req.pinnedStarts - date.toString()))
+        val req = store.loadAll().find { it.id == taskBaseId(taskId) } ?: return
+        val key = "$date${occurrenceSuffix(taskId)}"
+        if (key !in req.pinnedStarts) return
+        submitTask(req.copy(pinnedStarts = req.pinnedStarts - key))
     }
 
     fun isPinned(taskId: String, date: LocalDate): Boolean =
-        store.loadAll().find { it.id == taskId }?.pinnedStarts?.containsKey(date.toString()) == true
+        store.loadAll().find { it.id == taskBaseId(taskId) }
+            ?.pinnedStarts?.containsKey("$date${occurrenceSuffix(taskId)}") == true
 
     fun retractBySource(sourceScriptId: String) {
         store.retractBySource(sourceScriptId)
@@ -97,16 +106,17 @@ class TaskManagerScript(
     fun markDone(taskId: String) = markDoneAt(taskId, System.currentTimeMillis())
     fun markDoneAt(taskId: String, whenMs: Long) {
         // Re-marked at a different time: the old day no longer counts as done.
-        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskId, dateOf(it)) }
+        // History and a one-off's completion belong to the task, whichever of its times this is.
+        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskBaseId(taskId), dateOf(it)) }
         completions.markDoneAt(taskId, whenMs)
-        doneHistory.add(taskId, dateOf(whenMs))
-        setOneOffCompletedOn(taskId, dateOf(whenMs))
+        doneHistory.add(taskBaseId(taskId), dateOf(whenMs))
+        setOneOffCompletedOn(taskBaseId(taskId), dateOf(whenMs))
         syncToRegistry()
     }
     fun unmarkDone(taskId: String) {
-        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskId, dateOf(it)) }
+        completions.getDoneAt(taskId)?.let { doneHistory.remove(taskBaseId(taskId), dateOf(it)) }
         completions.unmarkDone(taskId)
-        setOneOffCompletedOn(taskId, null)
+        setOneOffCompletedOn(taskBaseId(taskId), null)
         syncToRegistry()
     }
     fun isDone(taskId: String) = completions.isDone(taskId)
@@ -164,10 +174,15 @@ class TaskManagerScript(
         // Loaded once and filtered per-task in memory, rather than re-reading and
         // re-decoding the entire executions store for every useMeasuredDuration task.
         val allExecutions = executions.loadAll()
-        tasks.filter { !completions.isSkipped(it.id) }.forEach { req ->
+        var registered = 0
+        // A task several times a day is one planner entry per time, each placed around its time.
+        tasks.flatMap { req -> req.occurrences().map { (eventId, time) -> Triple(req, eventId, time) } }
+            .filter { (_, eventId, _) -> !completions.isSkipped(eventId) }
+            .forEach { (req, eventId, time) ->
+            registered++
             val effectiveDuration = if (req.useMeasuredDuration) {
                 allExecutions
-                    .filter { it.taskId == req.id && it.measuredMinutes != null }
+                    .filter { taskBaseId(it.taskId) == req.id && it.measuredMinutes != null }
                     .mapNotNull { it.measuredMinutes }
                     .average()
                     .takeIf { !it.isNaN() }
@@ -179,13 +194,13 @@ class TaskManagerScript(
             // timed run when the done mark came from stopping it, else the duration up to when
             // it was marked done. A finished run that's no longer marked done (unticked, or from
             // before this wake) doesn't pin: the task is to do again.
-            val exec = executions.get(req.id)
-            val doneAt = if (completions.isDone(req.id)) completions.getDoneAt(req.id) else null
+            val exec = executions.get(eventId)
+            val doneAt = if (completions.isDone(eventId)) completions.getDoneAt(eventId) else null
             val finishedRun = exec?.takeIf { e ->
                 val end = e.endMillis
                 !e.isRunning && end != null && doneAt != null && abs(doneAt - end) <= RUN_MATCH_MS
             }
-            val pinnedToday = req.pinnedStarts[LocalDate.now().toString()]
+            val pinnedToday = req.pinnedStarts["${LocalDate.now()}${occurrenceSuffix(eventId)}"]
             val (fixedStart, fixedEnd) = when {
                 // Running past its planned length: it runs until now, not its estimate.
                 exec != null && exec.isRunning -> exec.startMillis to
@@ -199,21 +214,27 @@ class TaskManagerScript(
 
             registry.register(
                 PlannerEvent(
-                    id = req.id,
+                    id = eventId,
                     title = req.title,
                     durationMinutes = effectiveDuration,
                     priority = req.priority,
-                    conditions = req.conditions.mapNotNull { spec ->
-                        when (val cond = spec.toEventCondition()) {
-                            // A quota needs what's been done this period.
-                            is EventCondition.NTimesPerPeriod -> cond.copy(doneDates = doneHistory.dates(req.id))
-                            else -> cond
-                        }
-                    },
+                    conditions = req.conditions
+                        // Each of several times a day is placed around its own time instead.
+                        .filterNot { time != null && (it.type == "timeWindow" || it.type == "aroundTime") }
+                        .mapNotNull { spec ->
+                            when (val cond = spec.toEventCondition()) {
+                                // A quota needs what's been done this period.
+                                is EventCondition.NTimesPerPeriod -> cond.copy(doneDates = doneHistory.dates(req.id))
+                                else -> cond
+                            }
+                        } + listOfNotNull(
+                            time?.let { t -> parseClockTime(t, 9, 0) }
+                                ?.let { (h, m) -> EventCondition.AroundTime(h, m, MULTI_TIME_FLEX_MINUTES) }
+                        ),
                     sourceWidgetId = WIDGET_ID,
                     bufferMinutes = req.bufferMinutes,
                     scheduleLate = req.scheduleLate,
-                    zone = req.zone,
+                    zone = if (time != null) null else req.zone,
                     fixedStartMillis = fixedStart,
                     fixedEndMillis = fixedEnd,
                     // Pinned only on the day it ran; a recurring task still floats on other days.
@@ -222,7 +243,6 @@ class TaskManagerScript(
                 )
             )
         }
-        val skippedCount = tasks.count { completions.isSkipped(it.id) }
-        AppLogger.i(TAG, "syncToRegistry: registered ${tasks.size - skippedCount} tasks (${skippedCount} skipped)")
+        AppLogger.i(TAG, "syncToRegistry: registered $registered planner entries for ${tasks.size} tasks")
     }
 }

@@ -53,7 +53,7 @@ object TaskReminderScheduler {
         val reminded = prefs(context).getStringSet(KEY_REMINDED, emptySet()).orEmpty()
         val due = scheduled.filter { se ->
             se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID &&
-                se.event.id in remindIds &&
+                com.waypoint.app.planner.taskBaseId(se.event.id) in remindIds &&
                 se.startMillis > now &&
                 "$today|${se.event.id}" !in reminded &&
                 !taskManager.isDone(se.event.id) &&
@@ -124,7 +124,7 @@ class TaskReminderReceiver : BroadcastReceiver() {
                 TaskReminderScheduler.markReminded(context, taskId)
                 // It may have been done, skipped or deleted since this was armed.
                 if (taskManager.isDone(taskId) || taskManager.isSkipped(taskId)) return
-                if (taskManager.getAllTasks().none { it.id == taskId && it.remindAtStart }) return
+                if (taskManager.getAllTasks().none { it.id == com.waypoint.app.planner.taskBaseId(taskId) && it.remindAtStart }) return
                 post(context, nm, taskId, intent.getStringExtra(EXTRA_TITLE).orEmpty())
             }
             ACTION_DONE -> {

@@ -226,6 +226,10 @@ The task sheet's "Happens: Once · Repeats" sets a floating task's one-off date 
 new tasks default to Once on `AddTaskSheet(defaultDate)` (the add chooser's day) or today. In Once mode the
 tag bar hides Days / Repeats; `TaskManagerScript.settleOneOffs` carries missed one-offs over and clears
 done ones the next day.
+"Times a day" (`TaskRequest.timesOfDay`, 2–6 "HH:MM"): `TaskManagerScript.syncToRegistry` registers one
+planner entry per time (`TaskRequest.occurrences()`: the task's id for the first, `"id~2"`, `"id~3"`… after),
+each with `AroundTime(time, ±60 min)` in place of its time of day. Done / skip / timers / pins are per entry;
+anything that needs the task itself looks it up by `taskBaseId(eventId)`.
 
 ## Reminders
 

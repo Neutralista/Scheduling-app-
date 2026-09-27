@@ -818,7 +818,7 @@ private fun PlanTab(
     // ── Planner / task detail ─────────────────────────────────────────────────
     val selPlanner = selectedPlannerEvent
     if (selPlanner != null) {
-        val taskReq = taskManager.getAllTasks().find { it.id == selPlanner.event.id }
+        val taskReq = taskManager.getAllTasks().find { it.id == com.waypoint.app.planner.taskBaseId(selPlanner.event.id) }
         val isBlockTile = selPlanner.event.id.startsWith("__block__")
         val isSleepEvent = selPlanner.event.id.startsWith("sleep_")
         val blockTileId = if (isBlockTile) selPlanner.event.id.removePrefix("__block__") else null
@@ -862,7 +862,7 @@ private fun PlanTab(
             },
             onDelete = when {
                 taskReq != null -> { {
-                    taskManager.retractTask(selPlanner.event.id)
+                    taskManager.retractTask(com.waypoint.app.planner.taskBaseId(selPlanner.event.id))
                     calRefreshKey++
                     selectedPlannerEvent = null
                 } }
