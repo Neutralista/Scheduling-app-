@@ -108,7 +108,12 @@ data class TaskRequest(
      */
     val timesOfDay: List<String> = emptyList(),
     /** A one-off's exact start ("HH:MM") on its date: held there instead of planned. */
-    val exactTime: String? = null
+    val exactTime: String? = null,
+    /**
+     * Snoozed: "yyyy-MM-dd" (plus a later time of the day's suffix, "~2") to the moment (epoch ms)
+     * it's not planned before that day. At or past the day's end = off that day.
+     */
+    val snoozedUntil: Map<String, Long> = emptyMap()
 )
 
 /** Separates a task's id from which of its times a day a planner entry is ("abc~2"). */

@@ -347,4 +347,10 @@ class EventPlannerRegistryTest {
         // Not on another day.
         assertNull(r.planForDate(day.plusDays(1)).startOf("dentist"))
     }
+
+    @Test
+    fun snoozedTask_isPlannedAfterItsSnooze() {
+        val r = registry().apply { register(task("call", 30, 9, EventCondition.NotBefore(ms(day, 15)))) }
+        assertEquals(ms(day, 15), r.planForDate(day, nowMs = ms(day, 10)).startOf("call"))
+    }
 }

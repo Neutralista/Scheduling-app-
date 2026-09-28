@@ -265,6 +265,7 @@ fun TasksTab(
     var showDone by remember { mutableStateOf(false) }
     // Folded away like Done: skipped things are only there to undo a skip.
     var showSkipped by remember { mutableStateOf(false) }
+    var showSnoozed by remember { mutableStateOf(false) }
 
 
     // ── Blocks already run or skipped today, and Reset ──
@@ -336,6 +337,15 @@ fun TasksTab(
     fun skip(se: ScheduledEvent) {
         stopIfRunning(se)
         taskManager.skipTask(se.event.id)
+        refreshKey++
+        onRefresh()
+    }
+    fun snooze(se: ScheduledEvent, choice: SnoozeChoice) {
+        stopIfRunning(se)
+        when (val until = choice.untilMs()) {
+            null -> taskManager.snoozeToTomorrow(se.event.id)
+            else -> taskManager.snooze(se.event.id, until)
+        }
         refreshKey++
         onRefresh()
     }
@@ -436,9 +446,13 @@ fun TasksTab(
                     ?: if (!plain) namedBlockStore.loadTask(se.event.id)?.conditions.orEmpty() else emptyList()
                 conditionTagViews(conditions, tagNames)
             }
+            val snoozedUntil = if (plain) remember(se.event.id, refreshKey) { taskManager.snoozedUntil(se.event.id) } else null
             TodoRow(
                 se = se,
-                tags = tags,
+                tags = listOfNotNull(
+                    snoozedUntil?.let { TagView(com.waypoint.app.planner.TagKind.TIME, "Snoozed until ${formatShiftTime(it)}") }
+                ) + tags,
+                onSnooze = if (plain) { choice -> snooze(se, choice) } else null,
                 blockName = chip,
                 blockColor = se.event.sourceWidgetId?.let { blockColors[it] }?.toOpaqueColor(),
                 done = se.event.id in doneIds,
@@ -601,6 +615,14 @@ fun TasksTab(
         ScheduledBlocksDropdown(namedBlockStore = namedBlockStore, refreshKey = refreshKey)
 
         // Skipped tasks leave the plan, so they're listed from the queue to be un-skipped.
+        // Snoozed until tomorrow (repeating tasks, off today): (planner id, title).
+        val snoozedTasks = remember(refreshKey, allTasks) {
+            val tomorrowStart = today.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            allTasks.flatMap { t ->
+                t.occurrences().filter { (id, _) -> (taskManager.snoozedUntil(id) ?: 0L) >= tomorrowStart }
+                    .map { (id, time) -> id to (if (time != null) "${t.title} · $time" else t.title) }
+            }
+        }
         // Skipped today: (planner id, title), one per time a day skipped.
         val skippedTasks = remember(refreshKey, allTasks) {
             allTasks.flatMap { t ->
@@ -620,7 +642,8 @@ fun TasksTab(
             (plainDone.map { it.startMillis to it } + blocksDone.map { it.startMs to it } +
                 remindersDone.map { it.atMs to it }).sortedBy { it.first }
         val hasAny = openEntries.isNotEmpty() || doneEntries.isNotEmpty() || blockedTasks.isNotEmpty() ||
-            skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty() || remindersSkipped.isNotEmpty()
+            skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty() || remindersSkipped.isNotEmpty() ||
+            snoozedTasks.isNotEmpty()
         if (!hasAny) {
             // Tapping anywhere in the empty list adds a task.
             Column(
@@ -705,6 +728,26 @@ fun TasksTab(
                             },
                             onDelete = {
                                 taskManager.retractTask(taskBaseId(be.event.id))
+                                refreshKey++
+                                onRefresh()
+                            }
+                        )
+                    }
+                }
+                if (snoozedTasks.isNotEmpty()) {
+                    item(key = "snoozed_header") {
+                        TodoSectionHeader(
+                            title = "Snoozed until tomorrow (${snoozedTasks.size})",
+                            expanded = showSnoozed,
+                            onClick = { showSnoozed = !showSnoozed }
+                        )
+                    }
+                    if (showSnoozed) items(snoozedTasks, key = { "z_${it.first}" }) { (id, title) ->
+                        SkippedTaskRow(
+                            title = title,
+                            actionLabel = "Unsnooze",
+                            onUnskip = {
+                                taskManager.unsnooze(id)
                                 refreshKey++
                                 onRefresh()
                             }
@@ -2175,9 +2218,15 @@ private fun TodoRow(
     onDelete: (() -> Unit)?,
     onMarkDoneAt: (Long) -> Unit,
     onLogPastExecution: (startMs: Long, endMs: Long) -> Unit,
-    tags: List<TagView> = emptyList()
+    tags: List<TagView> = emptyList(),
+    /** Push it later; null where it can't be (a block's task). */
+    onSnooze: ((SnoozeChoice) -> Unit)? = null
 ) {
     val running = runningSinceMs != null
+    var showSnooze by remember { mutableStateOf(false) }
+    if (showSnooze && onSnooze != null) {
+        SnoozeDialog(onDismiss = { showSnooze = false }, onPick = { showSnooze = false; onSnooze(it) })
+    }
     var menuOpen by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog && onDelete != null) {
@@ -2304,6 +2353,9 @@ private fun TodoRow(
                 if (onEdit != null) {
                     DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
                 }
+                if (!done && onSnooze != null) {
+                    DropdownMenuItem(text = { Text("Snooze…") }, onClick = { menuOpen = false; showSnooze = true })
+                }
                 if (!done) {
                     DropdownMenuItem(text = { Text("Skip today") }, onClick = { menuOpen = false; onSkip() })
                 }
@@ -2404,7 +2456,7 @@ private fun BlockedTaskRow(
 }
 
 @Composable
-private fun SkippedTaskRow(title: String, onUnskip: () -> Unit) {
+private fun SkippedTaskRow(title: String, onUnskip: () -> Unit, actionLabel: String = "Un-skip") {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2424,8 +2476,47 @@ private fun SkippedTaskRow(title: String, onUnskip: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
             modifier = Modifier.weight(1f)
         )
-        TextButton(onClick = onUnskip) { Text("Un-skip") }
+        TextButton(onClick = onUnskip) { Text(actionLabel) }
     }
+}
+
+// ── Snooze ───────────────────────────────────────────────────────────────────
+
+/** How far to push a task back: a while from now, this evening, or to tomorrow. */
+internal enum class SnoozeChoice(val label: String) {
+    MIN_15("15 minutes"), MIN_30("30 minutes"), HOUR_1("1 hour"), TONIGHT("Tonight (19:00)"), TOMORROW("Tomorrow");
+
+    /** When it ends, or null for tomorrow. */
+    fun untilMs(now: Long = System.currentTimeMillis()): Long? = when (this) {
+        MIN_15 -> now + 15 * 60_000L
+        MIN_30 -> now + 30 * 60_000L
+        HOUR_1 -> now + 60 * 60_000L
+        TONIGHT -> LocalDate.now().atTime(19, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        TOMORROW -> null
+    }
+}
+
+@Composable
+private fun SnoozeDialog(onDismiss: () -> Unit, onPick: (SnoozeChoice) -> Unit) {
+    val now = System.currentTimeMillis()
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Snooze until") },
+        text = {
+            Column {
+                SnoozeChoice.entries
+                    // "Tonight" once it's already evening is no later than now.
+                    .filter { it != SnoozeChoice.TONIGHT || (it.untilMs(now) ?: 0L) > now + 30 * 60_000L }
+                    .forEach { choice ->
+                        TextButton(onClick = { onPick(choice) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(choice.label, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 // ── Trigger engine ────────────────────────────────────────────────────────────

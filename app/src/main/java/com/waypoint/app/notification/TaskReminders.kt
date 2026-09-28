@@ -99,6 +99,18 @@ object TaskReminderScheduler {
     }
 
     internal fun notifId(taskId: String) = 12000 + (taskId.hashCode() and 0xFFF)
+
+    /** Reminds of [taskId] at [atMs] (a snooze), whatever the plan says. */
+    internal fun remindAt(context: Context, taskId: String, title: String, atMs: Long) {
+        val am = context.getSystemService(AlarmManager::class.java)
+        val pi = remindIntent(context, taskId, title, atMs)
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        if (canExact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+        else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
+        // Reminded again today, not held back as already reminded.
+        val p = prefs(context)
+        p.edit().putStringSet(KEY_REMINDED, p.getStringSet(KEY_REMINDED, emptySet()).orEmpty() - "${LocalDate.now()}|$taskId").apply()
+    }
 }
 
 class TaskReminderReceiver : BroadcastReceiver() {
@@ -107,6 +119,8 @@ class TaskReminderReceiver : BroadcastReceiver() {
         const val ACTION_REMIND = "com.waypoint.app.TASK_REMIND"
         const val ACTION_DONE = "com.waypoint.app.TASK_REMIND_DONE"
         const val ACTION_SKIP = "com.waypoint.app.TASK_REMIND_SKIP"
+        const val ACTION_SNOOZE = "com.waypoint.app.TASK_REMIND_SNOOZE"
+        private const val SNOOZE_MINUTES = 30
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TITLE = "title"
         const val EXTRA_START_MS = "start_ms"
@@ -137,6 +151,14 @@ class TaskReminderReceiver : BroadcastReceiver() {
                 nm.cancel(TaskReminderScheduler.notifId(taskId))
                 AppLogger.i(TAG, "skipped from reminder: $taskId")
             }
+            ACTION_SNOOZE -> {
+                // Not planned before then, and reminded again when it's up.
+                val until = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
+                taskManager.snooze(taskId, until)
+                nm.cancel(TaskReminderScheduler.notifId(taskId))
+                TaskReminderScheduler.remindAt(context, taskId, intent.getStringExtra(EXTRA_TITLE).orEmpty(), until)
+                AppLogger.i(TAG, "snoozed from reminder: $taskId")
+            }
         }
     }
 
@@ -147,6 +169,7 @@ class TaskReminderReceiver : BroadcastReceiver() {
             Intent(context, TaskReminderReceiver::class.java).apply {
                 this.action = action
                 putExtra(EXTRA_TASK_ID, taskId)
+                putExtra(EXTRA_TITLE, title)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -167,6 +190,7 @@ class TaskReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setContentIntent(open)
             .addAction(0, "Done", action(ACTION_DONE, 1))
+            .addAction(0, "Snooze $SNOOZE_MINUTES min", action(ACTION_SNOOZE, 4))
             .addAction(0, "Skip today", action(ACTION_SKIP, 2))
             .setGroup(WaypointNotificationGroup.GROUP_KEY)
             .build()

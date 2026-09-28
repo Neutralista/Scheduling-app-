@@ -237,6 +237,10 @@ anything that needs the task itself looks it up by `taskBaseId(eventId)`.
 A one-off can start at an exact time (`TaskRequest.exactTime`, "Once → At a set time"): `syncToRegistry`
 registers it fixed at its `oneOff` date + time with `pinnedDayOnly = false`, so it's held there on that day
 only and other tasks plan around it.
+Snooze (to-do ⋮ → Snooze…: 15/30 min, 1 hour, Tonight, Tomorrow; "Remind me" notification → Snooze 30 min):
+`TaskRequest.snoozedUntil` (keyed like `pinnedStarts`) → `EventCondition.NotBefore` for that day, with its time
+window / anchor / zone set aside for the day; until tomorrow = off today (one-offs move to tomorrow instead,
+`snoozeToTomorrow`), listed in the to-do list's folded "Snoozed until tomorrow" with Unsnooze.
 
 ## Reminders
 

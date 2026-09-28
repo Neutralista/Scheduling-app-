@@ -664,7 +664,8 @@ class EventPlannerRegistry {
                     ?.mapNotNull { predId -> scheduled.find { it.event.id == predId }?.endMillis }
                     ?.maxOrNull()
 
-                val mustStartAfter = listOfNotNull(explicitMustStartAfter, implicitMustStartAfter).maxOrNull()
+                val snoozedUntil = event.conditions.filterIsInstance<EventCondition.NotBefore>().maxOfOrNull { it.epochMs }
+                val mustStartAfter = listOfNotNull(explicitMustStartAfter, implicitMustStartAfter, snoozedUntil).maxOrNull()
 
                 // Merge BeforeCalEvent / AfterCalEvent / BeforeBlock / AfterBlock bounds
                 val calMustEndBefore  = event.conditions.filterIsInstance<EventCondition.BeforeCalEvent>()

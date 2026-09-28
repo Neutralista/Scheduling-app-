@@ -92,6 +92,51 @@ class TaskManagerScript(
         store.loadAll().find { it.id == taskBaseId(taskId) }
             ?.pinnedStarts?.containsKey("$date${occurrenceSuffix(taskId)}") == true
 
+    // ── Snooze ──────────────────────────────────────────────────────────────
+    // Keyed like pins: today's date plus the entry's time-of-day suffix.
+
+    private fun snoozeKey(eventId: String, date: LocalDate = LocalDate.now()) = "$date${occurrenceSuffix(eventId)}"
+
+    /** Not planned before [untilMs] today; its drag pin for today goes. */
+    fun snooze(eventId: String, untilMs: Long) {
+        val req = store.loadAll().find { it.id == taskBaseId(eventId) } ?: return
+        val today = LocalDate.now().toString()
+        val key = snoozeKey(eventId)
+        submitTask(req.copy(
+            snoozedUntil = req.snoozedUntil.filterKeys { it >= today } + (key to untilMs),
+            pinnedStarts = req.pinnedStarts - key
+        ))
+    }
+
+    /**
+     * Until tomorrow: a one-off moves to tomorrow (all of its times); a repeating task is off
+     * today only.
+     */
+    fun snoozeToTomorrow(eventId: String) {
+        val req = store.loadAll().find { it.id == taskBaseId(eventId) } ?: return
+        val tomorrow = LocalDate.now().plusDays(1)
+        if (req.conditions.oneOffDate() != null) {
+            submitTask(req.copy(
+                conditions = req.conditions.map { if (it.type == "oneOff") it.copy(oneOffDate = tomorrow.toString()) else it },
+                pinnedStarts = req.pinnedStarts.filterKeys { !it.startsWith(LocalDate.now().toString()) },
+                completedOn = null
+            ))
+        } else {
+            snooze(eventId, tomorrow.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli())
+        }
+    }
+
+    fun unsnooze(eventId: String) {
+        val req = store.loadAll().find { it.id == taskBaseId(eventId) } ?: return
+        val key = snoozeKey(eventId)
+        if (key !in req.snoozedUntil) return
+        submitTask(req.copy(snoozedUntil = req.snoozedUntil - key))
+    }
+
+    /** When today's snooze of [eventId] ends, or null when it isn't snoozed today. */
+    fun snoozedUntil(eventId: String): Long? =
+        store.loadAll().find { it.id == taskBaseId(eventId) }?.snoozedUntil?.get(snoozeKey(eventId))
+
     fun retractBySource(sourceScriptId: String) {
         store.retractBySource(sourceScriptId)
         syncToRegistry()
@@ -178,6 +223,11 @@ class TaskManagerScript(
         // A task several times a day is one planner entry per time, each placed around its time.
         tasks.flatMap { req -> req.occurrences().map { (eventId, time) -> Triple(req, eventId, time) } }
             .filter { (_, eventId, _) -> !completions.isSkipped(eventId) }
+            // Snoozed past today's end (until tomorrow): off today.
+            .filter { (req, eventId, _) ->
+                val until = req.snoozedUntil["${LocalDate.now()}${occurrenceSuffix(eventId)}"]
+                until == null || until < LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            }
             .forEach { (req, eventId, time) ->
             registered++
             val effectiveDuration = if (req.useMeasuredDuration) {
@@ -201,9 +251,12 @@ class TaskManagerScript(
                 !e.isRunning && end != null && doneAt != null && abs(doneAt - end) <= RUN_MATCH_MS
             }
             val pinnedToday = req.pinnedStarts["${LocalDate.now()}${occurrenceSuffix(eventId)}"]
+            // Snoozed today: not before then, and its time of day set aside for the rest of the day
+            // (a snooze past its window would otherwise leave it nowhere to go).
+            val snoozed = req.snoozedUntil["${LocalDate.now()}${occurrenceSuffix(eventId)}"]
             // A one-off at an exact time: held at that time on its date (a missed one is carried
             // to today by settleOneOffs, so it shows there, due).
-            val exactStart = if (time != null) null else req.exactTime?.let { t ->
+            val exactStart = if (time != null || snoozed != null) null else req.exactTime?.let { t ->
                 val date = req.conditions.oneOffDate()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                 val hm = parseClockTime(t, 9, 0)
                 if (date == null || hm == null) null
@@ -231,8 +284,9 @@ class TaskManagerScript(
                     durationMinutes = effectiveDuration,
                     priority = req.priority,
                     conditions = req.conditions
-                        // Each of several times a day is placed around its own time instead.
-                        .filterNot { time != null && (it.type == "timeWindow" || it.type == "aroundTime") }
+                        // Each of several times a day is placed around its own time instead; a
+                        // snoozed one is placed after its snooze instead.
+                        .filterNot { (time != null || snoozed != null) && (it.type == "timeWindow" || it.type == "aroundTime") }
                         .mapNotNull { spec ->
                             when (val cond = spec.toEventCondition()) {
                                 // A quota needs what's been done this period.
@@ -240,13 +294,14 @@ class TaskManagerScript(
                                 else -> cond
                             }
                         } + listOfNotNull(
-                            time?.let { t -> parseClockTime(t, 9, 0) }
-                                ?.let { (h, m) -> EventCondition.AroundTime(h, m, MULTI_TIME_FLEX_MINUTES) }
+                            time?.takeIf { snoozed == null }?.let { t -> parseClockTime(t, 9, 0) }
+                                ?.let { (h, m) -> EventCondition.AroundTime(h, m, MULTI_TIME_FLEX_MINUTES) },
+                            snoozed?.let { EventCondition.NotBefore(it) }
                         ),
                     sourceWidgetId = WIDGET_ID,
                     bufferMinutes = req.bufferMinutes,
                     scheduleLate = req.scheduleLate,
-                    zone = if (time != null) null else req.zone,
+                    zone = if (time != null || snoozed != null) null else req.zone,
                     fixedStartMillis = fixedStart,
                     fixedEndMillis = fixedEnd,
                     // Pinned only on the day it ran; a recurring task still floats on other days.

@@ -93,6 +93,9 @@ sealed class EventCondition {
     /** Must be placed before this absolute deadline (epoch ms) */
     data class Deadline(val byMillis: Long) : EventCondition()
 
+    /** Not before this moment (epoch ms): a task snoozed until then. */
+    data class NotBefore(val epochMs: Long) : EventCondition()
+
     /** Only schedule on days when ALL of the referenced tasks are also scheduled */
     data class SameDayAs(val taskIds: Set<String>) : EventCondition()
 
