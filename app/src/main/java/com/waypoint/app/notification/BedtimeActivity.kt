@@ -112,19 +112,30 @@ class BedtimeActivity : ComponentActivity() {
     }
 }
 
-// Its own night palette, the same in light and dark theme: a sky, moonlight, starlight.
-private val SkyTop = Color(0xFF0B1030)
-private val SkyMid = Color(0xFF151B45)
-private val SkyBottom = Color(0xFF2A1F4A)
-private val Moonlight = Color(0xFFF6E7B8)
-private val Starlight = Color(0xFFFFFBEF)
-private val SoftText = Color(0xFFC9CBE8)
+// The night's colours come from the app's theme (like the alarm screen), so it matches the rest
+// of the app in light and dark: its background for the sky, its primary for the moon and the
+// main button, its text colour for the stars.
+private data class NightColors(val skyTop: Color, val skyBottom: Color, val moon: Color, val star: Color, val soft: Color, val onMoon: Color)
+
+@Composable
+private fun nightColors(): NightColors {
+    val cs = MaterialTheme.colorScheme
+    return NightColors(
+        skyTop = cs.background,
+        skyBottom = androidx.compose.ui.graphics.lerp(cs.background, cs.primary, 0.22f),
+        moon = cs.primary,
+        star = cs.onBackground,
+        soft = cs.onBackground.copy(alpha = 0.7f),
+        onMoon = cs.onPrimary
+    )
+}
 
 private data class Star(val x: Float, val y: Float, val radius: Float, val phase: Float, val speed: Float, val sparkle: Boolean)
 
 /** A night sky: gradient, twinkling stars, and a glowing crescent moon. */
 @Composable
 private fun NightSky(modifier: Modifier = Modifier) {
+    val night = nightColors()
     val stars = remember {
         val rnd = java.util.Random(7)
         List(90) {
@@ -145,18 +156,18 @@ private fun NightSky(modifier: Modifier = Modifier) {
         label = "twinkle"
     )
     Canvas(modifier.fillMaxSize()) {
-        drawRect(Brush.verticalGradient(listOf(SkyTop, SkyMid, SkyBottom)))
+        drawRect(Brush.verticalGradient(listOf(night.skyTop, night.skyBottom)))
         stars.forEach { st ->
             // Each star twinkles at its own pace.
             val a = 0.35f + 0.65f * ((sin(time * st.speed + st.phase) + 1f) / 2f)
             val c = Offset(st.x * size.width, st.y * size.height)
             val r = st.radius.dp.toPx()
-            drawCircle(Starlight.copy(alpha = a), r, c)
+            drawCircle(night.star.copy(alpha = a * 0.9f), r, c)
             if (st.sparkle) {
                 // A few brighter ones get a four-pointed glint.
                 val len = r * 4.5f * a
-                drawLine(Starlight.copy(alpha = a * 0.7f), Offset(c.x - len, c.y), Offset(c.x + len, c.y), 1.dp.toPx())
-                drawLine(Starlight.copy(alpha = a * 0.7f), Offset(c.x, c.y - len), Offset(c.x, c.y + len), 1.dp.toPx())
+                drawLine(night.star.copy(alpha = a * 0.6f), Offset(c.x - len, c.y), Offset(c.x + len, c.y), 1.dp.toPx())
+                drawLine(night.star.copy(alpha = a * 0.6f), Offset(c.x, c.y - len), Offset(c.x, c.y + len), 1.dp.toPx())
             }
         }
     }
@@ -165,6 +176,7 @@ private fun NightSky(modifier: Modifier = Modifier) {
 /** A crescent moon with a soft, slowly breathing glow. */
 @Composable
 private fun CrescentMoon(modifier: Modifier = Modifier) {
+    val moon = nightColors().moon
     val glow by rememberInfiniteTransition(label = "moon").animateFloat(
         initialValue = 0.55f,
         targetValue = 0.85f,
@@ -176,7 +188,7 @@ private fun CrescentMoon(modifier: Modifier = Modifier) {
         val r = size.minDimension * 0.26f
         drawCircle(
             Brush.radialGradient(
-                listOf(Moonlight.copy(alpha = 0.35f * glow), Moonlight.copy(alpha = 0.08f * glow), Color.Transparent),
+                listOf(moon.copy(alpha = 0.35f * glow), moon.copy(alpha = 0.08f * glow), Color.Transparent),
                 center = c,
                 radius = size.minDimension / 2f
             ),
@@ -186,13 +198,14 @@ private fun CrescentMoon(modifier: Modifier = Modifier) {
         val disc = Path().apply { addOval(Rect(c, r)) }
         val bite = Path().apply { addOval(Rect(Offset(c.x + r * 0.45f, c.y - r * 0.28f), r * 0.92f)) }
         val crescent = Path().apply { op(disc, bite, PathOperation.Difference) }
-        drawPath(crescent, Brush.linearGradient(listOf(Moonlight, Color(0xFFE8C97A)), start = Offset(c.x - r, c.y - r), end = Offset(c.x + r, c.y + r)))
+        drawPath(crescent, Brush.linearGradient(listOf(moon, moon.copy(alpha = 0.8f)), start = Offset(c.x - r, c.y - r), end = Offset(c.x + r, c.y + r)))
     }
 }
 
 @Composable
 private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSnooze: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(SkyTop)) {
+    val night = nightColors()
+    Box(Modifier.fillMaxSize().background(night.skyTop)) {
         NightSky()
         Column(
             Modifier
@@ -208,14 +221,14 @@ private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSn
                 Spacer(Modifier.height(8.dp))
                 Text(
                     title,
-                    color = Starlight,
+                    color = night.star,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Light,
                     letterSpacing = 1.sp,
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(10.dp))
-                Text(text, color = SoftText, fontSize = 16.sp, textAlign = TextAlign.Center)
+                Text(text, color = night.soft, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -226,7 +239,7 @@ private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSn
                     onClick = onSleep,
                     modifier = Modifier.fillMaxWidth().height(60.dp),
                     shape = RoundedCornerShape(30.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Moonlight, contentColor = SkyTop)
+                    colors = ButtonDefaults.buttonColors(containerColor = night.moon, contentColor = night.onMoon)
                 ) {
                     Text("Go to sleep", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 }
@@ -234,8 +247,8 @@ private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSn
                     onClick = onSnooze,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(26.dp),
-                    border = BorderStroke(1.dp, SoftText.copy(alpha = 0.45f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SoftText)
+                    border = BorderStroke(1.dp, night.soft.copy(alpha = 0.45f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = night.soft)
                 ) {
                     Text("Snooze ${SleepActionReceiver.SNOOZE_MINUTES} min", fontSize = 15.sp)
                 }
