@@ -153,12 +153,22 @@ class EventPlannerRegistry {
         // is clipped to midnight in `scheduled`, so without the unclipped-end check it would win
         // whenever bedtime is before midnight and the day would "start" at 00:00 tomorrow. For
         // today, also only one that has already ended.
-        val cycleStartMs = scheduled
+        val endedSleepWake = scheduled
             .filter { it.event.category == EventCategory.SLEEP
                    && it.endMillis > dayStartMs
                    && (it.event.fixedEndMillis ?: it.endMillis) <= dayEndMs
                    && (nowMs == null || it.endMillis <= nowMs) }
-            .maxOfOrNull { it.endMillis } ?: dayStartMs
+            .maxOfOrNull { it.endMillis }
+        // Today, in the middle of a sleep that ends later today (up past a bedtime after
+        // midnight, or asleep): the day starts at its wake. Without this the day "started" at
+        // midnight, that same sleep was taken for tonight's, and every task had to finish by
+        // its bedtime — already past — so nothing could be planned until the wake came.
+        val sleepInProgressWake = if (nowMs == null) null else scheduled
+            .filter { it.event.category == EventCategory.SLEEP
+                   && it.startMillis <= nowMs && nowMs < it.endMillis
+                   && (it.event.fixedEndMillis ?: it.endMillis) <= dayEndMs }
+            .maxOfOrNull { it.endMillis }
+        val cycleStartMs = listOfNotNull(endedSleepWake, sleepInProgressWake).maxOrNull() ?: dayStartMs
 
         // Tonight's sleep event — the first sleep window that begins after this morning's wake.
         // bed time is treated as a soft preference: tasks can push it later, shortening sleep

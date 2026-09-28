@@ -319,4 +319,17 @@ class EventPlannerRegistryTest {
         val plan = r.planForDate(day, namedBlockInstances = listOf(a, b))
         assertEquals(ms(day, 13), plan.startOf("t"))
     }
+
+    @Test
+    fun duringASleepThatStartedAfterMidnight_todayIsPlannedFromItsWake() {
+        // Asleep 03:00 → 09:00 today (and again 03:00 tomorrow); it's 04:35.
+        val r = EventPlannerRegistry().apply {
+            register(sleep("sleep_now", ms(day, 3), ms(day, 9)))
+            register(sleep("sleep_tonight", ms(day.plusDays(1), 3), ms(day.plusDays(1), 9)))
+            register(task("coffee", 15))
+        }
+        val plan = r.planForDate(day, nowMs = ms(day, 4, 35))
+        assertEquals(ms(day, 9), plan.startOf("coffee"))
+        assertTrue(plan.blocked.none { it.event.id == "coffee" })
+    }
 }
