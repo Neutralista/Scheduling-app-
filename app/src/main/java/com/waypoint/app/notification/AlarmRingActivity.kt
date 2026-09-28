@@ -65,6 +65,8 @@ class AlarmRingActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
 
+        goImmersive()
+
         // A fresh, standalone ThemeStore rather than pulling from WaypointApplication — this
         // screen must render even if app init failed elsewhere (startupCrash), so it can't
         // depend on anything the rest of the app wires up.

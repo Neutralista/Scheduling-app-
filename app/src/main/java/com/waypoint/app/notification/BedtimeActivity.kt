@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -76,6 +77,7 @@ class BedtimeActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
+        goImmersive()
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "Time to sleep"
         val text = intent.getStringExtra(EXTRA_TEXT) ?: "Your sleep window starts now"
         val themeStore = runCatching { ThemeStore(this) }.getOrNull()
@@ -264,11 +266,17 @@ private fun BedtimeScreen(
     var windingDown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val dark = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
     val goodNight = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    // The words and buttons fade away as "Good night" takes the title's place.
+    val words = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(1f) }
     androidx.compose.runtime.LaunchedEffect(windingDown) {
         if (!windingDown) return@LaunchedEffect
         val from = activity?.startBrightness() ?: 0.5f
         kotlinx.coroutines.coroutineScope {
-            launch { goodNight.animateTo(1f, tween(1200, easing = FastOutSlowInEasing)) }
+            launch { words.animateTo(0f, tween(700, easing = FastOutSlowInEasing)) }
+            launch {
+                kotlinx.coroutines.delay(400)
+                goodNight.animateTo(1f, tween(1200, easing = FastOutSlowInEasing))
+            }
             // About five seconds from here to dark, easing out like a sunset.
             launch {
                 dark.animateTo(1f, tween(5000, easing = LinearEasing)) {
@@ -294,21 +302,33 @@ private fun BedtimeScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CrescentMoon()
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    title,
-                    color = night.star,
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 1.sp,
-                    textAlign = TextAlign.Center
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        title,
+                        color = night.star.copy(alpha = words.value),
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = 1.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    if (windingDown) {
+                        Text(
+                            "Good night",
+                            color = night.moon.copy(alpha = goodNight.value),
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Light,
+                            letterSpacing = 2.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
-                Text(text, color = night.soft, fontSize = 16.sp, textAlign = TextAlign.Center)
+                Text(text, color = night.soft.copy(alpha = night.soft.alpha * words.value), fontSize = 16.sp, textAlign = TextAlign.Center)
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(bottom = 48.dp)
+                modifier = Modifier.padding(bottom = 48.dp).alpha(words.value)
             ) {
                 Button(
                     onClick = {
@@ -335,23 +355,14 @@ private fun BedtimeScreen(
             }
         }
         if (windingDown) {
-            // The night closing in: black over everything, "Good night" in the moon's colour.
+            // The night closing in: black over everything.
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = dark.value))
                     // Taps do nothing while it fades; once dark, a tap closes it (the phone's back).
-                    .pointerInput(Unit) { detectTapGestures { if (dark.value >= 0.99f) activity?.finish() } },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Good night",
-                    color = night.moon.copy(alpha = goodNight.value * (1f - dark.value * 0.6f)),
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 2.sp
-                )
-            }
+                    .pointerInput(Unit) { detectTapGestures { if (dark.value >= 0.99f) activity?.finish() } }
+            )
         }
     }
 }
