@@ -86,7 +86,12 @@ class BedtimeActivity : ComponentActivity() {
                 BedtimeScreen(
                     title = title,
                     text = text,
-                    onSleep = { act(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE) },
+                    onSleep = {
+                        val preview = intent.getBooleanExtra(EXTRA_PREVIEW, false)
+                        act(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE)
+                        // Screen off too, like the power button (when turned on in Settings).
+                        if (!preview) ScreenOffService.screenOff()
+                    },
                     onSnooze = { act(SleepActionReceiver.ACTION_SNOOZE_BEDTIME) }
                 )
             }

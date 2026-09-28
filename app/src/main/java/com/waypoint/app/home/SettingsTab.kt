@@ -205,6 +205,14 @@ fun SettingsTab(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
+        if (com.waypoint.app.notification.ScreenOffService.supported) {
+            ScreenOffAtBedtimeRow()
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
+
         if (scriptsContent != null) {
             Text(
                 text = "Scripts",
@@ -1155,4 +1163,46 @@ private fun StatusChip(connected: Boolean) {
         else
             MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+/** Whether the bedtime screen's Go to sleep also turns the screen off (an accessibility service the user turns on). */
+@Composable
+private fun ScreenOffAtBedtimeRow() {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(com.waypoint.app.notification.ScreenOffService.isEnabled(context)) }
+    // Turned on or off in Android's settings: check again on the way back.
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                enabled = com.waypoint.app.notification.ScreenOffService.isEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .clickable { context.startActivity(com.waypoint.app.notification.ScreenOffService.settingsIntent()) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Screen off at bedtime", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                if (enabled) "On · Go to sleep turns the screen off, like the power button"
+                else "Off · tap, then turn on \"Waypoint: screen off at bedtime\" under Installed apps",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
