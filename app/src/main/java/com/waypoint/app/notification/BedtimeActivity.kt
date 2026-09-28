@@ -93,7 +93,9 @@ class BedtimeActivity : ComponentActivity() {
                     onSleep = ::goToSleep,
                     setBrightness = ::setBrightness,
                     onWindDownDone = ::windDownDone,
-                    onSnooze = { act(SleepActionReceiver.ACTION_SNOOZE_BEDTIME) }
+                    onSnooze = {
+                        act(if (intent.getBooleanExtra(EXTRA_NUDGE, false)) SleepActionReceiver.ACTION_SNOOZE_NUDGE else SleepActionReceiver.ACTION_SNOOZE_BEDTIME)
+                    }
                 )
             }
         }
@@ -142,6 +144,8 @@ class BedtimeActivity : ComponentActivity() {
     companion object {
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
+        /** Shown again because the phone's in use with Sleep Mode on ("Still up?"). */
+        const val EXTRA_NUDGE = "nudge"
         /** Opened from Settings to see how it looks. */
         const val EXTRA_PREVIEW = "preview"
     }

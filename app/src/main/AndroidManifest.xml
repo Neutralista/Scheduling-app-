@@ -176,6 +176,7 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.ENTER_SLEEP_MODE" />
                 <action android:name="com.waypoint.app.SNOOZE_BEDTIME" />
+                <action android:name="com.waypoint.app.SNOOZE_NUDGE" />
             </intent-filter>
         </receiver>
 

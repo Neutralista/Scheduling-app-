@@ -17,13 +17,22 @@ class SleepActionReceiver : BroadcastReceiver() {
             ACTION_ENTER_SLEEP_MODE -> {
                 val logStore = SleepLogStore(context)
                 val prevState = logStore.getSleepModeState()
-                logStore.enterSleepMode()
+                // From a "Still up?" repeat Sleep Mode is already on — keep when it started.
+                if (prevState == com.waypoint.app.planner.SleepModeState.IDLE) logStore.enterSleepMode()
+                // A little grace before an unlock brings the screen back.
+                logStore.updateLastNudge(System.currentTimeMillis())
                 AppLogger.i(TAG, "enterSleepMode: prevState=$prevState → MONITORING")
                 SleepCheckReceiver.scheduleNextCheck(context)
                 AppLogger.i(TAG, "scheduleNextCheck: done")
                 // Gone to sleep: the reminders (and a snoozed one) are done with.
                 SleepNotificationHelper.clearBedtimeReminders(context)
                 cancelSnooze(context)
+            }
+            ACTION_SNOOZE_NUDGE -> {
+                // "Still up?" snoozed: leave them be for a while, Sleep Mode stays on.
+                SleepLogStore(context).setNudgeQuietUntil(System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L)
+                SleepNotificationHelper.clearBedtimeReminders(context)
+                AppLogger.i(TAG, "still-up screen snoozed $SNOOZE_MINUTES min")
             }
             ACTION_SNOOZE_BEDTIME -> {
                 SleepNotificationHelper.clearBedtimeReminders(context)
@@ -41,6 +50,7 @@ class SleepActionReceiver : BroadcastReceiver() {
         private const val TAG = "SleepActionReceiver"
         const val ACTION_ENTER_SLEEP_MODE = "com.waypoint.app.ENTER_SLEEP_MODE"
         const val ACTION_SNOOZE_BEDTIME = "com.waypoint.app.SNOOZE_BEDTIME"
+        const val ACTION_SNOOZE_NUDGE = "com.waypoint.app.SNOOZE_NUDGE"
         const val SNOOZE_MINUTES = 15
 
         private fun snoozePi(context: Context): PendingIntent = PendingIntent.getBroadcast(

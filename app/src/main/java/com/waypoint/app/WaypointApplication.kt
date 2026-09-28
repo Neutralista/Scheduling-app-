@@ -170,6 +170,19 @@ class WaypointApplication : Application() {
             BlockNotificationHelper.createChannel(this)
             com.waypoint.app.notification.TaskReminderScheduler.createChannel(this)
             com.waypoint.app.notification.ReminderAlarms.createChannel(this)
+            // Unlocking with Sleep Mode on (not asleep yet) brings the bedtime screen back.
+            runCatching {
+                registerReceiver(object : android.content.BroadcastReceiver() {
+                    override fun onReceive(ctx: android.content.Context, intent: android.content.Intent) {
+                        val log = com.waypoint.app.planner.SleepLogStore(ctx)
+                        if (log.getSleepModeState() == com.waypoint.app.planner.SleepModeState.MONITORING) {
+                            com.waypoint.app.notification.SleepNotificationHelper.maybeNudge(
+                                ctx, log, com.waypoint.app.notification.SleepNotificationHelper.UNLOCK_NUDGE_COOLDOWN_MS
+                            )
+                        }
+                    }
+                }, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
+            }
             runCatching { com.waypoint.app.notification.ReminderAlarms.rescheduleAll(this) }
                 .onFailure { AppLogger.e("App", "reminders re-arm failed", it) }
             ReminderScheduler.cancel(this)

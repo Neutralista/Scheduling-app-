@@ -114,10 +114,11 @@ object SleepNotificationHelper {
      * other apps" allowed the screen also opens straight away over whatever's in use — a
      * full-screen intent alone only shows as a banner while the phone is being used.
      */
-    private fun postBedtimeReminder(context: Context, id: Int, title: String, text: String) {
+    private fun postBedtimeReminder(context: Context, id: Int, title: String, text: String, nudge: Boolean = false) {
         val screen = Intent(context, BedtimeActivity::class.java)
             .putExtra(BedtimeActivity.EXTRA_TITLE, title)
             .putExtra(BedtimeActivity.EXTRA_TEXT, text)
+            .putExtra(BedtimeActivity.EXTRA_NUDGE, nudge)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
         val screenPi = PendingIntent.getActivity(
             context, 205, screen, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -137,7 +138,11 @@ object SleepNotificationHelper {
                 .setFullScreenIntent(screenPi, true)
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .addAction(0, "Go to sleep", action(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE, 202))
-                .addAction(0, "Snooze ${SleepActionReceiver.SNOOZE_MINUTES} min", action(SleepActionReceiver.ACTION_SNOOZE_BEDTIME, 206))
+                .addAction(
+                    0, "Snooze ${SleepActionReceiver.SNOOZE_MINUTES} min",
+                    if (nudge) action(SleepActionReceiver.ACTION_SNOOZE_NUDGE, 207) else action(SleepActionReceiver.ACTION_SNOOZE_BEDTIME, 206)
+                )
+                .setSilent(nudge)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setGroup(WaypointNotificationGroup.GROUP_KEY)
@@ -152,6 +157,7 @@ object SleepNotificationHelper {
 
     /** Clears the bedtime reminders (gone to sleep, or snoozed). */
     fun clearBedtimeReminders(context: Context) {
+        nm(context).cancel(NOTIF_NUDGE)
         nm(context).cancel(NOTIF_PRE_SLEEP)
         nm(context).cancel(NOTIF_BEDTIME)
         WaypointNotificationGroup.refresh(context)
@@ -162,7 +168,7 @@ object SleepNotificationHelper {
      * and at least [NUDGE_COOLDOWN_MS] have passed since the last nudge.
      * Sleep mode being active is the trigger; we skip only if it's already past wake time.
      */
-    fun maybeNudge(context: Context, logStore: SleepLogStore) {
+    fun maybeNudge(context: Context, logStore: SleepLogStore, cooldownMs: Long = NUDGE_COOLDOWN_MS) {
         val now = System.currentTimeMillis()
         val bedMs  = logStore.getScheduledBedMs()
         val wakeMs = logStore.getScheduledWakeMs() ?: run {
@@ -176,32 +182,26 @@ object SleepNotificationHelper {
             AppLogger.i(TAG, "maybeNudge: past wake time, skipping")
             return
         }
-
-        val lastNudge = logStore.getLastNudgeMillis() ?: 0L
-        val sinceLastNudge = now - lastNudge
-        if (sinceLastNudge < NUDGE_COOLDOWN_MS) {
-            AppLogger.i(TAG, "maybeNudge: cooldown not expired (${sinceLastNudge / 1000}s < ${NUDGE_COOLDOWN_MS / 1000}s)")
+        if (now < logStore.getNudgeQuietUntil()) {
+            AppLogger.i(TAG, "maybeNudge: snoozed, skipping")
             return
         }
 
-        AppLogger.i(TAG, "maybeNudge: sending nudge")
+        val lastNudge = logStore.getLastNudgeMillis() ?: 0L
+        val sinceLastNudge = now - lastNudge
+        if (sinceLastNudge < cooldownMs) {
+            AppLogger.i(TAG, "maybeNudge: cooldown not expired (${sinceLastNudge / 1000}s < ${cooldownMs / 1000}s)")
+            return
+        }
+
+        // Still using the phone with Sleep Mode on: the bedtime screen again, gently (silent).
+        AppLogger.i(TAG, "maybeNudge: showing the bedtime screen again")
         logStore.updateLastNudge(now)
-        val openPi = openAppPi(context, 203)
-        nm(context).notify(
-            NOTIF_NUDGE,
-            NotificationCompat.Builder(context, CH_SLEEP_NUDGE)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Still awake?")
-                .setContentText("Put down the phone and get some rest")
-                .setContentIntent(openPi)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true)
-                .setGroup(WaypointNotificationGroup.GROUP_KEY)
-                .build()
-        )
-        WaypointNotificationGroup.refresh(context)
+        postBedtimeReminder(context, NOTIF_NUDGE, "Still up?", "Sleep Mode is on — time to put the phone down", nudge = true)
     }
+
+    /** How soon after the last one an unlock brings the bedtime screen back. */
+    const val UNLOCK_NUDGE_COOLDOWN_MS = 2 * 60_000L
 
     // ─── Alarm status (persistent, silent) ────────────────────────────────────
 

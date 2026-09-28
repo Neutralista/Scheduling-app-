@@ -270,7 +270,10 @@ Go to sleep (`SleepActionReceiver.ACTION_ENTER_SLEEP_MODE`, which also clears th
 (`ACTION_SNOOZE_BEDTIME` → `SleepAlarmReceiver.ACTION_BEDTIME_SNOOZED`, which asks again unless Sleep Mode
 started meanwhile). Go to sleep winds down gently (screen brightness and the sky fade out over ~5 s with "Good night"), then turns the screen off (`notification/ScreenOffService`, an accessibility
 service using `GLOBAL_ACTION_LOCK_SCREEN`, Android 9+) once the user turns it on — Settings → "Screen off at
-bedtime" opens Android's accessibility settings.
+bedtime" opens Android's accessibility settings. While Sleep Mode is on but sleep isn't detected yet (MONITORING), using the phone brings it back
+as "Still up?" (`SleepNotificationHelper.maybeNudge`, `nudge = true`, silent): on unlock (`ACTION_USER_PRESENT`,
+registered in `WaypointApplication`, 2 min apart) and on the 10-min sleep check (20 min apart). Its Snooze
+(`ACTION_SNOOZE_NUDGE`) quiets it 15 min (`SleepLogStore.nudgeQuietUntil`); Go to sleep there keeps Sleep Mode's start.
 
 ## Plan tab zoom levels
 

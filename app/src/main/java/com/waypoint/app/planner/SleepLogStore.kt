@@ -30,6 +30,7 @@ class SleepLogStore(context: Context) {
         const val KEY_LAST_ACTIVE     = "last_active"
         const val KEY_SLEEP_START     = "sleep_start"
         const val KEY_LAST_NUDGE      = "last_nudge"
+        const val KEY_NUDGE_QUIET_UNTIL = "nudge_quiet_until"
         const val KEY_SCHED_BED       = "scheduled_bed_ms"
         const val KEY_SCHED_WAKE      = "scheduled_wake_ms"
         const val KEY_WAKE_CANDIDATE  = "wake_candidate"
@@ -188,6 +189,10 @@ class SleepLogStore(context: Context) {
     /** Most recent logged wake that ends a sleep starting at [sleepStartMs], if any. */
     fun loggedWakeAfter(sleepStartMs: Long, nowMs: Long): Long? =
         loadRecent(2).map { it.wakeMillis }.filter { it in (sleepStartMs + 1)..nowMs }.maxOrNull()
+
+    /** "Still up?" snoozed: no repeats of the bedtime screen before this. */
+    fun getNudgeQuietUntil(): Long = prefs.getLong(KEY_NUDGE_QUIET_UNTIL, 0L)
+    fun setNudgeQuietUntil(millis: Long) { prefs.edit().putLong(KEY_NUDGE_QUIET_UNTIL, millis).apply() }
 
     fun updateLastNudge(millis: Long) {
         prefs.edit().putLong(KEY_LAST_NUDGE, millis).apply()
