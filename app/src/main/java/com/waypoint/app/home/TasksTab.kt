@@ -263,6 +263,8 @@ fun TasksTab(
         refreshKey++
     }
     var showDone by remember { mutableStateOf(false) }
+    // Folded away like Done: skipped things are only there to undo a skip.
+    var showSkipped by remember { mutableStateOf(false) }
 
 
     // ── Blocks already run or skipped today, and Reset ──
@@ -711,18 +713,22 @@ fun TasksTab(
                 }
                 if (skippedTasks.isNotEmpty() || skippedBlocksToday.isNotEmpty() || remindersSkipped.isNotEmpty()) {
                     item(key = "skipped_header") {
-                        TodoSectionHeader(title = "Skipped (${skippedTasks.size + skippedBlocksToday.size + remindersSkipped.size})")
+                        TodoSectionHeader(
+                            title = "Skipped (${skippedTasks.size + skippedBlocksToday.size + remindersSkipped.size})",
+                            expanded = showSkipped,
+                            onClick = { showSkipped = !showSkipped }
+                        )
                     }
-                    items(remindersSkipped, key = { "kr_${it.key}" }) { occ ->
+                    if (showSkipped) items(remindersSkipped, key = { "kr_${it.key}" }) { occ ->
                         SkippedTaskRow(
                             title = "${occ.reminder.title} · ${occ.time}",
                             onUnskip = { settleReminder(occ, null) }
                         )
                     }
-                    items(skippedBlocksToday, key = { "kb_${it.id}" }) { block ->
+                    if (showSkipped) items(skippedBlocksToday, key = { "kb_${it.id}" }) { block ->
                         BlockItem(TodayBlock(block, 0L, 0L), skipped = true)
                     }
-                    items(skippedTasks, key = { "k_${it.first}" }) { (id, title) ->
+                    if (showSkipped) items(skippedTasks, key = { "k_${it.first}" }) { (id, title) ->
                         SkippedTaskRow(
                             title = title,
                             onUnskip = {
