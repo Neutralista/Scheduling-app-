@@ -23,6 +23,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import kotlin.math.sin
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -86,12 +90,9 @@ class BedtimeActivity : ComponentActivity() {
                 BedtimeScreen(
                     title = title,
                     text = text,
-                    onSleep = {
-                        val preview = intent.getBooleanExtra(EXTRA_PREVIEW, false)
-                        act(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE)
-                        // Screen off too, like the power button (when turned on in Settings).
-                        if (!preview) ScreenOffService.screenOff()
-                    },
+                    onSleep = ::goToSleep,
+                    setBrightness = ::setBrightness,
+                    onWindDownDone = ::windDownDone,
                     onSnooze = { act(SleepActionReceiver.ACTION_SNOOZE_BEDTIME) }
                 )
             }
@@ -104,6 +105,32 @@ class BedtimeActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recreate()
+    }
+
+    private val preview get() = intent.getBooleanExtra(EXTRA_PREVIEW, false)
+
+    // Go to sleep: Sleep Mode starts right away; the screen then winds down gently (the
+    // screen's own brightness and the sky fade out together) before it turns off.
+    private fun goToSleep() {
+        if (!preview) sendBroadcast(Intent(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE).setPackage(packageName))
+    }
+
+    /** The brightness to fade from: this window's, else the phone's setting. */
+    fun startBrightness(): Float {
+        val own = window.attributes.screenBrightness
+        if (own >= 0f) return own
+        val system = runCatching { android.provider.Settings.System.getInt(contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) }.getOrNull()
+        return ((system ?: 128) / 255f).coerceIn(0.05f, 1f)
+    }
+
+    private fun setBrightness(level: Float) {
+        window.attributes = window.attributes.apply { screenBrightness = level.coerceIn(0.01f, 1f) }
+    }
+
+    private fun windDownDone() {
+        // Screen off like the power button, when turned on in Settings; else just close.
+        if (!preview) ScreenOffService.screenOff()
+        finish()
     }
 
     private fun act(action: String) {
@@ -211,8 +238,35 @@ private fun CrescentMoon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSnooze: () -> Unit) {
+private fun BedtimeScreen(
+    title: String,
+    text: String,
+    onSleep: () -> Unit,
+    onSnooze: () -> Unit,
+    setBrightness: (Float) -> Unit = {},
+    onWindDownDone: () -> Unit = {}
+) {
     val night = nightColors()
+    val activity = androidx.compose.ui.platform.LocalContext.current as? BedtimeActivity
+    var windingDown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val dark = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    val goodNight = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(windingDown) {
+        if (!windingDown) return@LaunchedEffect
+        val from = activity?.startBrightness() ?: 0.5f
+        kotlinx.coroutines.coroutineScope {
+            launch { goodNight.animateTo(1f, tween(1200, easing = FastOutSlowInEasing)) }
+            // About five seconds from here to dark, easing out like a sunset.
+            launch {
+                dark.animateTo(1f, tween(5000, easing = LinearEasing)) {
+                    val t = value
+                    setBrightness(from * (1f - t) * (1f - t) + 0.01f)
+                }
+            }
+        }
+        goodNight.animateTo(0f, tween(900))
+        onWindDownDone()
+    }
     Box(Modifier.fillMaxSize().background(night.skyTop)) {
         NightSky()
         Column(
@@ -244,7 +298,12 @@ private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSn
                 modifier = Modifier.padding(bottom = 48.dp)
             ) {
                 Button(
-                    onClick = onSleep,
+                    onClick = {
+                        if (!windingDown) {
+                            onSleep()
+                            windingDown = true
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().height(60.dp),
                     shape = RoundedCornerShape(30.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = night.moon, contentColor = night.onMoon)
@@ -260,6 +319,24 @@ private fun BedtimeScreen(title: String, text: String, onSleep: () -> Unit, onSn
                 ) {
                     Text("Snooze ${SleepActionReceiver.SNOOZE_MINUTES} min", fontSize = 15.sp)
                 }
+            }
+        }
+        if (windingDown) {
+            // The night closing in: black over everything, "Good night" in the moon's colour.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = dark.value))
+                    .pointerInput(Unit) { detectTapGestures { } },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Good night",
+                    color = night.moon.copy(alpha = goodNight.value * (1f - dark.value * 0.6f)),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 2.sp
+                )
             }
         }
     }

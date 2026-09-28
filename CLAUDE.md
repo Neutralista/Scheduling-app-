@@ -268,7 +268,7 @@ The pre-sleep ("Bedtime in N min") and bedtime ("Time to sleep") reminders are f
 `notification/BedtimeActivity` (and opens it directly when "Display over other apps" is allowed), with
 Go to sleep (`SleepActionReceiver.ACTION_ENTER_SLEEP_MODE`, which also clears them) and Snooze 15 min
 (`ACTION_SNOOZE_BEDTIME` → `SleepAlarmReceiver.ACTION_BEDTIME_SNOOZED`, which asks again unless Sleep Mode
-started meanwhile). Go to sleep also turns the screen off (`notification/ScreenOffService`, an accessibility
+started meanwhile). Go to sleep winds down gently (screen brightness and the sky fade out over ~5 s with "Good night"), then turns the screen off (`notification/ScreenOffService`, an accessibility
 service using `GLOBAL_ACTION_LOCK_SCREEN`, Android 9+) once the user turns it on — Settings → "Screen off at
 bedtime" opens Android's accessibility settings.
 
