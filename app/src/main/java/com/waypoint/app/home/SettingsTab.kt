@@ -271,6 +271,29 @@ fun SettingsTab(
             Column {
                 Spacer(Modifier.height(12.dp))
                 Text(
+                    text = "Preview screens — see the alarm and bedtime screens in your theme (their buttons just close them)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            android.content.Intent(context, com.waypoint.app.notification.AlarmRingActivity::class.java)
+                                .putExtra(com.waypoint.app.notification.AlarmRingActivity.EXTRA_PREVIEW, true)
+                        )
+                    }) { Text("Alarm") }
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            android.content.Intent(context, com.waypoint.app.notification.BedtimeActivity::class.java)
+                                .putExtra(com.waypoint.app.notification.BedtimeActivity.EXTRA_PREVIEW, true)
+                                .putExtra(com.waypoint.app.notification.BedtimeActivity.EXTRA_TITLE, "Time to sleep")
+                                .putExtra(com.waypoint.app.notification.BedtimeActivity.EXTRA_TEXT, "Your sleep window starts now")
+                        )
+                    }) { Text("Bedtime") }
+                }
+                Spacer(Modifier.height(20.dp))
+                Text(
                     text = "App event log — script calls, schedule writes, and errors",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

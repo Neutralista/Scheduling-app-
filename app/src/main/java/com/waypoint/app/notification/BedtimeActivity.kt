@@ -102,13 +102,16 @@ class BedtimeActivity : ComponentActivity() {
     }
 
     private fun act(action: String) {
-        sendBroadcast(Intent(action).setPackage(packageName))
+        // A preview from Settings: its buttons just close it (no Sleep Mode, no snooze).
+        if (!intent.getBooleanExtra(EXTRA_PREVIEW, false)) sendBroadcast(Intent(action).setPackage(packageName))
         finish()
     }
 
     companion object {
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
+        /** Opened from Settings to see how it looks. */
+        const val EXTRA_PREVIEW = "preview"
     }
 }
 

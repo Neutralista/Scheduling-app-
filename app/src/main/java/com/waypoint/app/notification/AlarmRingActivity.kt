@@ -46,6 +46,11 @@ import java.util.Locale
 
 class AlarmRingActivity : ComponentActivity() {
 
+    companion object {
+        /** Opened from Settings to see how it looks: no alarm behind it. */
+        const val EXTRA_PREVIEW = "preview"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -79,7 +84,8 @@ class AlarmRingActivity : ComponentActivity() {
             val isDark = darkModeOverride ?: isSystemInDarkTheme()
 
             WaypointTheme(darkTheme = isDark, appTheme = appTheme) {
-                BackHandler { /* block back — alarm must be dismissed explicitly */ }
+                // Block back — an alarm must be dismissed explicitly (a preview can just be left).
+                BackHandler(enabled = !intent.getBooleanExtra(EXTRA_PREVIEW, false)) { }
                 AlarmRingScreen(
                     snoozeMinutes = snoozeMinutes,
                     onDismiss = { sendServiceAction(AlarmRingService.ACTION_DISMISS) },
@@ -90,6 +96,8 @@ class AlarmRingActivity : ComponentActivity() {
     }
 
     private fun sendServiceAction(action: String) {
+        // A preview from Settings: nothing is ringing, so its buttons just close it.
+        if (intent.getBooleanExtra(EXTRA_PREVIEW, false)) { finish(); return }
         val svcIntent = Intent(this, AlarmRingService::class.java).apply {
             this.action = action
             intent.extras?.let { putExtras(it) }
