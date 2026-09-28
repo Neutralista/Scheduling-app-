@@ -27,6 +27,21 @@ class SleepAlarmReceiver : BroadcastReceiver() {
             ACTION_BEDTIME -> {
                 SleepNotificationHelper.sendBedtimeNotification(context)
             }
+            // Snoozed: again, as "Bedtime in N min" while bedtime's still ahead, else "Time to
+            // sleep" — unless Sleep Mode was started meanwhile.
+            ACTION_BEDTIME_SNOOZED -> {
+                val logStore = SleepLogStore(context)
+                if (logStore.getSleepModeState() != SleepModeState.IDLE) return
+                val bedMs = logStore.getScheduledBedMs()
+                val minutesLeft = bedMs?.let { ((it - System.currentTimeMillis()) / 60_000L).toInt() } ?: 0
+                if (bedMs != null && minutesLeft >= 1) {
+                    SleepNotificationHelper.sendPreSleepReminder(
+                        context, SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(bedMs)), minutesLeft
+                    )
+                } else {
+                    SleepNotificationHelper.sendBedtimeNotification(context)
+                }
+            }
             ACTION_ARM_PASSIVE_DETECTION -> {
                 // Scheduled independently of the bedtime notification toggle (see
                 // SleepAlarmScheduler) so passive detection still works even if the user turned
@@ -54,6 +69,7 @@ class SleepAlarmReceiver : BroadcastReceiver() {
         private const val TAG                  = "SleepAlarmReceiver"
         const val ACTION_PRE_SLEEP             = "com.waypoint.app.SLEEP_PRE_REMINDER"
         const val ACTION_BEDTIME               = "com.waypoint.app.SLEEP_BEDTIME"
+        const val ACTION_BEDTIME_SNOOZED       = "com.waypoint.app.SLEEP_BEDTIME_SNOOZED"
         const val ACTION_ARM_PASSIVE_DETECTION = "com.waypoint.app.SLEEP_ARM_PASSIVE_DETECTION"
         const val EXTRA_MINUTES_BEFORE         = "minutes_before"
     }

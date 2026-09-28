@@ -164,6 +164,7 @@
             <intent-filter>
                 <action android:name="com.waypoint.app.SLEEP_PRE_REMINDER" />
                 <action android:name="com.waypoint.app.SLEEP_BEDTIME" />
+                <action android:name="com.waypoint.app.SLEEP_BEDTIME_SNOOZED" />
                 <action android:name="com.waypoint.app.SLEEP_LATE_NUDGE" />
                 <action android:name="com.waypoint.app.SLEEP_ARM_PASSIVE_DETECTION" />
             </intent-filter>
@@ -174,6 +175,7 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.waypoint.app.ENTER_SLEEP_MODE" />
+                <action android:name="com.waypoint.app.SNOOZE_BEDTIME" />
             </intent-filter>
         </receiver>
 
@@ -206,6 +208,16 @@
                 <action android:name="com.waypoint.app.SKIP_BLOCK_START" />
             </intent-filter>
         </receiver>
+
+        <activity
+            android:name=".notification.BedtimeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Waypoint" />
 
         <activity
             android:name=".notification.AlarmRingActivity"

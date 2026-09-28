@@ -99,44 +99,61 @@ object SleepNotificationHelper {
     // ─── Sleep reminders ───────────────────────────────────────────────────────
 
     fun sendPreSleepReminder(context: Context, bedTimeText: String, minutesBefore: Int = 30) {
-        val openPi = openAppPi(context, 200)
         val title = if (minutesBefore >= 60) "Bedtime in ${minutesBefore / 60}h"
                     else "Bedtime in ${minutesBefore} min"
+        postBedtimeReminder(context, NOTIF_PRE_SLEEP, title, "Wind down and head to bed by $bedTimeText")
+    }
+
+    fun sendBedtimeNotification(context: Context) {
+        postBedtimeReminder(context, NOTIF_BEDTIME, "Time to sleep", "Your sleep window starts now")
+    }
+
+    /**
+     * A bedtime reminder, full screen: its notification carries a full-screen intent to
+     * [BedtimeActivity] (over the lock screen) plus Go to sleep / Snooze, and with "Display over
+     * other apps" allowed the screen also opens straight away over whatever's in use — a
+     * full-screen intent alone only shows as a banner while the phone is being used.
+     */
+    private fun postBedtimeReminder(context: Context, id: Int, title: String, text: String) {
+        val screen = Intent(context, BedtimeActivity::class.java)
+            .putExtra(BedtimeActivity.EXTRA_TITLE, title)
+            .putExtra(BedtimeActivity.EXTRA_TEXT, text)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+        val screenPi = PendingIntent.getActivity(
+            context, 205, screen, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        fun action(action: String, code: Int) = PendingIntent.getBroadcast(
+            context, code,
+            Intent(action).setPackage(context.packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         nm(context).notify(
-            NOTIF_PRE_SLEEP,
+            id,
             NotificationCompat.Builder(context, CH_SLEEP_REMINDER)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
-                .setContentText("Wind down and head to bed by $bedTimeText")
-                .setContentIntent(openPi)
+                .setContentText(text)
+                .setContentIntent(screenPi)
+                .setFullScreenIntent(screenPi, true)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .addAction(0, "Go to sleep", action(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE, 202))
+                .addAction(0, "Snooze ${SleepActionReceiver.SNOOZE_MINUTES} min", action(SleepActionReceiver.ACTION_SNOOZE_BEDTIME, 206))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setGroup(WaypointNotificationGroup.GROUP_KEY)
                 .build()
         )
         WaypointNotificationGroup.refresh(context)
+        if (FullScreenAlarmPermission.canDrawOverlays(context)) {
+            runCatching { context.startActivity(screen) }
+                .onFailure { AppLogger.e(TAG, "postBedtimeReminder: opening the bedtime screen failed", it) }
+        }
     }
 
-    fun sendBedtimeNotification(context: Context) {
-        val openPi = openAppPi(context, 201)
-        val sleepModePi = PendingIntent.getBroadcast(
-            context, 202,
-            Intent(SleepActionReceiver.ACTION_ENTER_SLEEP_MODE).setPackage(context.packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        nm(context).notify(
-            NOTIF_BEDTIME,
-            NotificationCompat.Builder(context, CH_SLEEP_REMINDER)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Time to sleep")
-                .setContentText("Your sleep window starts now")
-                .setContentIntent(openPi)
-                .addAction(0, "Start Sleep Mode", sleepModePi)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setGroup(WaypointNotificationGroup.GROUP_KEY)
-                .build()
-        )
+    /** Clears the bedtime reminders (gone to sleep, or snoozed). */
+    fun clearBedtimeReminders(context: Context) {
+        nm(context).cancel(NOTIF_PRE_SLEEP)
+        nm(context).cancel(NOTIF_BEDTIME)
         WaypointNotificationGroup.refresh(context)
     }
 

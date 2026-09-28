@@ -261,6 +261,15 @@ Tasks tab's to-do list (`ReminderRow`), as markers on the Plan tab's day timelin
 tapping one gives Done / Skip / Undo / Edit) and managed in the Blocks tab's Reminders section. (The older
 `notification/ReminderScheduler` only cancels a retired WorkManager job.)
 
+## Bedtime reminders
+
+The pre-sleep ("Bedtime in N min") and bedtime ("Time to sleep") reminders are full screen:
+`SleepNotificationHelper.postBedtimeReminder` posts them with a full-screen intent to
+`notification/BedtimeActivity` (and opens it directly when "Display over other apps" is allowed), with
+Go to sleep (`SleepActionReceiver.ACTION_ENTER_SLEEP_MODE`, which also clears them) and Snooze 15 min
+(`ACTION_SNOOZE_BEDTIME` → `SleepAlarmReceiver.ACTION_BEDTIME_SNOOZED`, which asks again unless Sleep Mode
+started meanwhile).
+
 ## Plan tab zoom levels
 
 `PlanZoomLevel` DAY → WEEK → MONTH → YEAR (`planner/PlanOverview.kt`). The Plan tab's `selectedDate`
