@@ -18,10 +18,4 @@
         All data stays on your device.
     </string>
 
-    <!-- Accessibility service: turns the screen off on "Go to sleep" -->
-    <string name="screen_off_service_label">Waypoint: screen off at bedtime</string>
-    <string name="screen_off_service_description">
-        Lets the bedtime screen\'s Go to sleep button turn your screen off, like the power button.
-        Waypoint doesn\'t read or watch anything on your screen with it.
-    </string>
 </resources>

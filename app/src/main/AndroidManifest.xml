@@ -229,19 +229,6 @@
             android:theme="@style/Theme.Waypoint" />
 
         <service
-            android:name=".notification.ScreenOffService"
-            android:exported="false"
-            android:label="@string/screen_off_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/screen_off_service" />
-        </service>
-
-        <service
             android:name=".notification.AlarmRingService"
             android:directBootAware="true"
             android:exported="false"

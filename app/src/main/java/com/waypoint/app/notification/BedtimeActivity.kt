@@ -129,10 +129,19 @@ class BedtimeActivity : ComponentActivity() {
         window.attributes = window.attributes.apply { screenBrightness = level.coerceIn(0.01f, 1f) }
     }
 
+    // Wound down: the screen stays black at its lowest brightness and the phone's own screen
+    // timeout turns it off (an app can't switch the screen off itself without accessibility or
+    // device admin access, which Play Protect blocks for sideloaded apps). Gone once it's off.
+    private var asleep = false
+
     private fun windDownDone() {
-        // Screen off like the power button, when turned on in Settings; else just close.
-        if (!preview) ScreenOffService.screenOff()
-        finish()
+        asleep = true
+        if (preview) finish()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (asleep) finish()
     }
 
     private fun act(action: String) {
@@ -331,7 +340,8 @@ private fun BedtimeScreen(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = dark.value))
-                    .pointerInput(Unit) { detectTapGestures { } },
+                    // Taps do nothing while it fades; once dark, a tap closes it (the phone's back).
+                    .pointerInput(Unit) { detectTapGestures { if (dark.value >= 0.99f) activity?.finish() } },
                 contentAlignment = Alignment.Center
             ) {
                 Text(

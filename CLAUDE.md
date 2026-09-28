@@ -268,9 +268,9 @@ The pre-sleep ("Bedtime in N min") and bedtime ("Time to sleep") reminders are f
 `notification/BedtimeActivity` (and opens it directly when "Display over other apps" is allowed), with
 Go to sleep (`SleepActionReceiver.ACTION_ENTER_SLEEP_MODE`, which also clears them) and Snooze 15 min
 (`ACTION_SNOOZE_BEDTIME` → `SleepAlarmReceiver.ACTION_BEDTIME_SNOOZED`, which asks again unless Sleep Mode
-started meanwhile). Go to sleep winds down gently (screen brightness and the sky fade out over ~5 s with "Good night"), then turns the screen off (`notification/ScreenOffService`, an accessibility
-service using `GLOBAL_ACTION_LOCK_SCREEN`, Android 9+) once the user turns it on — Settings → "Screen off at
-bedtime" opens Android's accessibility settings. While Sleep Mode is on but sleep isn't detected yet (MONITORING), using the phone brings it back
+started meanwhile). Go to sleep winds down gently (screen brightness and the sky fade out over ~5 s with "Good night"),
+then stays black at the lowest brightness until the phone's screen timeout turns it off (no accessibility service
+or device admin: Play Protect blocks sideloaded apps that ask for accessibility). While Sleep Mode is on but sleep isn't detected yet (MONITORING), using the phone brings it back
 as "Still up?" (`SleepNotificationHelper.maybeNudge`, `nudge = true`, silent): on unlock / screen on (`ACTION_USER_PRESENT`,
 `ACTION_SCREEN_ON`, registered in `WaypointApplication`, 1 min apart), and it keeps coming back every
 `STILL_UP_REPEAT_MS` (3 min) while the phone stays in use — the sleep check runs every 3 min instead of 10 then. Its Snooze
