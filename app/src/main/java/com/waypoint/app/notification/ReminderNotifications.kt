@@ -170,7 +170,8 @@ object ReminderAlarms {
         val showing = activeKeys(context)
         val now = System.currentTimeMillis()
         remindersForDay(reminders, LocalDate.now()) { store.isSettled(it) }
-            .filter { it.atMs <= now && it.key !in showing }
+            // remindersForDay lists today's times done or not (the to-do list shows both).
+            .filter { it.atMs <= now && it.key !in showing && !store.isSettled(it.key) }
             .forEach { occ -> post(context, occ, alert = true) }
     }
 
@@ -217,6 +218,8 @@ object ReminderAlarms {
     // ── The notification ─────────────────────────────────────────────────────
 
     internal fun post(context: Context, occ: ReminderOccurrence, alert: Boolean) {
+        // Never for a time already done or skipped, whatever asked.
+        if (ReminderStore(context).isSettled(occ.key)) return
         val r = occ.reminder
         val today = LocalDate.now()
         val due = when (occ.date) {
