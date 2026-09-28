@@ -106,7 +106,9 @@ data class TaskRequest(
      * Several times a day: "HH:MM" for each, each its own to-do placed around that time. Empty (or
      * one) = once a day, placed by its time of day as usual.
      */
-    val timesOfDay: List<String> = emptyList()
+    val timesOfDay: List<String> = emptyList(),
+    /** A one-off's exact start ("HH:MM") on its date: held there instead of planned. */
+    val exactTime: String? = null
 )
 
 /** Separates a task's id from which of its times a day a planner entry is ("abc~2"). */

@@ -201,6 +201,14 @@ class TaskManagerScript(
                 !e.isRunning && end != null && doneAt != null && abs(doneAt - end) <= RUN_MATCH_MS
             }
             val pinnedToday = req.pinnedStarts["${LocalDate.now()}${occurrenceSuffix(eventId)}"]
+            // A one-off at an exact time: held at that time on its date (a missed one is carried
+            // to today by settleOneOffs, so it shows there, due).
+            val exactStart = if (time != null) null else req.exactTime?.let { t ->
+                val date = req.conditions.oneOffDate()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val hm = parseClockTime(t, 9, 0)
+                if (date == null || hm == null) null
+                else date.atTime(hm.first, hm.second).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            }
             val (fixedStart, fixedEnd) = when {
                 // Running past its planned length: it runs until now, not its estimate.
                 exec != null && exec.isRunning -> exec.startMillis to
@@ -209,8 +217,12 @@ class TaskManagerScript(
                 doneAt != null          -> doneAt - effectiveDuration * 60_000L to doneAt
                 // Dragged to a time for today: held there instead of re-planned.
                 pinnedToday != null     -> pinnedToday to pinnedToday + effectiveDuration * 60_000L
+                exactStart != null      -> exactStart to exactStart + effectiveDuration * 60_000L
                 else                    -> null to null
             }
+            // Held at its set time: on its date only, never floated onto other days (unlike a run,
+            // completion or drag, which pin just that day and leave the task planned on others).
+            val heldAtExactTime = exactStart != null && fixedStart == exactStart
 
             registry.register(
                 PlannerEvent(
@@ -238,7 +250,7 @@ class TaskManagerScript(
                     fixedStartMillis = fixedStart,
                     fixedEndMillis = fixedEnd,
                     // Pinned only on the day it ran; a recurring task still floats on other days.
-                    pinnedDayOnly = true,
+                    pinnedDayOnly = !heldAtExactTime,
                     colorArgb = req.colorArgb
                 )
             )

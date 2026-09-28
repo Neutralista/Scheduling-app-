@@ -332,4 +332,19 @@ class EventPlannerRegistryTest {
         assertEquals(ms(day, 9), plan.startOf("coffee"))
         assertTrue(plan.blocked.none { it.event.id == "coffee" })
     }
+
+    @Test
+    fun oneOffAtASetTime_heldThereOnItsDayOnly() {
+        val r = registry().apply {
+            register(task("dentist", 60).copy(fixedStartMillis = ms(day, 14, 30), fixedEndMillis = ms(day, 15, 30), pinnedDayOnly = false))
+            register(task("other", 60, 9, EventCondition.TimeWindow(14, 0, 16, 0)))
+        }
+        val plan = r.planForDate(day)
+        assertEquals(ms(day, 14, 30), plan.startOf("dentist"))
+        // Planned around it, not on top of it.
+        val other = plan.scheduled.first { it.event.id == "other" }
+        assertTrue(other.endMillis <= ms(day, 14, 30) || other.startMillis >= ms(day, 15, 30))
+        // Not on another day.
+        assertNull(r.planForDate(day.plusDays(1)).startOf("dentist"))
+    }
 }

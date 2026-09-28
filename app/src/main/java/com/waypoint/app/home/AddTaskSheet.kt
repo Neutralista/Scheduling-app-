@@ -162,6 +162,9 @@ fun AddTaskSheet(
     var showOnceDatePicker by remember { mutableStateOf(false) }
     // Several times a day (floating tasks): a time for each; one = once a day, by Time of day.
     val timesOfDay = remember { mutableStateListOf<String>().apply { addAll(initial?.timesOfDay.orEmpty()) } }
+    // A one-off at an exact time instead of wherever the planner fits it.
+    var exactTime by remember { mutableStateOf(initial?.exactTime) }
+    val atExactTime = !isBlockMode && once && exactTime != null
 
     var afterTime by remember { mutableStateOf<String?>(initTw?.start?.takeIf { it != "00:00" }) }
     var beforeTime by remember { mutableStateOf<String?>(initTw?.end?.takeIf { it != "23:59" }) }
@@ -331,7 +334,8 @@ fun AddTaskSheet(
                 bufferMinutes       = resolvedBuffer,
                 useMeasuredDuration = useMeasuredDuration,
                 remindAtStart       = remindAtStart,
-                timesOfDay          = if (timesOfDay.size > 1)
+                exactTime           = exactTime.takeIf { once && timesOfDay.size <= 1 },
+                timesOfDay          = if (!(once && exactTime != null) && timesOfDay.size > 1)
                                           timesOfDay.distinct().sortedBy { parseClockTime(it, 9, 0)?.let { (h, m) -> h * 60 + m } ?: 0 }
                                       else emptyList(),
                 triggers            = triggers.toList(),
@@ -502,8 +506,27 @@ fun AddTaskSheet(
                                         }
                                     )
                                 }
+                                // When: wherever the planner fits it, or an exact start time.
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilterChip(selected = exactTime == null, onClick = { exactTime = null }, label = { Text("Planned") })
+                                    FilterChip(
+                                        selected = exactTime != null,
+                                        onClick = {
+                                            if (exactTime == null) {
+                                                exactTime = java.time.LocalTime.now().plusHours(1).withMinute(0)
+                                                    .let { "%02d:%02d".format(it.hour, it.minute) }
+                                            }
+                                        },
+                                        label = { Text("At a set time") }
+                                    )
+                                    exactTime?.let { t -> TimePickerChip(value = t, onValueChange = { exactTime = it }) }
+                                }
                                 Text(
-                                    "Not done by then, it carries over each day until it is; once done, it's cleared the next day.",
+                                    (if (exactTime != null) "Starts at exactly ${exactTime}; other tasks are planned around it. " else "") +
+                                        "Not done by then, it carries over each day until it is; once done, it's cleared the next day.",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
@@ -517,7 +540,7 @@ fun AddTaskSheet(
                         }
                     }
                     // Times a day — each its own to-do, placed around its time.
-                    if (!isBlockMode) FormSection(title = "Times a day") {
+                    if (!isBlockMode && !atExactTime) FormSection(title = "Times a day") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 (1..6).forEach { n ->
@@ -876,7 +899,7 @@ fun AddTaskSheet(
                     // AroundTime/TimeWindow for block tasks via the same Before/During/AfterBlock
                     // placement paths used for floating tasks.
                     // Several times a day: each has its own time instead.
-                    if (timesOfDay.size <= 1) FormSection(title = "Time of day") {
+                    if (timesOfDay.size <= 1 && !atExactTime) FormSection(title = "Time of day") {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),

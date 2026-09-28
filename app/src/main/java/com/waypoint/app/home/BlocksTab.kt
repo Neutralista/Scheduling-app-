@@ -223,6 +223,7 @@ fun BlocksTab(
                 FloatingTaskRow(
                     task = task,
                     tags = listOfNotNull(
+                        task.exactTime?.let { TagView(com.waypoint.app.planner.TagKind.TIME, "At $it") },
                         task.timesOfDay.takeIf { it.size > 1 }?.let {
                             TagView(com.waypoint.app.planner.TagKind.TIME, "${it.size}× a day · ${it.joinToString(", ")}")
                         }

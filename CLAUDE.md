@@ -230,6 +230,9 @@ done ones the next day.
 planner entry per time (`TaskRequest.occurrences()`: the task's id for the first, `"id~2"`, `"id~3"`… after),
 each with `AroundTime(time, ±60 min)` in place of its time of day. Done / skip / timers / pins are per entry;
 anything that needs the task itself looks it up by `taskBaseId(eventId)`.
+A one-off can start at an exact time (`TaskRequest.exactTime`, "Once → At a set time"): `syncToRegistry`
+registers it fixed at its `oneOff` date + time with `pinnedDayOnly = false`, so it's held there on that day
+only and other tasks plan around it.
 
 ## Reminders
 
