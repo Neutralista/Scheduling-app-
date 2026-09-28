@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -759,9 +760,9 @@ private fun TaskDrillInSheet(
 ) {
     var editTarget by remember { mutableStateOf<TaskExecution?>(null) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 12.dp),
+            modifier = Modifier.systemBarsPadding().fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 12.dp),
             shape = RoundedCornerShape(28.dp),
             tonalElevation = 6.dp
         ) {
@@ -959,9 +960,9 @@ private fun MeasurementDrillInSheet(
 ) {
     var editTarget by remember { mutableStateOf<MeasurementRecord?>(null) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 12.dp),
+            modifier = Modifier.systemBarsPadding().fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 12.dp),
             shape = RoundedCornerShape(28.dp),
             tonalElevation = 6.dp
         ) {
