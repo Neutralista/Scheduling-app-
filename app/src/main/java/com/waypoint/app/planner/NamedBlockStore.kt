@@ -125,6 +125,17 @@ class NamedBlockStore(private val context: Context) {
         BlockAlarmScheduler.resync(context, schedule.blockId)
     }
 
+    /** Drops [date]'s record: the block is back to its usual schedule (or placement) that day. */
+    fun clearSchedule(blockId: String, date: LocalDate) {
+        schedules.edit().remove("$blockId|${date.format(dateFmt)}").apply()
+        AlarmBlockSync.sync(context)
+        BlockAlarmScheduler.resync(context, blockId)
+    }
+
+    /** An auto-placed block dragged to a time on [date]: that day's record, else null. */
+    fun movedForDate(blockId: String, date: LocalDate): NamedBlockSchedule? =
+        getSchedule(blockId, date)?.takeIf { it.enabled && it.pinned }
+
     fun getSchedule(blockId: String, date: LocalDate): NamedBlockSchedule? =
         schedules.getString("$blockId|${date.format(dateFmt)}", null)?.let {
             try { json.decodeFromString<NamedBlockSchedule>(it) } catch (_: Exception) { null }

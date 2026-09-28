@@ -38,6 +38,7 @@ fun NamedBlockStore.liveBlockInstances(
         .filter { it.isFloating && it.enabled && !isOffForDate(it.id, date) }
         .map { block -> NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date).withMeasuredLengths(logStore)) }
         .pinnedBySessions(date, activeSession, logStore)
+        .let { (ran, floating) -> splitMovedFloating(date, floating).let { (moved, rest) -> (ran + moved) to rest } }
     val fixed = resolveForDate(date).map { (block, sched) ->
         val startMs = date.atTime(sched.startHour, sched.startMinute).atZone(zone).toInstant().toEpochMilli()
         val activeTasks = resolveActiveTasks(block.id, date).withMeasuredLengths(logStore)
@@ -48,6 +49,27 @@ fun NamedBlockStore.liveBlockInstances(
         NamedBlockInstance(block, startMs, endMs, activeTasks)
     }.reconciledWithActualSessions(date, activeSession, logStore)
     return (fixed + floatingSplit.first) to floatingSplit.second
+}
+
+/**
+ * Auto-placed [floating] blocks dragged to a time for [date] (placed there for that day only, like
+ * a fixed block) apart from the rest, which the planner still places.
+ */
+fun NamedBlockStore.splitMovedFloating(
+    date: LocalDate,
+    floating: List<NamedBlockInstance>
+): Pair<List<NamedBlockInstance>, List<NamedBlockInstance>> {
+    val zone = ZoneId.systemDefault()
+    val (moved, rest) = floating.partition { movedForDate(it.block.id, date) != null }
+    return moved.map { inst ->
+        val s = movedForDate(inst.block.id, date)!!
+        val start = date.atTime(s.startHour, s.startMinute).atZone(zone).toInstant().toEpochMilli()
+        val end = if (s.endHour >= 0) {
+            val e = date.atTime(s.endHour, s.endMinute).atZone(zone).toInstant().toEpochMilli()
+            if (e > start) e else e + 24 * 3600_000L
+        } else start + effectiveDurationMinutes(inst.block, inst.activeTasks) * 60_000L
+        inst.copy(scheduledStartMs = start, estimatedEndMs = end)
+    } to rest
 }
 
 /** [date]'s plan as the timeline has it: blocks as above, and calendar time reserved. */

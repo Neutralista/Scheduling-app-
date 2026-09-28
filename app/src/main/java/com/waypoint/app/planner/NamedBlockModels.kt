@@ -186,7 +186,9 @@ data class NamedBlockSchedule(
     val endHour: Int = -1,             // -1 = use block's estimatedMinutes; ≥0 = explicit end
     val endMinute: Int = 0,
     /** Off because it was skipped (Skip), not because the day was switched off in its day picker. */
-    val skipped: Boolean = false
+    val skipped: Boolean = false,
+    /** An auto-placed block dragged to this start (startHour:startMinute) for this date only. */
+    val pinned: Boolean = false
 )
 
 /**

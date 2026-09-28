@@ -197,6 +197,11 @@ fun DayTimelineView(
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         } ?: emptyList()).pinnedBySessions(date, activeSession, blockLogStore)
+            // Dragged to a time for this day: held there, like a fixed block.
+            .let { (ran, floating) ->
+                val store = namedBlockStore ?: return@let ran to floating
+                store.splitMovedFloating(date, floating).let { (moved, rest) -> (ran + moved) to rest }
+            }
     }
     val floatingBlockInstances = floatingSplit.second
     val blockInstances = remember(date, refreshKey, localRefreshKey, activeSession, floatingSplit) {
@@ -410,7 +415,31 @@ fun DayTimelineView(
     fun commitBlockDrag(blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) {
         val store = namedBlockStore ?: return
         val block = store.loadBlock(blockId) ?: return
-        if (block.isFloating) return
+        if (block.isFloating) {
+            // An auto-placed block is held at the new time on this day only; other days it's
+            // still placed as usual.
+            val startZdt = Instant.ofEpochMilli(newStartMs).atZone(zone)
+            val endZdt = Instant.ofEpochMilli(newEndMs).atZone(zone)
+            store.setSchedule(
+                NamedBlockSchedule(
+                    blockId = blockId,
+                    date = date.toString(),
+                    enabled = true,
+                    startHour = startZdt.hour,
+                    startMinute = startZdt.minute,
+                    endHour = if (isResize) endZdt.hour else -1,
+                    endMinute = if (isResize) endZdt.minute else 0,
+                    pinned = true
+                )
+            )
+            android.widget.Toast.makeText(
+                context,
+                "${block.name} moved to %02d:%02d for this day only".format(startZdt.hour, startZdt.minute),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            localRefreshKey++
+            return
+        }
         val originalDate = Instant.ofEpochMilli(originalStartMs).atZone(zone).toLocalDate()
         val startZdt = Instant.ofEpochMilli(newStartMs).atZone(zone)
         val endZdt = Instant.ofEpochMilli(newEndMs).atZone(zone)
@@ -1277,7 +1306,8 @@ private fun PlannerEventBlock(
     // be moved but not resized here — resizing changes its duration, a different, more
     // consequential edit than reordering, so it stays behind AddTaskSheet for now.
     val isPlainTask = !isSleep && !isBlock && se.event.sourceWidgetId == TaskManagerScript.WIDGET_ID
-    val blockDraggable = isBlock && onBlockDrag != null && blockInstance?.block?.isFloating != true
+    // Auto-placed blocks too: dragging one holds it at the new time for that day only.
+    val blockDraggable = isBlock && onBlockDrag != null && blockInstance != null
     val taskDraggable = isPlainTask && onTaskDrag != null
     val moveDraggable = blockDraggable || taskDraggable
     val resizeDraggable = blockDraggable

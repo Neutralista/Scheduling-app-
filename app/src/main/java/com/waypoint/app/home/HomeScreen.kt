@@ -886,6 +886,13 @@ private fun PlanTab(
                     calRefreshKey++
                     selectedPlannerEvent = null
                 }
+            } else if (blockTileId != null && namedBlockStore.movedForDate(blockTileId, selectedDate) != null) {
+                // An auto-placed block dragged for this day: back to being placed automatically.
+                {
+                    namedBlockStore.clearSchedule(blockTileId, selectedDate)
+                    calRefreshKey++
+                    selectedPlannerEvent = null
+                }
             } else null,
             onSkip = if ((taskReq != null || isBlockSubTask) && !taskManager.isSkipped(selPlanner.event.id)) {
                 {

@@ -131,6 +131,7 @@ fun BlockScopeView(
             NamedBlockInstance(block, 0L, 0L,
                 namedBlockStore.resolveActiveTasks(block.id, date).withMeasuredDurations(blockLogStore))
         }.pinnedBySessions(date, session, blockLogStore)
+            .let { (ran, floating) -> namedBlockStore.splitMovedFloating(date, floating).let { (moved, rest) -> (ran + moved) to rest } }
     }
     val floatingInstances = floatingSplit.second
     val blockInstances = remember(date, refreshKey, session, floatingSplit) {
