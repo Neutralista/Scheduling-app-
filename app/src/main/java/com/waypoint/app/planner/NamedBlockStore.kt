@@ -140,17 +140,23 @@ class NamedBlockStore(private val context: Context) {
      */
     fun skipForDate(blockId: String, date: LocalDate) {
         val existing = getSchedule(blockId, date)
-        setSchedule((existing ?: NamedBlockSchedule(blockId = blockId, date = date.format(dateFmt))).copy(enabled = false))
+        setSchedule((existing ?: NamedBlockSchedule(blockId = blockId, date = date.format(dateFmt))).copy(enabled = false, skipped = true))
     }
 
+    /** Skipped for [date] (Skip) — the to-do list's Skipped section and Reset. */
     fun isSkippedForDate(blockId: String, date: LocalDate): Boolean =
+        getSchedule(blockId, date)?.let { !it.enabled && it.skipped } == true
+
+    /** Not on [date] at all: skipped, or that day switched off in its day picker. For planning. */
+    fun isOffForDate(blockId: String, date: LocalDate): Boolean =
         getSchedule(blockId, date)?.enabled == false
 
     /** Undoes [skipForDate]: the block is back on for [date] (any time change that day stays). */
     fun unskipForDate(blockId: String, date: LocalDate) {
         val existing = getSchedule(blockId, date) ?: return
-        if (existing.enabled) return
-        setSchedule(existing.copy(enabled = true))
+        // Only a skip: a day switched off in the day picker stays off.
+        if (existing.enabled || !existing.skipped) return
+        setSchedule(existing.copy(enabled = true, skipped = false))
     }
 
     /** Switches the whole block on or off; see [NamedBlock.enabled]. */
@@ -329,7 +335,7 @@ class NamedBlockStore(private val context: Context) {
      *  skipped for this date (see [skipForDate]) — floating blocks have no schedule record to
      *  disable, so this is the only place their skip actually takes effect. */
     fun resolveFloatingInstancesForDate(date: LocalDate): List<NamedBlockInstance> =
-        loadAllBlocks().filter { it.isFloating && it.enabled && !isSkippedForDate(it.id, date) }.map { block ->
+        loadAllBlocks().filter { it.isFloating && it.enabled && !isOffForDate(it.id, date) }.map { block ->
             NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date))
         }
 }

@@ -35,7 +35,7 @@ fun NamedBlockStore.liveBlockInstances(
 ): Pair<List<NamedBlockInstance>, List<NamedBlockInstance>> {
     val zone = ZoneId.systemDefault()
     val floatingSplit = loadAllBlocks()
-        .filter { it.isFloating && it.enabled && !isSkippedForDate(it.id, date) }
+        .filter { it.isFloating && it.enabled && !isOffForDate(it.id, date) }
         .map { block -> NamedBlockInstance(block, 0L, 0L, resolveActiveTasks(block.id, date).withMeasuredLengths(logStore)) }
         .pinnedBySessions(date, activeSession, logStore)
     val fixed = resolveForDate(date).map { (block, sched) ->
