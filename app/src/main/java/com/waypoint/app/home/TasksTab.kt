@@ -123,6 +123,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import com.waypoint.app.planner.liveBlockInstances
 import com.waypoint.app.planner.planLiveDay
 import com.waypoint.app.planner.CalendarPrefsStore
+import com.waypoint.app.planner.startOn
+import com.waypoint.app.planner.endOn
 import com.waypoint.app.planner.occurrences
 import com.waypoint.app.planner.taskBaseId
 import com.waypoint.app.notification.ReminderAlarms
@@ -1439,12 +1441,14 @@ private data class ResolvedDay(
 private fun resolveDayForBlock(namedBlockStore: NamedBlockStore, block: NamedBlock, date: LocalDate): ResolvedDay {
     val override = namedBlockStore.getSchedule(block.id, date)
     val isRecurring = block.recurrenceRule?.occursOn(date) ?: (date.dayOfWeek.value in block.recurringDays)
+    val (sh, sm) = block.startOn(date)
+    val (eh, em) = block.endOn(date)
     return ResolvedDay(
         enabled = override?.enabled ?: isRecurring,
-        startHour = override?.startHour ?: block.defaultStartHour,
-        startMinute = override?.startMinute ?: block.defaultStartMinute,
-        endHour = override?.endHour?.takeIf { it != -1 } ?: block.defaultEndHour,
-        endMinute = override?.endMinute ?: block.defaultEndMinute
+        startHour = override?.startHour ?: sh,
+        startMinute = override?.startMinute ?: sm,
+        endHour = override?.endHour?.takeIf { it != -1 } ?: eh,
+        endMinute = override?.endMinute ?: em
     )
 }
 
@@ -1553,7 +1557,7 @@ private fun ScheduledBlocksDropdown(namedBlockStore: NamedBlockStore, refreshKey
     if (target != null) {
         val (targetBlock, targetDate) = target
         val r = resolvedByBlock[targetBlock.id]?.get(targetDate)
-            ?: ResolvedDay(false, targetBlock.defaultStartHour, targetBlock.defaultStartMinute, targetBlock.defaultEndHour, targetBlock.defaultEndMinute)
+            ?: resolveDayForBlock(namedBlockStore, targetBlock, targetDate).copy(enabled = false)
         DayScheduleEditDialog(
             resolved = r,
             onDismiss = { editingTarget = null },
@@ -1675,7 +1679,7 @@ private fun BlockScheduleSection(
         ) {
             items(next14) { date ->
                 val r = resolvedDays[date]
-                    ?: ResolvedDay(false, block.defaultStartHour, block.defaultStartMinute, block.defaultEndHour, block.defaultEndMinute)
+                    ?: ResolvedDay(false, block.startOn(date).first, block.startOn(date).second, block.endOn(date).first, block.endOn(date).second)
                 MiniDayChip(
                     date = date,
                     resolved = r,

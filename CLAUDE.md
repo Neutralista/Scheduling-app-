@@ -194,6 +194,9 @@ Dragging a block on the timeline moves it for that date only: a fixed block via 
 auto-placed one via a `NamedBlockSchedule` with `pinned = true` (`movedForDate`), which `splitMovedFloating`
 turns into a fixed instance for that day (the detail sheet's Unpin → `clearSchedule` puts it back to
 auto-placement). `NamedBlockSchedule.skipped` marks a Skip, as opposed to a day switched off in the day picker.
+`NamedBlock.weekdayStarts` (ISO day → "HH:MM") gives some weekdays their own start every week ("Different
+start on some days" in the block sheet); `startOn(date)` / `endOn(date)` (a range keeps its length) are what
+`resolveForDate` and the Tasks tab's day strip use. A per-date schedule still wins over them.
 
 `NamedBlock.enabled` (Blocks tab switch, `NamedBlockStore.setEnabled`) pauses a whole block: `resolveForDate`,
 `resolveFloatingInstancesForDate` and every floating-block filter skip it, so it isn't planned, alerted or offered.

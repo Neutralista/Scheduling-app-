@@ -73,8 +73,31 @@ data class NamedBlock(
      * Off: the whole block is paused — not planned, no start alert, not offered to start — until
      * switched back on. Its tasks, schedule and history are kept.
      */
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /**
+     * A different start ("HH:MM") on some weekdays (ISO 1=Mon … 7=Sun), every week — e.g. 14:30
+     * by default but 16:00 on Sat and Sun. A time-range block keeps its length on those days.
+     */
+    val weekdayStarts: Map<Int, String> = emptyMap()
 )
+
+/** Its start (hour, minute) on [date]'s weekday: that day's own start, else the default. */
+fun NamedBlock.startOn(date: java.time.LocalDate): Pair<Int, Int> =
+    weekdayStarts[date.dayOfWeek.value]?.let { parseClockTime(it, defaultStartHour, defaultStartMinute) }
+        ?: (defaultStartHour to defaultStartMinute)
+
+/**
+ * Its end (hour, minute) on [date]'s weekday for a time-range block — the default range's length
+ * after that day's start — or (-1, 0) for a block timed by its duration.
+ */
+fun NamedBlock.endOn(date: java.time.LocalDate): Pair<Int, Int> {
+    if (defaultEndHour < 0) return -1 to 0
+    val (sh, sm) = startOn(date)
+    if (sh == defaultStartHour && sm == defaultStartMinute) return defaultEndHour to defaultEndMinute
+    val length = ((defaultEndHour * 60 + defaultEndMinute) - (defaultStartHour * 60 + defaultStartMinute) + 24 * 60) % (24 * 60)
+    val end = (sh * 60 + sm + length) % (24 * 60)
+    return end / 60 to end % 60
+}
 
 /**
  * A stretch of a block with its own tasks. Its length is [durationMinutes], or when that's

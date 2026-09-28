@@ -377,7 +377,11 @@ private fun ExpandableBlockCard(
         else -> {
             val dayStr = block.recurringDays.sorted()
                 .mapNotNull { BLOCKS_DAY_ABBREVS[it] }.joinToString(" ")
-            val startStr = "%02d:%02d".format(block.defaultStartHour, block.defaultStartMinute)
+            val dayAbbrevs = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+            // Weekdays with their own start: "Sa Su 16:00" after the default.
+            val exceptions = block.weekdayStarts.entries.groupBy({ it.value }, { it.key })
+                .entries.joinToString("") { (t, ds) -> " · " + ds.sorted().joinToString(" ") { dayAbbrevs[it - 1] } + " $t" }
+            val startStr = "%02d:%02d".format(block.defaultStartHour, block.defaultStartMinute) + exceptions
             "$dayStr · $startStr"
         }
     }

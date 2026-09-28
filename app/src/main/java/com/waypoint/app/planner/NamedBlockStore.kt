@@ -191,11 +191,16 @@ class NamedBlockStore(private val context: Context) {
             }
             when {
                 override != null -> if (override.enabled) block to override else null
-                (block.recurrenceRule?.occursOn(date) ?: (dayOfWeek in block.recurringDays)) -> block to NamedBlockSchedule(
-                    blockId = block.id, date = dateStr,
-                    startHour = block.defaultStartHour, startMinute = block.defaultStartMinute,
-                    endHour = block.defaultEndHour, endMinute = block.defaultEndMinute
-                )
+                (block.recurrenceRule?.occursOn(date) ?: (dayOfWeek in block.recurringDays)) -> {
+                    // Its own start on this weekday, if it has one, else the default.
+                    val (sh, sm) = block.startOn(date)
+                    val (eh, em) = block.endOn(date)
+                    block to NamedBlockSchedule(
+                        blockId = block.id, date = dateStr,
+                        startHour = sh, startMinute = sm,
+                        endHour = eh, endMinute = em
+                    )
+                }
                 else -> null
             }
         }

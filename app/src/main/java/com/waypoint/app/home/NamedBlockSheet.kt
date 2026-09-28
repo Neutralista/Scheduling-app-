@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -161,6 +162,9 @@ fun NamedBlockSheet(
     var defaultHour by remember { mutableIntStateOf(initial?.defaultStartHour ?: 9) }
     var defaultMinute by remember { mutableIntStateOf(initial?.defaultStartMinute ?: 0) }
     var showDefaultStartPicker by remember { mutableStateOf(false) }
+    // A different start on some weekdays (ISO day → "HH:MM"), every week.
+    val weekdayStarts = remember { mutableStateMapOf<Int, String>().apply { putAll(initial?.weekdayStarts.orEmpty()) } }
+    var weekdayStartPicker by remember { mutableStateOf<Int?>(null) }
 
     val initialEndHourValid = initial != null && initial.defaultEndHour != -1
     var defaultEndHour by remember {
@@ -324,7 +328,8 @@ fun NamedBlockSheet(
                             notificationsEnabled = notificationsEnabled,
                             zone = if (schedulingMode == BlockSchedulingMode.AUTO && autoTimeMode == "zone") autoZone else null,
                             externalDays = initial?.externalDays,
-                            phases = phases.toList()
+                            phases = phases.toList(),
+                            weekdayStarts = if (schedulingMode == BlockSchedulingMode.FIXED) weekdayStarts.toMap() else emptyMap()
                         )
                         store.saveBlock(block)
                         if (schedulingMode == BlockSchedulingMode.FIXED) {
@@ -620,6 +625,42 @@ fun NamedBlockSheet(
                                 }
                             }
 
+                            // A different start on some weekdays, every week (e.g. later at weekends).
+                            if (hasSchedule) {
+                                val days = (recurrenceRule as? RecurrenceRule.DaysOfWeek)?.days?.sorted()?.takeIf { it.isNotEmpty() }
+                                    ?: (1..7).toList()
+                                val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Different start on some days", style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        days.forEach { d ->
+                                            val t = weekdayStarts[d]
+                                            FilterChip(
+                                                selected = t != null,
+                                                onClick = { weekdayStartPicker = d },
+                                                label = { Text(if (t != null) "${dayNames[d - 1]} $t" else dayNames[d - 1]) },
+                                                trailingIcon = if (t != null) {
+                                                    {
+                                                        Icon(
+                                                            Icons.Default.Close,
+                                                            contentDescription = "Back to the default start",
+                                                            modifier = Modifier.size(16.dp).clickable { weekdayStarts.remove(d) }
+                                                        )
+                                                    }
+                                                } else null
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        if (weekdayStarts.isEmpty()) "Tap a day to give it its own start, every week."
+                                        else "Every week; other days start at %02d:%02d. A single date can still be changed below.".format(defaultHour, defaultMinute),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+
                             // Next 14 days strip — per-day overrides are a power-user
                             // customization most blocks never need beyond the default
                             // recurring schedule, so collapse this by default too.
@@ -646,8 +687,9 @@ fun NamedBlockSheet(
                                             val isRecurring = recurrenceRule.occursOn(date)
                                             val ov = dateOverrides[key]
                                             val effectiveEnabled = ov?.enabled ?: isRecurring
-                                            val effectiveStartH = ov?.startH ?: defaultHour
-                                            val effectiveStartM = ov?.startM ?: defaultMinute
+                                            val dayStart = weekdayStarts[date.dayOfWeek.value]?.split(":")?.mapNotNull { it.toIntOrNull() }
+                                            val effectiveStartH = ov?.startH ?: dayStart?.getOrNull(0) ?: defaultHour
+                                            val effectiveStartM = ov?.startM ?: dayStart?.getOrNull(1) ?: defaultMinute
                                             val effectiveEndH = ov?.endH?.takeIf { it != -1 } ?: defaultEndHour
                                             val effectiveEndM = ov?.endM ?: defaultEndMinute
                                             val isModified = ov != null
@@ -929,6 +971,20 @@ fun NamedBlockSheet(
                 }
             }
         }
+    }
+
+    weekdayStartPicker?.let { d ->
+        val cur = weekdayStarts[d]?.split(":")?.mapNotNull { it.toIntOrNull() }
+        TimePickerDialog(
+            initialHour = cur?.getOrNull(0) ?: defaultHour,
+            initialMinute = cur?.getOrNull(1) ?: defaultMinute,
+            onDismiss = { weekdayStartPicker = null },
+            onConfirm = { h, m ->
+                if (h == defaultHour && m == defaultMinute) weekdayStarts.remove(d)
+                else weekdayStarts[d] = "%02d:%02d".format(h, m)
+                weekdayStartPicker = null
+            }
+        )
     }
 
     // Default start time picker
