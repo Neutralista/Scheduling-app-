@@ -31,10 +31,13 @@ class SleepCheckReceiver : BroadcastReceiver() {
         if (state != SleepModeState.IDLE) {
             // Nudge only before sleep onset — a tentative night-time wake (still SLEEPING) is
             // someone already in bed checking the clock, not someone staying up.
-            if (isInteractive && state == SleepModeState.MONITORING) {
-                SleepNotificationHelper.maybeNudge(context, logStore)
+            // Still on the phone: "Still up?" again, and look again sooner, so it keeps
+            // coming back for as long as the phone's in use.
+            val stillUp = isInteractive && state == SleepModeState.MONITORING
+            if (stillUp) {
+                SleepNotificationHelper.maybeNudge(context, logStore, SleepNotificationHelper.STILL_UP_REPEAT_MS - 30_000L)
             }
-            scheduleNextCheck(context)
+            scheduleNextCheck(context, if (stillUp) SleepNotificationHelper.STILL_UP_REPEAT_MS else CHECK_INTERVAL_MS)
         }
 
         // Sleep onset detected (MONITORING → SLEEPING): feed the authoritative sleep-start
@@ -75,10 +78,12 @@ class SleepCheckReceiver : BroadcastReceiver() {
         private const val ACTION       = "com.waypoint.app.SLEEP_CHECK"
         private const val REQUEST_CODE = 8101
 
-        fun scheduleNextCheck(context: Context) {
+        const val CHECK_INTERVAL_MS = 10 * 60_000L
+
+        fun scheduleNextCheck(context: Context, delayMs: Long = CHECK_INTERVAL_MS) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val pi = buildPi(context)
-            val triggerAt = System.currentTimeMillis() + 10 * 60_000L
+            val triggerAt = System.currentTimeMillis() + delayMs
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             } else {

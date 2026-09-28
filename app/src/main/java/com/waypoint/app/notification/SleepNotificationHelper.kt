@@ -200,8 +200,11 @@ object SleepNotificationHelper {
         postBedtimeReminder(context, NOTIF_NUDGE, "Still up?", "Sleep Mode is on — time to put the phone down", nudge = true)
     }
 
-    /** How soon after the last one an unlock brings the bedtime screen back. */
-    const val UNLOCK_NUDGE_COOLDOWN_MS = 2 * 60_000L
+    /** How soon after the last one an unlock (or the screen coming on) brings the bedtime screen back. */
+    const val UNLOCK_NUDGE_COOLDOWN_MS = 60_000L
+
+    /** While the phone stays in use in Sleep Mode, "Still up?" comes back this often. */
+    const val STILL_UP_REPEAT_MS = 3 * 60_000L
 
     // ─── Alarm status (persistent, silent) ────────────────────────────────────
 

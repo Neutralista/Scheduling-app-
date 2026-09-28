@@ -179,9 +179,16 @@ class WaypointApplication : Application() {
                             com.waypoint.app.notification.SleepNotificationHelper.maybeNudge(
                                 ctx, log, com.waypoint.app.notification.SleepNotificationHelper.UNLOCK_NUDGE_COOLDOWN_MS
                             )
+                            // …and keep checking every few minutes while the phone's in use.
+                            com.waypoint.app.planner.SleepCheckReceiver.scheduleNextCheck(
+                                ctx, com.waypoint.app.notification.SleepNotificationHelper.STILL_UP_REPEAT_MS
+                            )
                         }
                     }
-                }, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
+                }, android.content.IntentFilter().apply {
+                    addAction(android.content.Intent.ACTION_USER_PRESENT)
+                    addAction(android.content.Intent.ACTION_SCREEN_ON)
+                })
             }
             runCatching { com.waypoint.app.notification.ReminderAlarms.rescheduleAll(this) }
                 .onFailure { AppLogger.e("App", "reminders re-arm failed", it) }
