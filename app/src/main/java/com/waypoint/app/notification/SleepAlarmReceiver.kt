@@ -55,7 +55,7 @@ class SleepAlarmReceiver : BroadcastReceiver() {
                     val alreadyArmed = logStore.getSleepModeState() != SleepModeState.IDLE
                     if (!alreadyArmed && SleepScheduleStore(context).isWithinPassiveSleepWindow()) {
                         logStore.enterSleepMode()
-                        SleepCheckReceiver.scheduleNextCheck(context)
+                        SleepCheckReceiver.scheduleNextCheck(context, com.waypoint.app.notification.SleepNotificationHelper.STILL_UP_REPEAT_MS)
                         AppLogger.i(TAG, "ACTION_ARM_PASSIVE_DETECTION: entered MONITORING automatically")
                     }
                 } catch (e: Throwable) {

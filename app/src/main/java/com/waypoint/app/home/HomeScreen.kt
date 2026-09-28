@@ -952,7 +952,7 @@ private fun PlanTab(
                         logStore.cancelSleepMode()
                     } else {
                         logStore.enterSleepMode()
-                        SleepCheckReceiver.scheduleNextCheck(context)
+                        SleepCheckReceiver.scheduleNextCheck(context, com.waypoint.app.notification.SleepNotificationHelper.STILL_UP_REPEAT_MS)
                     }
                 }
             } else null,

@@ -22,7 +22,7 @@ class SleepActionReceiver : BroadcastReceiver() {
                 // A little grace before an unlock brings the screen back.
                 logStore.updateLastNudge(System.currentTimeMillis())
                 AppLogger.i(TAG, "enterSleepMode: prevState=$prevState → MONITORING")
-                SleepCheckReceiver.scheduleNextCheck(context)
+                SleepCheckReceiver.scheduleNextCheck(context, SleepNotificationHelper.STILL_UP_REPEAT_MS)
                 AppLogger.i(TAG, "scheduleNextCheck: done")
                 // Gone to sleep: the reminders (and a snoozed one) are done with.
                 SleepNotificationHelper.clearBedtimeReminders(context)

@@ -2040,7 +2040,7 @@ private fun SleepTaskRow(
                         )
                         Button(onClick = {
                             logStore.enterSleepMode()
-                            SleepCheckReceiver.scheduleNextCheck(context)
+                            SleepCheckReceiver.scheduleNextCheck(context, com.waypoint.app.notification.SleepNotificationHelper.STILL_UP_REPEAT_MS)
                             sleepState = SleepModeState.MONITORING
                         }) {
                             Text("Sleep mode", style = MaterialTheme.typography.labelMedium)
