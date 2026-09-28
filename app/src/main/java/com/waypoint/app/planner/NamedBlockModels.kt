@@ -75,8 +75,8 @@ data class NamedBlock(
      */
     val enabled: Boolean = true,
     /**
-     * A different start ("HH:MM") on some weekdays (ISO 1=Mon … 7=Sun), every week — e.g. 14:30
-     * by default but 16:00 on Sat and Sun. A time-range block keeps its length on those days.
+     * A different start ("HH:MM") on some weekdays (ISO 1=Mon … 7=Sun), every week, in place of
+     * the default start. A time-range block keeps its length on those days.
      */
     val weekdayStarts: Map<Int, String> = emptyMap()
 )
