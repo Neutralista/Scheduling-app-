@@ -337,7 +337,7 @@ class EventPlannerRegistryTest {
     fun oneOffAtASetTime_heldThereOnItsDayOnly() {
         val r = registry().apply {
             register(task("dentist", 60).copy(fixedStartMillis = ms(day, 14, 30), fixedEndMillis = ms(day, 15, 30), pinnedDayOnly = false))
-            register(task("other", 60, 9, EventCondition.TimeWindow(14, 0, 16, 0)))
+            register(task("other", 60, 9, EventCondition.TimeWindow(13, 30, 17, 0)))
         }
         val plan = r.planForDate(day)
         assertEquals(ms(day, 14, 30), plan.startOf("dentist"))
