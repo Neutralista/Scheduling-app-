@@ -202,10 +202,16 @@ class TaskManagerScript(
             val due = req.conditions.oneOffDate()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
             if (due == null || !due.isBefore(today)) return@mapNotNull req
             val completed = req.completedOn?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            if (completed != null && completed.isBefore(today) && !completions.isDone(req.id)) {
-                store.retract(req.id)
-                AppLogger.i(TAG, "settleOneOffs: cleared done one-off id=${req.id}")
-                return@mapNotNull null
+            if (completed != null && completed.isBefore(today)) {
+                // Done on an earlier day: never carried over. Cleared once its done mark is gone
+                // (the wake cycle moved on) or a day later at most — the cycle doesn't always
+                // turn over (no sleep tracked); until then it stays on its own date, off today.
+                if (!completions.isDone(req.id) || completed.isBefore(today.minusDays(1))) {
+                    store.retract(req.id)
+                    AppLogger.i(TAG, "settleOneOffs: cleared done one-off id=${req.id}")
+                    return@mapNotNull null
+                }
+                return@mapNotNull req
             }
             req.copy(conditions = req.conditions.map {
                 if (it.type == "oneOff") it.copy(oneOffDate = today.toString()) else it
