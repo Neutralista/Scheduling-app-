@@ -3,6 +3,7 @@ package com.waypoint.app.cycle
 import android.content.Context
 import android.os.PowerManager
 import com.waypoint.app.AppLogger
+import com.waypoint.app.WaypointApplication
 import com.waypoint.app.planner.SleepCalendarSync
 import com.waypoint.app.planner.SleepLogEntry
 import com.waypoint.app.planner.SleepLogStore
@@ -248,13 +249,13 @@ class CycleTracker(private val context: Context) {
      *   when wakeMillis changes, updates the predecessor cycle's nextWakeMillis.
      * - Auto-start: if an open cycle is being closed, opens a new cycle at nextWakeMillis.
      */
-    fun saveCycle(original: Cycle, edited: Cycle): SleepCalendarChange? {
+    fun saveCycle(original: Cycle, edited: Cycle): List<SleepCalendarChange> {
         // Never reopen a closed cycle: there would be two open cycles, and the older one would
         // be stuck "open" forever.
         val updated = if (!original.isOpen && edited.isOpen) edited.copy(nextWakeMillis = original.nextWakeMillis) else edited
         store.save(updated)
 
-        val calendarChange = syncSleepEntry(original, updated)
+        val calendarChanges = listOfNotNull(syncSleepEntry(original, updated)).toMutableList()
 
         val all = store.loadAll()
 
@@ -267,16 +268,22 @@ class CycleTracker(private val context: Context) {
         }
 
         // Propagate wakeMillis change → predecessor's nextWakeMillis
+        // — that's the night before this cycle, so its sleep log entry moves with it (before, the
+        // log and the timeline kept the old wake time).
         if (updated.wakeMillis != original.wakeMillis) {
             all.firstOrNull { it.id != updated.id && it.nextWakeMillis == original.wakeMillis }
-                ?.let { store.save(it.copy(nextWakeMillis = updated.wakeMillis)) }
+                ?.let { prev ->
+                    val prevUpdated = prev.copy(nextWakeMillis = updated.wakeMillis)
+                    store.save(prevUpdated)
+                    syncSleepEntry(prev, prevUpdated)?.let { calendarChanges += it }
+                }
         }
 
         // Auto-open successor when closing an open cycle (if none already exists)
         if (original.isOpen && !updated.isOpen && newEnd != null && store.loadCurrent() == null) {
             openCycle(newEnd)
         }
-        return calendarChange
+        return calendarChanges
     }
 
     /**
@@ -365,4 +372,32 @@ class CycleTracker(private val context: Context) {
         onNewCycle?.invoke(wakeMillis)
         return cycle
     }
+}
+
+/** Re-registers sleep on the planner, so an edited night shows on the timeline straight away. */
+fun resyncSleep(context: Context) {
+    val app = context.applicationContext as? WaypointApplication ?: return
+    if (!app.isInitialized) return
+    runCatching { app.env.sleepStore.syncToRegistry(app.env.eventPlanner) }
+        .onFailure { AppLogger.e("CycleTracker", "resyncSleep failed", it) }
+}
+
+/**
+ * The cycle a night on the timeline belongs to — the one that went to sleep that night (it woke
+ * the morning the night ends on), else the one whose waking day it started in.
+ */
+fun cycleForNight(cycles: List<Cycle>, startMs: Long, endMs: Long): Cycle? =
+    cycles.firstOrNull { c -> c.nextWakeMillis?.let { Cycle.dateLabel(it) == Cycle.dateLabel(endMs) && it > startMs } == true }
+        ?: cycles.firstOrNull { it.wakeMillis <= startMs && (it.nextWakeMillis ?: Long.MAX_VALUE) > startMs }
+
+/**
+ * The day the current wake cycle belongs to — the day you woke up on. Up past midnight it's still
+ * yesterday's cycle; with no open cycle (or one left open far too long) it's today.
+ */
+fun currentCycleDay(context: Context, nowMs: Long = System.currentTimeMillis()): java.time.LocalDate {
+    val app = context.applicationContext as? WaypointApplication
+    val open = app?.takeIf { it.isInitialized }?.let { runCatching { it.cycleTracker.store.loadCurrent() }.getOrNull() }
+    return if (open != null && !open.isStale(nowMs) && open.wakeMillis <= nowMs) {
+        java.time.LocalDate.parse(Cycle.dateLabel(open.wakeMillis))
+    } else java.time.LocalDate.now()
 }

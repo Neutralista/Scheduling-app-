@@ -66,6 +66,8 @@ fun TimelineEventDetailSheet(
     onSkip: (() -> Unit)? = null,
     onUnpin: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    /** Corrects what was logged (when it was done, how a session went) rather than the plan. */
+    onEditLogged: (() -> Unit)? = null,
     onStart: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
     onBlockStart: (() -> Unit)? = null,
@@ -184,6 +186,10 @@ fun TimelineEventDetailSheet(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 TextButton(onClick = onDismiss) { Text("Close") }
+                if (onEditLogged != null) {
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = onEditLogged) { Text("Edit logged time") }
+                }
                 if (onEdit != null) {
                     Spacer(Modifier.width(8.dp))
                     OutlinedButton(onClick = onEdit) { Text("Edit") }

@@ -487,6 +487,11 @@ private fun PlanTab(
     var editingBlock by remember { mutableStateOf<NamedBlock?>(null) }
     var editingBlockTask by remember { mutableStateOf<Pair<String, BlockTask?>?>(null) }
     var showEditSleep by remember { mutableStateOf(false) }
+    // What was logged, edited from the timeline: a past night's cycle, a done task's time, a
+    // block's session.
+    var editingCycle by remember { mutableStateOf<com.waypoint.app.cycle.Cycle?>(null) }
+    var editingDoneTask by remember { mutableStateOf<String?>(null) }
+    var editingSession by remember { mutableStateOf<com.waypoint.app.planner.BlockSessionLog?>(null) }
     var planningBlockId by remember { mutableStateOf<String?>(null) }
     // Captured from the tapped tile's actual scheduled window at the moment "Plan" is pressed —
     // resolveForDate only returns fixed blocks, so re-deriving the window from it (as this used
@@ -829,6 +834,21 @@ private fun PlanTab(
         val isBlockSubTask = subTaskBlockId != null
         val isRunning = taskManager.getRunningExecution()?.taskId == selPlanner.event.id
         val isDone = taskManager.completions.isDone(selPlanner.event.id)
+        // A night that has begun is history: editing it edits that night's cycle, not the plan.
+        val nightCycle = remember(selPlanner) {
+            if (isSleepEvent && selPlanner.startMillis <= System.currentTimeMillis()) {
+                (context.applicationContext as? com.waypoint.app.WaypointApplication)
+                    ?.takeIf { it.isInitialized }
+                    ?.let { com.waypoint.app.cycle.cycleForNight(it.cycleTracker.store.loadAll(), selPlanner.startMillis, selPlanner.endMillis) }
+            } else null
+        }
+        val loggedSession = remember(selPlanner) {
+            blockTileId?.let { id ->
+                blockSessionLogStore?.loadAll()?.firstOrNull {
+                    it.blockId == id && kotlin.math.abs(it.startedAtMs - selPlanner.startMillis) < 60_000L
+                }
+            }
+        }
         val plannerTags = remember(selPlanner, taskReq) {
             val conditions = when {
                 taskReq != null -> taskReq.conditions
@@ -849,6 +869,7 @@ private fun PlanTab(
             onDismiss = { selectedPlannerEvent = null },
             onEdit = when {
                 taskReq != null -> { { editingTask = taskReq; selectedPlannerEvent = null } }
+                isSleepEvent && nightCycle != null -> { { editingCycle = nightCycle; selectedPlannerEvent = null } }
                 isSleepEvent -> { { showEditSleep = true; selectedPlannerEvent = null } }
                 isBlockTile && blockTileId != null -> { {
                     editingBlock = namedBlockStore.loadBlock(blockTileId)
@@ -858,6 +879,11 @@ private fun PlanTab(
                     editingBlockTask = subTaskBlockId to namedBlockStore.loadTask(selPlanner.event.id)
                     selectedPlannerEvent = null
                 } }
+                else -> null
+            },
+            onEditLogged = when {
+                (taskReq != null || isBlockSubTask) && isDone -> { { editingDoneTask = selPlanner.event.id; selectedPlannerEvent = null } }
+                loggedSession != null -> { { editingSession = loggedSession; selectedPlannerEvent = null } }
                 else -> null
             },
             onDelete = when {
@@ -1038,6 +1064,51 @@ private fun PlanTab(
             onSaved = {
                 calRefreshKey++
                 editingBlock = null
+            }
+        )
+    }
+
+    // ── Edit what was logged, from the timeline ───────────────────────────────
+    editingCycle?.let { cycle ->
+        val tracker = (context.applicationContext as? com.waypoint.app.WaypointApplication)?.cycleTracker
+        com.waypoint.app.cycle.CycleLogSheet(
+            cycle = cycle,
+            onDismiss = { editingCycle = null },
+            onSave = { updated ->
+                tracker?.saveCycle(cycle, updated)?.forEach { change ->
+                    scope.launch { tracker.applySleepCalendarChange(change) }
+                }
+                com.waypoint.app.cycle.resyncSleep(context)
+                editingCycle = null
+                calRefreshKey++
+            },
+            onDelete = {
+                tracker?.store?.delete(cycle.id)
+                com.waypoint.app.cycle.resyncSleep(context)
+                editingCycle = null
+                calRefreshKey++
+            }
+        )
+    }
+    editingDoneTask?.let { taskId ->
+        BackdateCompletionDialog(
+            onDismiss = { editingDoneTask = null },
+            onConfirm = { whenMs ->
+                taskManager.markDoneAt(taskId, whenMs)
+                editingDoneTask = null
+                calRefreshKey++
+                onHeaderRefresh()
+            }
+        )
+    }
+    editingSession?.let { session ->
+        EditBlockSessionSheet(
+            session = session,
+            onDismiss = { editingSession = null },
+            onSave = { newStart, newEnd ->
+                blockSessionLogStore?.replaceEntry(session, session.copy(startedAtMs = newStart, endedAtMs = newEnd))
+                editingSession = null
+                calRefreshKey++
             }
         )
     }

@@ -499,7 +499,8 @@ fun HistoryTab(
             session = session,
             onDismiss = { editSession = null },
             onSave = { newStart, newEnd ->
-                blockSessionLogStore?.updateEntry(session.copy(startedAtMs = newStart, endedAtMs = newEnd))
+                // Replaced by its old start: updateEntry matches on the start, which just changed.
+                blockSessionLogStore?.replaceEntry(session, session.copy(startedAtMs = newStart, endedAtMs = newEnd))
                 editSession = null
                 localKey++
             }
@@ -511,14 +512,17 @@ fun HistoryTab(
             cycle = cycle,
             onDismiss = { editCycle = null },
             onSave = { updated ->
-                cycleTracker.saveCycle(cycle, updated)?.let { change ->
+                cycleTracker.saveCycle(cycle, updated).forEach { change ->
                     scope.launch { cycleTracker.applySleepCalendarChange(change) }
                 }
+                // The timeline's past nights come from the sleep log: show the edit there too.
+                com.waypoint.app.cycle.resyncSleep(context)
                 editCycle = null
                 localKey++
             },
             onDelete = {
                 cycleTracker.store.delete(cycle.id)
+                com.waypoint.app.cycle.resyncSleep(context)
                 editCycle = null
                 localKey++
             }
@@ -680,7 +684,7 @@ private fun BlockTaskStatsRow(title: String, count: Int, avgMinutes: Int, onClic
 }
 
 @Composable
-private fun EditBlockSessionSheet(
+internal fun EditBlockSessionSheet(
     session: BlockSessionLog,
     onDismiss: () -> Unit,
     onSave: (startMs: Long, endMs: Long) -> Unit

@@ -75,6 +75,12 @@ class BlockSessionLogStore(context: Context) {
         prefs.edit().putString("entries", json.encodeToString(updated)).apply()
     }
 
+    /** Replaces [old] with [new] — for an edit that moves its start (which [updateEntry] matches on). */
+    fun replaceEntry(old: BlockSessionLog, new: BlockSessionLog) {
+        val updated = loadAll().map { if (it.blockId == old.blockId && it.startedAtMs == old.startedAtMs) new else it }
+        prefs.edit().putString("entries", json.encodeToString(updated)).apply()
+    }
+
     fun clear() {
         prefs.edit().remove("entries").apply()
     }

@@ -162,7 +162,8 @@ fun TasksTab(
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<TaskRequest?>(null) }
 
-    val today = remember { LocalDate.now() }
+    // The to-do list is the current wake cycle's: up past midnight, it's still that day's.
+    val today = remember { com.waypoint.app.cycle.currentCycleDay(context) }
     val namedBlockStore = remember { NamedBlockStore(context) }
     val noSession = remember { kotlinx.coroutines.flow.MutableStateFlow<ActiveBlockSession?>(null) }
     val activeSession by (blockSessionStore?.sessionFlow ?: noSession).collectAsState()
@@ -219,13 +220,15 @@ fun TasksTab(
     var runningExecution by remember { mutableStateOf(taskManager.getRunningExecution()) }
     var tickMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()) }
-    var headerDay by remember { mutableStateOf(LocalDate.now().format(dayFmt)) }
+    // English like the rest of the label ("Tuesday cycle"), not the phone's language.
+    val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE", Locale.ENGLISH) }
+    fun cycleName() = "${com.waypoint.app.cycle.currentCycleDay(context).format(dayFmt)} cycle"
+    var headerDay by remember { mutableStateOf(cycleName()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(if (runningExecution != null) 1_000L else 15_000L)
             tickMs = System.currentTimeMillis()
-            headerDay = LocalDate.now().format(dayFmt)
+            headerDay = cycleName()
         }
     }
 
@@ -1799,7 +1802,7 @@ private fun RoundCheckbox(
  *  only (no date) — if the picked time is later than now, it can only mean yesterday, since a
  *  completion log is never in the future. */
 @Composable
-private fun BackdateCompletionDialog(onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+internal fun BackdateCompletionDialog(onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
     val now = remember { Calendar.getInstance() }
     TimePickerDialog(
         initialHour = now.get(Calendar.HOUR_OF_DAY),

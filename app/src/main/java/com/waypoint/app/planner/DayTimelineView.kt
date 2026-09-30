@@ -415,6 +415,31 @@ fun DayTimelineView(
     fun commitBlockDrag(blockId: String, originalStartMs: Long, newStartMs: Long, newEndMs: Long, isResize: Boolean) {
         val store = namedBlockStore ?: return
         val block = store.loadBlock(blockId) ?: return
+        // Already run (a logged session there): the drag corrects that session's times in the
+        // history — the plan for other days isn't touched.
+        val logs = blockLogStore
+        val logged = logs?.loadAll()?.firstOrNull {
+            it.blockId == blockId && kotlin.math.abs(it.startedAtMs - originalStartMs) < 60_000L
+        }
+        if (logs != null && logged != null) {
+            val delta = if (isResize) 0L else newStartMs - logged.startedAtMs
+            val moved = logged.copy(
+                startedAtMs = logged.startedAtMs + delta,
+                endedAtMs = if (isResize) newEndMs else logged.endedAtMs + delta,
+                taskMeasurements = logged.taskMeasurements.map { m -> m.copy(startMs = m.startMs + delta, endMs = m.endMs + delta) },
+                phaseTimings = logged.phaseTimings.map { p -> p.copy(startMs = p.startMs + delta, endMs = p.endMs + delta) }
+            )
+            logs.replaceEntry(logged, moved)
+            val s = Instant.ofEpochMilli(moved.startedAtMs).atZone(zone)
+            val e = Instant.ofEpochMilli(moved.endedAtMs).atZone(zone)
+            android.widget.Toast.makeText(
+                context,
+                "${block.name}: logged %02d:%02d–%02d:%02d".format(s.hour, s.minute, e.hour, e.minute),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            localRefreshKey++
+            return
+        }
         if (block.isFloating) {
             // An auto-placed block is held at the new time on this day only; other days it's
             // still placed as usual.
@@ -481,6 +506,15 @@ fun DayTimelineView(
     fun commitTaskDrag(taskId: String, originalStartMs: Long, originalEndMs: Long, newStartMs: Long, newEndMs: Long) {
         val tm = taskManager ?: return
         val req = tm.getAllTasks().find { it.id == taskBaseId(taskId) } ?: return
+        // Done: the drag corrects when it happened (its logged time), not its plan.
+        if (isToday && tm.isDone(taskId)) {
+            val timed = tm.getExecution(taskId)?.endMillis != null
+            if (timed) tm.logPastExecution(taskId, newStartMs, newEndMs) else tm.markDoneAt(taskId, newEndMs)
+            val at = Instant.ofEpochMilli(newEndMs).atZone(zone)
+            android.widget.Toast.makeText(context, "${req.title}: done at %02d:%02d".format(at.hour, at.minute), android.widget.Toast.LENGTH_SHORT).show()
+            localRefreshKey++
+            return
+        }
         // Its own other times a day aren't something to order it against.
         val others = plan.scheduled.filter {
             it.event.sourceWidgetId == TaskManagerScript.WIDGET_ID && taskBaseId(it.event.id) != req.id

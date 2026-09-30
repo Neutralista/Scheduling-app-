@@ -277,6 +277,18 @@ as "Still up?" (`SleepNotificationHelper.maybeNudge`, `nudge = true`, silent): o
 (`ACTION_SNOOZE_NUDGE`) quiets it 15 min (`SleepLogStore.nudgeQuietUntil`); Go to sleep there keeps Sleep Mode's start. Both it and `AlarmRingActivity` go immersive (`notification/Immersive.kt` `goImmersive()`: system bars hidden,
 swipe shows them briefly, drawn under the cutout).
 
+## Logged history vs the plan
+
+What already happened is edited as history, not as the plan: a night on the timeline that has begun
+opens its wake cycle (`cycle.cycleForNight` → `CycleLogSheet`); a done task's "Edit logged time" /
+drag moves its done time (`markDoneAt`, or `logPastExecution` when it was timed); a block with a
+logged session that day ("Edit logged time" / drag) edits that `BlockSessionLog`
+(`BlockSessionLogStore.replaceEntry`, measurements and phases shift with it). `CycleTracker.saveCycle`
+moves the night before in the sleep log when a cycle's wake changes, and `cycle.resyncSleep` re-registers
+sleep so the timeline shows the edit. Past nights without a log end at the real wake from the cycles
+(`SleepScheduleStore.actualNight`). The to-do list is the current wake cycle's day
+(`cycle.currentCycleDay`), headed "Tuesday cycle".
+
 ## Plan tab zoom levels
 
 `PlanZoomLevel` DAY → WEEK → MONTH → YEAR (`planner/PlanOverview.kt`). The Plan tab's `selectedDate`
