@@ -382,5 +382,9 @@ fun List<NamedBlockInstance>.pinnedBySessions(
     return pinned to floating
 }
 
-/** Where a running session ends on the plan: its scheduled end, or now while it runs over. */
-fun ActiveBlockSession.liveEndMs(nowMs: Long = System.currentTimeMillis()): Long = maxOf(scheduledEndMs, nowMs)
+/**
+ * Where a running session ends on the plan: its scheduled end, or now while it runs over (for up
+ * to [BlockSessionStore.OVERTIME_LIMIT_MS] — past that it's ended for you, at its scheduled end).
+ */
+fun ActiveBlockSession.liveEndMs(nowMs: Long = System.currentTimeMillis()): Long =
+    if (nowMs > scheduledEndMs && nowMs <= scheduledEndMs + BlockSessionStore.OVERTIME_LIMIT_MS) nowMs else scheduledEndMs
