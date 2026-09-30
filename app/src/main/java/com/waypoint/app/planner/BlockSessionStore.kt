@@ -177,11 +177,12 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
         AppLogger.i(TAG, "expire: blockId=${session.blockId} tasks=$done/$total")
     }
 
-    // A block session is stale once its scheduled end has passed — not merely once the
-    // calendar date has rolled over, which a session that legitimately crosses midnight
-    // (e.g. 23:00-00:30) would already have done while still genuinely in progress.
+    // A session keeps running past its scheduled end until it's ended — work often runs over,
+    // and ending it at the scheduled end cut it off mid-work. Only one left running long after
+    // (forgotten, the app closed) is ended for you, logged at its scheduled end. Not by the
+    // calendar date either: a session may legitimately cross midnight.
     private fun isExpired(session: ActiveBlockSession): Boolean =
-        System.currentTimeMillis() > session.scheduledEndMs
+        System.currentTimeMillis() > session.scheduledEndMs + OVERTIME_LIMIT_MS
 
     private fun loadFromPrefs(): ActiveBlockSession? =
         prefs.getString("active", null)?.let {
@@ -190,6 +191,9 @@ class BlockSessionStore(context: Context, logStore: BlockSessionLogStore? = null
 
     companion object {
         private const val TAG = "BlockSessionStore"
+
+        /** How long a session may run over its scheduled end before it's ended for you. */
+        const val OVERTIME_LIMIT_MS = 4 * 3600_000L
 
         /**
          * (ticked off, total) of a session's block tasks, for logging one that timed out. Set

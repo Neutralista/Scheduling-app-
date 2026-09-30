@@ -152,7 +152,10 @@ class CycleTracker(private val context: Context) {
 
                 if (loggedWake != null) {
                     AppLogger.i(TAG, "recordActive: no sleep start, but sleep tracker logged wake at $loggedWake — closing cycle ${current.id}")
-                    store.save(current.copy(nextWakeMillis = loggedWake))
+                    // The tracker's logged night has the bed time too.
+                    val loggedBed = sleepLogStore.loadForDate(Cycle.dateLabel(loggedWake))
+                        ?.bedMillis?.takeIf { it > current.wakeMillis && it < loggedWake }
+                    store.save(current.copy(nextWakeMillis = loggedWake, sleepStartMillis = loggedBed))
                     openCycle(loggedWake)
                 } else if (closeViaSleepMode || closeViaUndetectedGap || closeViaWakeAlarm) {
                     AppLogger.i(
@@ -161,7 +164,11 @@ class CycleTracker(private val context: Context) {
                             "inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, " +
                             "spannedNight=$spannedNight, wakeAlarm=$explicitWake — closing as fallback"
                     )
-                    store.save(current.copy(nextWakeMillis = now))
+                    // Fell asleep ≈ when the phone was last used before the gap — not the planned bed
+                    // time, which is what the night showed as before (staying up past it or not).
+                    val onset = lastActive.takeIf { it > current.wakeMillis && it < now }
+                    store.save(current.copy(nextWakeMillis = now, sleepStartMillis = onset))
+                    if (onset != null) logInferredNight(onset, now)
                     openCycle(now)
                 } else {
                     AppLogger.i(TAG, "recordActive: continuing cycle ${current.id} (open ${openMs / 60_000}min, inactive ${inactiveDuration / 60_000}min, sleepMode=$sleepModeActive, spannedNight=$spannedNight)")
@@ -212,6 +219,14 @@ class CycleTracker(private val context: Context) {
         } else {
             WakeCheckReceiver.scheduleCheck(context)
         }
+    }
+
+    /** Logs a night found from phone inactivity, unless the sleep tracker already logged that morning. */
+    private fun logInferredNight(bedMs: Long, wakeMs: Long) {
+        val date = Cycle.dateLabel(wakeMs)
+        if (sleepLogStore.loadForDate(date) != null) return
+        sleepLogStore.saveEntry(SleepLogEntry(date, bedMs, wakeMs, null))
+        AppLogger.i(TAG, "logInferredNight: $date bed=$bedMs wake=$wakeMs")
     }
 
     private fun updateLastActive(millis: Long) {

@@ -226,7 +226,7 @@ class SleepScheduleStore(private val context: Context) {
             // morning): it ends when you actually woke, not at the planned wake.
             val actual = if (dayOffset < 0) actualNight(date, effective) else null
             if (actual != null) {
-                val (bedMs, wakeMs) = actual
+                val (bedMs, wakeMs, known) = actual
                 registry.register(PlannerEvent(
                     id = "sleep_$date",
                     title = "Sleep",
@@ -234,7 +234,9 @@ class SleepScheduleStore(private val context: Context) {
                     priority = PlannerPriority.SLEEP,
                     category = EventCategory.SLEEP,
                     fixedStartMillis = bedMs,
-                    fixedEndMillis = wakeMs
+                    fixedEndMillis = wakeMs,
+                    // Shown as logged when the night is known end to end, not half planned.
+                    isLogged = known
                 ))
             } else {
                 registerSleepEventForDate(registry, date, effective.wakeTime, effective.bedTime)
@@ -323,16 +325,17 @@ class SleepScheduleStore(private val context: Context) {
      * The night after [date] as it went, from the wake cycles: bed at its logged sleep onset (else
      * the planned bed time), up at the first wake the next morning. Null when no cycle began then.
      */
-    private fun actualNight(date: LocalDate, effective: EffectiveSleepTimes): Pair<Long, Long>? {
+    private fun actualNight(date: LocalDate, effective: EffectiveSleepTimes): Triple<Long, Long, Boolean>? {
         val (planBed, planWake) = sleepMillis(date, effective.bedTime, effective.wakeTime)
         val cycles = runCatching { com.waypoint.app.cycle.CycleStore(context).loadAll() }.getOrNull() ?: return null
         val morning = date.plusDays(1).toString()
         val woke = cycles
             .filter { it.wakeMillis > planBed && com.waypoint.app.cycle.Cycle.dateLabel(it.wakeMillis) == morning }
             .minOfOrNull { it.wakeMillis } ?: return null
-        if (woke == planWake) return null
-        val bed = cycles.firstOrNull { it.nextWakeMillis == woke }?.sleepStartMillis ?: planBed
-        return if (bed < woke) bed to woke else null
+        val fellAsleep = cycles.firstOrNull { it.nextWakeMillis == woke }?.sleepStartMillis
+        if (woke == planWake && fellAsleep == null) return null
+        val bed = fellAsleep ?: planBed
+        return if (bed < woke) Triple(bed, woke, fellAsleep != null) else null
     }
 
     private fun registerSleepEventForDate(

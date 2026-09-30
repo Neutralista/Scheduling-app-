@@ -341,7 +341,7 @@ fun List<NamedBlockInstance>.reconciledWithActualSessions(
     return map { inst ->
         when {
             activeSession != null && activeSession.blockId == inst.block.id ->
-                inst.copy(scheduledStartMs = activeSession.startedAtMs, estimatedEndMs = activeSession.scheduledEndMs)
+                inst.copy(scheduledStartMs = activeSession.startedAtMs, estimatedEndMs = activeSession.liveEndMs())
             // The latest session — an earlier one (stopped, then restarted) is in the past and
             // can't affect what's still plannable; the first one used to win.
             else -> loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
@@ -372,7 +372,7 @@ fun List<NamedBlockInstance>.pinnedBySessions(
         val live = activeSession?.takeIf { it.blockId == inst.block.id && it.date == dateKey }
         val logged = loggedToday.filter { it.blockId == inst.block.id }.maxByOrNull { it.startedAtMs }
         when {
-            live != null -> pinned += inst.copy(scheduledStartMs = live.startedAtMs, estimatedEndMs = live.scheduledEndMs)
+            live != null -> pinned += inst.copy(scheduledStartMs = live.startedAtMs, estimatedEndMs = live.liveEndMs())
             logged != null -> pinned += inst.copy(
                 scheduledStartMs = logged.startedAtMs, estimatedEndMs = logged.endedAtMs, taskActuals = logged.actuals()
             )
@@ -381,3 +381,6 @@ fun List<NamedBlockInstance>.pinnedBySessions(
     }
     return pinned to floating
 }
+
+/** Where a running session ends on the plan: its scheduled end, or now while it runs over. */
+fun ActiveBlockSession.liveEndMs(nowMs: Long = System.currentTimeMillis()): Long = maxOf(scheduledEndMs, nowMs)
